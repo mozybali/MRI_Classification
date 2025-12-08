@@ -8,13 +8,15 @@ Fonksiyonlar:
   - tum_gorseller_icin_csv_olustur(): Tüm dataset için CSV oluştur
   - istatistikleri_kaydet(): Dataset istatistiklerini CSV'ye kaydet
   - on_isleme_log_kaydet(): Ön işleme işlemlerinin log dosyasını CSV'ye kaydet
+  - csv_ye_scaling_uygula(): CSV'ye Min-Max veya Robust scaling uygula
 """
 
 import os
 import csv
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional, Union
 import numpy as np
+import pandas as pd
 from PIL import Image
 from tqdm import tqdm
 
@@ -314,6 +316,88 @@ def on_isleme_log_kaydet(log_kayitlari: List[Dict],
     print(f"[BILGI] Toplam {len(log_kayitlari)} işlem kaydedildi")
     
     return str(log_dosyasi_yolu)
+
+
+def csv_ye_minmax_scaling_uygula(
+    csv_dosya_yolu: str,
+    ozellik_sutunlari: Optional[List[str]] = None,
+    hariç_tutulacak_sutunlar: Optional[List[str]] = None,
+    cikti_dosya_adi: str = "goruntu_ozellikleri_scaled.csv"
+) -> Tuple[str, Dict]:
+    """
+    CSV dosyasındaki sayısal özelliklere Min-Max scaling (0-1 normalizasyonu) uygula.
+    
+    Min-Max Scaling Formula: X_scaled = (X - min) / (max - min)
+    
+    Parametreler:
+    - csv_dosya_yolu: İnput CSV dosyasının yolu
+    - ozellik_sutunlari: Ölçeklenecek sütunlar (None ise tüm sayısal sütunlar)
+    - hariç_tutulacak_sutunlar: Ölçeklenmeyecek sütunlar (örn: sinif, etiket, dosya_adı)
+    - cikti_dosya_adi: Ölçeklenmiş CSV dosyasının adı
+    
+    Döndürülen: (Ölçeklenmiş CSV dosyasının yolu, scaler istatistikleri dict)
+    """
+    # CSV dosyasını yükle
+    try:
+        df = pd.read_csv(csv_dosya_yolu)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"CSV dosyası bulunamadı: {csv_dosya_yolu}")
+    
+    print(f"[BILGI] CSV dosyası yüklendi: {csv_dosya_yolu} ({len(df)} satır)")
+    
+    # Varsayılan hariç tutulacak sütunlar
+    if hariç_tutulacak_sutunlar is None:
+        hariç_tutulacak_sutunlar = [
+            'dosya_adı', 'dosya_yolu', 'sinif', 'etiket',
+            'genislik', 'yukseklik', 'piksel_sayisi', 'boyut_bayt'
+        ]
+    
+    # Ölçeklenecek sütunları belirle
+    if ozellik_sutunlari is None:
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        ozellik_sutunlari = [
+            col for col in numeric_cols 
+            if col not in hariç_tutulacak_sutunlar
+        ]
+    
+    print(f"[BILGI] Ölçeklenecek sütunlar ({len(ozellik_sutunlari)}): {ozellik_sutunlari}")
+    
+    # Min-Max scaling hesaplamaları
+    scaler_stats = {}
+    df_scaled = df.copy()
+    
+    for col in ozellik_sutunlari:
+        if col in df.columns:
+            min_val = df[col].min()
+            max_val = df[col].max()
+            range_val = max_val - min_val
+            
+            if range_val < 1e-8:
+                # Sabit değerler için özel durum
+                df_scaled[col] = 0.0
+            else:
+                df_scaled[col] = (df[col] - min_val) / range_val
+            
+            scaler_stats[col] = {
+                'min': float(min_val),
+                'max': float(max_val),
+                'range': float(range_val)
+            }
+    
+    # Ölçeklenmiş CSV'yi kaydet
+    output_dir = os.path.dirname(csv_dosya_yolu)
+    cikti_yolu = os.path.join(output_dir, cikti_dosya_adi)
+    
+    df_scaled.to_csv(cikti_yolu, index=False, encoding='utf-8')
+    
+    print(f"[TAMAMLANDI] Min-Max Scaled CSV kaydedildi: {cikti_yolu}")
+    
+    # İstatistikleri göster
+    print("\n[ÖLÇEKLEME İSTATİSTİKLERİ]")
+    for col, stats in scaler_stats.items():
+        print(f"  {col:20} → Min: {stats['min']:10.4f}, Max: {stats['max']:10.4f}")
+    
+    return cikti_yolu, scaler_stats
 
 
 if __name__ == "__main__":
