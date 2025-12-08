@@ -51,9 +51,7 @@ htmlcov/
 .hypothesis/
 
 # Data and outputs (büyük dosyalar)
-Veri_Seti/**/*.jpg
-Veri_Seti/**/*.png
-Veri_Seti/**/*.jpeg
+Veri_Seti/
 output/
 results/
 *.csv
