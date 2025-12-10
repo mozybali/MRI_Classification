@@ -1,300 +1,368 @@
-# MRI Sınıflandırması - Yapay Zeka Projesi
+# MRI Sınıflandırma Projesi
 
-Manyetik Rezonans Görüntüleme (MRI) görüntülerini kullanarak demans hastalığını sınıflandıran kapsamlı bir makine öğrenmesi projesi.
+MRI beyin görüntülerinden demans hastalığı teşhisi yapan basitleştirilmiş makine öğrenmesi projesi.
 
-## 📋 Proje Özeti
+## 📋 Proje Açıklaması
 
-Bu proje, MRI beyin görüntülerinden otomatik olarak demans hastalığı teşhisini yapmayı amaçlamaktadır. Proje, görüntü ön işleme, öznitelik çıkarma ve makine öğrenmesi modellerinin eğitilmesi olmak üzere üç ana bölümden oluşmaktadır.
+Bu proje, MRI beyin görüntülerini kullanarak 4 farklı demans seviyesini otomatik olarak sınıflandırır:
 
-### Sınıflandırma Kategorileri
 - **NonDemented** - Sağlıklı (Demans yok)
 - **VeryMildDemented** - Çok hafif demans
-- **MildDemented** - Hafif demans
+- **MildDemented** - Hafif demans  
 - **ModerateDemented** - Orta seviye demans
 
-## 🏗️ Proje Mimarisi
+## 🏗️ Basitleştirilmiş Proje Yapısı
 
 ```
-Machine_Learning/
+MRI_Classification/
 │
-├── Görüntü_On_Isleme/              # Görüntü ön işleme ve CSV oluşturma
-│   ├── requirements.txt             # Python bağımlılıkları
-│   ├── goruntu_isleme_kontrol_paneli.py  # Ana menü arayüzü
-│   ├── goruntu_isleme_mri/          # Ön işleme modülleri
-│   │   ├── ayarlar.py               # Konfigürasyon
-│   │   ├── io_araclari.py           # Dosya I/O işlemleri
-│   │   ├── on_isleme_adimlari.py    # Ön işleme pipeline
-│   │   ├── csv_olusturucu.py        # Öznitelik çıkarma
-│   │   ├── veri_artirma.py          # Veri augmentation
-│   │   ├── veri_normalizasyon.py    # Normalizasyon
-│   │   ├── veri_boluntuleme.py      # Train/Val/Test bölümü
-│   │   ├── gelismis_filtreler.py    # İleri filtreler
-│   │   ├── arka_plan_isleme.py      # Background processing
-│   │   ├── dosya_yoneticisi.py      # Dosya yönetimi
-│   │   └── dosyalama_islemleri.py   # Veri seti organizasyonu
-│   └── scripts/
-│       └── TUMU_ISLEMLER.py         # Tüm işlemleri otomatik yapan script
-│
-├── Görüntüleri_Detayli_İncele/     # Veri analizi ve görselleştirme
-│   ├── requirements.txt
-│   ├── mri_eda_jpg/                 # EDA araçları
-│   │   ├── ayarlar.py
-│   │   ├── io_araclari.py
-│   │   ├── grafik_araclari.py
-│   │   └── istatistik_araclari.py
-│   └── scripts/
-│       └── analiz_calistir.py       # EDA analizi
-│
-├── Model/                           # Makine öğrenmesi modelleri
-│   ├── requirements.txt
-│   ├── config.py                    # Merkezi konfigürasyon ve hyperparametreler
-│   ├── config.json                  # Config dosyası (JSON formatı)
-│   ├── gradient_boosting_model.py   # XGBoost/LightGBM modeli
-│   ├── linear_svm_model.py          # Linear SVM sınıflandırıcı
-│   ├── model_evaluator.py           # Model değerlendirme metrikleri
-│   ├── model_manager.py             # Model versiyonlama ve yönetimi
-│   ├── visualizer.py                # Sonuç görselleştirmesi
-│   ├── train_and_evaluate_models.py # Ana eğitim script'i
-│   ├── test_models.py               # Unit testler
-│   ├── example_usage.py             # Örnek kullanım
-│   └── outputs/                     # Çıktı klasörü
-│       ├── models/                  # Eğitilmiş modeller
-│       ├── reports/                 # Performans raporları
-│       └── visualizations/          # Grafik ve görseller
-│
-├── Veri_Seti/                       # Orijinal MRI görüntüleri
+├── Veri_Seti/                    # Ham MRI görüntüleri
 │   ├── NonDemented/
 │   ├── VeryMildDemented/
 │   ├── MildDemented/
 │   └── ModerateDemented/
 │
-└── LICENSE
-
+├── goruntu_isleme/               # Görüntü işleme modülü (3 dosya)
+│   ├── ayarlar.py                # Konfigürasyon
+│   ├── goruntu_isleyici.py       # İşleme ve veri artırma
+│   ├── ozellik_cikarici.py       # Özellik çıkarma ve CSV
+│   ├── ana_islem.py              # Ana menü programı
+│   ├── requirements.txt
+│   └── README.md
+│
+├── eda_analiz/                   # Veri analizi modülü (2 dosya)
+│   ├── eda_araclar.py            # Analiz araçları
+│   ├── eda_calistir.py           # Ana program
+│   ├── requirements.txt
+│   └── README.md
+│
+├── model/                        # Model eğitimi modülü (2 dosya)
+│   ├── ayarlar.py                # Konfigürasyon
+│   ├── model_egitici.py          # Eğitim ve değerlendirme
+│   ├── requirements.txt
+│   └── README.md
+│
+└── README.md                     # Bu dosya
 ```
 
-## 🚀 Başlangıç
+## 🚀 Kurulum
 
-### Sistem Gereksinimleri
-- Python 3.8 veya üzeri
-- 4GB+ RAM (model eğitimi için 8GB+ önerilir)
-- 2GB+ disk alanı (çıktı dosyaları için)
-
-### Kurulum
-
-1. **Proje klasörüne gidin:**
-   ```bash
-   cd c:\Users\HectoRSheesh\Desktop\Machine_Learning
-   ```
-
-2. **Python paketlerini kurun:**
-   ```bash
-   # Görüntü ön işleme
-   pip install -r Görüntü_On_Isleme\requirements.txt
-   
-   # Model eğitimi
-   pip install -r Model\requirements.txt
-   
-   # EDA (isteğe bağlı)
-   pip install -r Görüntüleri_Detayli_İncele\requirements.txt
-   ```
-
-### Çalıştırma
-
-**Seçenek 1: Menü arayüzü ile**
+### 1. Depoyu klonlayın
 ```bash
-cd Görüntü_On_Isleme
-python goruntu_isleme_kontrol_paneli.py
+git clone https://github.com/mozybali/MRI_Classification.git
+cd MRI_Classification
 ```
 
-**Seçenek 2: Otomatik olarak tüm işlemler**
+### 2. Gerekli paketleri yükleyin
+
+**Hızlı kurulum (önerilen):**
 ```bash
-cd Görüntü_On_Isleme\scripts
-python TUMU_ISLEMLER.py
+pip install -r requirements.txt
 ```
 
-**Seçenek 3: Model eğitimi (ön işleme yapıldıktan sonra)**
+**Veya modül bazlı kurulum:**
 ```bash
-cd Model
-python train_and_evaluate_models.py
+# Görüntü işleme
+cd goruntu_isleme
+pip install -r requirements.txt
+
+# EDA analizi
+cd ../eda_analiz
+pip install -r requirements.txt
+
+# Model eğitimi
+cd ../model
+pip install -r requirements.txt
 ```
 
-## 📊 İş Akışı
+### 3. Sistem kontrolü
+```bash
+cd goruntu_isleme
+python3 pipeline_quick_test.py
+```
 
+## 📖 Kullanım
+
+### Adım 1: Görüntü Ön İşleme
+
+```bash
+cd goruntu_isleme
+python ana_islem.py
 ```
-1. VERİ HAZIRLAMA
-   ├─ Görüntüleri oku
-   ├─ Arka plan tespiti
-   ├─ Maske oluşturma
-   └─ Kırpma ve boyutlandırma
-   
-2. ÖN İŞLEME
-   ├─ Yoğunluk normalizasyonu
-   ├─ Gürültü azaltma
-   ├─ Histogram eşitleme
-   └─ Veri augmentation
-   
-3. ÖZNİTELİK ÇIKARMA
-   ├─ İstatistiksel öznitelikler
-   ├─ Doku analizi
-   ├─ Şekil öznitelikleri
-   └─ CSV dosyası oluşturma
-   
-4. VERİ BÖLÜMLEME
-   ├─ Eğitim seti (70%)
-   ├─ Doğrulama seti (15%)
-   └─ Test seti (15%)
-   
-5. MODEL EĞİTİMİ
-   ├─ Gradient Boosting (XGBoost/LightGBM)
-   └─ Linear SVM
-   
-6. DEĞERLENDİRME
-   ├─ Doğruluk (Accuracy)
-   ├─ Precision/Recall
-   ├─ F1-Score
-   └─ ROC-AUC
+
+Menüden seçim yapın:
+- **1**: Görüntüleri işle (🆕 bias correction, skull stripping, gelişmiş augmentation)
+- **2**: Özellik çıkar ve CSV oluştur
+- **3**: CSV'ye ölçeklendirme uygula (🆕 4 farklı metod: minmax/robust/standard/maxabs)
+- **4**: Veri setini böl (eğitim/doğrulama/test)
+- **6**: Tüm işlemleri otomatik yap (önerilen)
+
+**🆕 Yeni Özellikler (v2.0):**
+- ⭐ Bias field correction (MRI yoğunluk düzeltme)
+- ⭐ Skull stripping (kafatası çıkarma)
+- ⭐ Center of mass alignment (görüntü hizalama)
+- ⭐ Adaptive CLAHE (akıllı kontrast iyileştirme)
+- 🎯 Medikal-spesifik augmentation (elastic deformation, gaussian noise, vb.)
+- 📊 Genişletilmiş scaling seçenekleri
+
+Detaylar için: [goruntu_isleme/DEGISIKLIKLER.md](goruntu_isleme/DEGISIKLIKLER.md)
+
+### Adım 2: Veri Analizi (İsteğe Bağlı)
+
+```bash
+cd ../eda_analiz
+python eda_calistir.py
 ```
+
+Şunları üretir:
+- Sınıf dağılımı grafikleri
+- Görüntü boyut analizi
+- Yoğunluk istatistikleri
+- Korelasyon matrisi
+- PCA görselleştirmesi
+
+### Adım 3: Model Eğitimi
+
+**Yeni: Kullanıcı dostu eğitim scripti** 🎯
+
+```bash
+cd ../model
+python3 train.py
+```
+
+**Hızlı başlatma seçenekleri:**
+```bash
+# Otomatik mod (varsayılan ayarlar)
+python3 train.py --auto
+
+# Belirli model ile başlat
+python3 train.py --model xgboost
+python3 train.py --model lightgbm
+python3 train.py --model svm
+```
+
+Desteklenen modeller:
+- **XGBoost** (önerilen) - Yüksek doğruluk
+- **LightGBM** - Hızlı eğitim
+- **Linear SVM** - Basit ve hızlı
+
+**Gelişmiş özellikler:**
+- 🔄 SMOTE ile veri dengeleme
+- 🎯 Sınıf ağırlıklandırma
+- 📊 Hyperparameter tuning
+- 🔍 Feature selection
+
+### Adım 4: Tahmin (Inference)
+
+**Eğitilmiş model ile yeni görüntüleri tahmin et:**
+
+```bash
+# Tek görüntü
+python3 inference.py --image test.jpg
+
+# Toplu tahmin (klasör)
+python3 inference.py --batch ./test_images/
+
+# Belirli model ile
+python3 inference.py --model xgboost_latest.pkl --image test.jpg
+```
+
+### Adım 5: Model Karşılaştırma
+
+**Birden fazla model eğittiyseniz performansları karşılaştırın:**
+
+```bash
+python3 model_comparison.py
+```
+
+Çıktılar:
+- 📊 Performans karşılaştırma grafikleri
+- 🎯 Radar chart
+- 🏆 En iyi model önerisi
+
+## 📊 Özellikler
+
+### Görüntü İşleme (v2.0)
+- ✅ Bias field correction (N4ITK)
+- ✅ Skull stripping (kafatası çıkarma)
+- ✅ Center of mass alignment
+- ✅ Adaptif histogram eşitleme (CLAHE)
+- ✅ Medikal-spesifik veri artırma
+- ✅ Sınıf bazlı dengesiz augmentation
+- ✅ Özellik çıkarma (20+ özellik)
+- ✅ Çoklu ölçeklendirme metodu
+
+### Model Eğitimi (Güncellenmiş)
+- ✅ İnteraktif eğitim arayüzü
+- ✅ SMOTE ile veri dengeleme
+- ✅ Otomatik veri bölme (70/15/15)
+- ✅ Cross-validation desteği
+- ✅ Hyperparameter tuning (opsiyonel)
+- ✅ Performans metrikleri (accuracy, precision, recall, F1, ROC-AUC, Cohen's Kappa)
+- ✅ Karışıklık matrisi
+- ✅ ROC eğrileri (multi-class)
+- ✅ Precision-Recall eğrileri
+- ✅ Özellik önemi analizi
+- ✅ Detaylı raporlar
+- ✅ Model ve metadata kaydetme
+- ✅ Inference scripti (tek/batch tahmin)
+- ✅ Model karşılaştırma aracı
+
+### EDA Analizi
+- ✅ Kapsamlı istatistiksel analiz
+- ✅ Görselleştirme (matplotlib + seaborn)
+- ✅ PCA boyut indirgeme
+- ✅ Özet raporlar
 
 ## 🔧 Konfigürasyon
 
-Hyperparametreler `Model/config.py` dosyasında tanımlanmıştır:
+Her modülün `ayarlar.py` dosyasını düzenleyerek özelleştirin:
 
+**goruntu_isleme/ayarlar.py**
 ```python
-# Gradient Boosting
-GRADIENT_BOOSTING_CONFIG = {
-    'algorithm': 'xgboost',  # veya 'lightgbm'
+HEDEF_GENISLIK = 256
+HEDEF_YUKSEKLIK = 256
+VERI_ARTIRMA_AKTIF = True
+SINIF_BAZLI_ARTIRMA_AKTIF = True  # Sınıf dengesizliği için
+BIAS_FIELD_CORRECTION_AKTIF = True
+SKULL_STRIPPING_AKTIF = True
+```
+
+**model/ayarlar.py**
+```python
+GB_AYARLARI = {
     'n_estimators': 100,
     'max_depth': 7,
     'learning_rate': 0.1,
-}
-
-# Linear SVM
-LINEAR_SVM_CONFIG = {
-    'C': 1.0,
-    'kernel': 'rbf',
-    'gamma': 'scale',
-}
-
-# Veri bölümleme
-DATA_SPLIT_CONFIG = {
-    'train_ratio': 0.70,
-    'val_ratio': 0.15,
-    'test_ratio': 0.15,
+    'scale_pos_weight': None,  # Otomatik sınıf ağırlığı
+    ...
 }
 ```
 
-Ayarları değiştirerek model performansını optimize edebilirsiniz.
+## 📈 Beklenen Performans
 
-## 📈 Proje Modülleri
+Tipik sonuçlar (33,984 görüntü, XGBoost ile):
+- **Accuracy**: ~85-92%
+- **F1 Score**: ~0.82-0.88
+- **ROC-AUC**: ~0.88-0.93
+- **Training Time**: 3-8 dakika (CPU)
+- **Inference Time**: ~50-100ms per image
 
-### Görüntü_On_Isleme
-MRI görüntülerinin ön işlenmesi ve öznitelik çıkarılması:
-- Görüntü yükleme ve gri dönüştürme
-- Arka plan tespiti ve maskeleme
-- Histogram eşitleme (CLAHE)
-- Gürültü azaltma (bilateral, NLM)
-- Min-Max normalizasyon
-- Veri artırma (rotation, scaling)
-
-### Görüntüleri_Detayli_İncele
-Veri seti analizi ve istatistiksel inceleme:
-- Sınıf dağılımı analizi
-- Görüntü istatistikleri
-- Öznitelik dağılımı
-- Korelasyon analizi
-
-### Model
-Makine öğrenmesi modelleri:
-- **Gradient Boosting:** XGBoost veya LightGBM kullanarak yüksek performanslı sınıflandırma
-- **Linear SVM:** Doğrusal kernel kullanan destek vektör makinesi
-- **Evaluator:** Modelleri değerlendirme ve karşılaştırma
-- **Visualizer:** Confusion matrix, ROC eğrileri, feature importance
-- **Model Manager:** Modelleri kaydetme ve versiyon kontrolü
-
-## 💾 Çıktılar
-
-Model eğitimi tamamlandığında aşağıdaki dosyalar oluşturulur:
+## 📚 Proje Yapısı
 
 ```
-Model/outputs/
-├── models/
-│   ├── gradient_boosting_latest.pkl
-│   ├── linear_svm_latest.pkl
-│   └── model_metadata.json
-├── reports/
-│   ├── evaluation_report.json
-│   ├── confusion_matrices.json
-│   └── metrics_summary.txt
-└── visualizations/
-    ├── confusion_matrix_gb.png
-    ├── confusion_matrix_svm.png
-    ├── roc_curves.png
-    └── feature_importance.png
+MRI_Classification/
+├── README.md                          # Ana dokümantasyon
+├── requirements.txt                   # Tüm bağımlılıklar
+├── LICENSE
+├── Veri_Seti/                        # Ham MRI görüntüleri (33,984 adet)
+│   ├── NonDemented/                  (9,600 görüntü)
+│   ├── VeryMildDemented/             (8,960 görüntü)
+│   ├── MildDemented/                 (8,960 görüntü)
+│   └── ModerateDemented/             (6,464 görüntü)
+│
+├── goruntu_isleme/                   # Görüntü işleme modülü
+│   ├── ana_islem.py                  (Ana çalıştırma scripti)
+│   ├── goruntu_isleyici.py           (Core işleme)
+│   ├── ozellik_cikarici.py           (Feature extraction)
+│   ├── ayarlar.py                    (Konfigürasyon)
+│   ├── pipeline_quick_test.py        (Sistem kontrolü)
+│   ├── test_pipeline.py              (Pipeline test)
+│   └── requirements.txt
+│
+├── eda_analiz/                       # EDA modülü
+│   ├── eda_calistir.py               (Ana çalıştırma scripti)
+│   ├── eda_araclar.py                (Analiz araçları)
+│   └── requirements.txt
+│
+└── model/                            # Model eğitim modülü
+    ├── train.py                      (Ana eğitim scripti) ⭐
+    ├── inference.py                  (Tahmin scripti) ⭐
+    ├── model_comparison.py           (Model karşılaştırma) ⭐
+    ├── model_egitici.py              (Core eğitim sınıfı)
+    ├── ayarlar.py                    (Konfigürasyon)
+    └── requirements.txt
 ```
 
-## 📝 Örnek Kullanım
+## 🎯 Özellikler ve İyileştirmeler (v2.0)
 
-```python
-# Model yükle
-from Model.model_manager import ModelManager
-from Model.config import config
+### ✅ Yeni Eklenenler
+- 🆕 Kullanıcı dostu `train.py` scripti (interaktif + otomatik mod)
+- 🆕 `inference.py` - Production-ready tahmin scripti
+- 🆕 `model_comparison.py` - Model performans karşılaştırma
+- 🆕 `pipeline_quick_test.py` - Sistem ön kontrolü
+- 🆕 SMOTE veri dengeleme entegrasyonu
+- 🆕 Sınıf bazlı augmentation çarpanları
+- 🆕 ROC ve Precision-Recall eğrileri
+- 🆕 Kapsamlı README'ler her modül için
 
-manager = ModelManager()
-gb_model = manager.load_model('latest', 'gradient_boosting')
-svm_model = manager.load_model('latest', 'linear_svm')
+### 🔄 İyileştirilenler
+- ⬆️ Bias field correction (N4ITK)
+- ⬆️ Skull stripping algoritması
+- ⬆️ Medikal-spesifik augmentation
+- ⬆️ 20+ feature extraction
+- ⬆️ Class weights stratejisi
+- ⬆️ Detaylı dokümantasyon
 
-# Tahmin yap
-import numpy as np
-X_new = np.random.rand(10, 45)  # 45 öznitelik
-predictions_gb = gb_model.predict(X_new)
-predictions_svm = svm_model.predict(X_new)
+## 🎯 Kullanım Senaryoları
 
-# Sonuçları göster
-print(f"GB Predictions: {predictions_gb}")
-print(f"SVM Predictions: {predictions_svm}")
-```
-
-## 🧪 Testler
-
-Unit testleri çalıştırmak için:
+### Senaryo 1: Hızlı Başlangıç (5 dakika)
 ```bash
-cd Model
-python test_models.py
+pip install -r requirements.txt
+cd goruntu_isleme && python3 ana_islem.py  # Menüden 6
+cd ../model && python3 train.py --auto
 ```
 
-## 📦 Bağımlılıklar
+### Senaryo 2: Kapsamlı Analiz
+```bash
+# 1. EDA analizi
+cd eda_analiz && python3 eda_calistir.py
 
-### Temel Paketler
-- **numpy** - Sayısal işlemler
-- **pandas** - Veri manipülasyonu
-- **scikit-learn** - Makine öğrenmesi
-- **opencv-python** - Görüntü işleme
-- **scikit-image** - Gelişmiş görüntü işleme
-- **scipy** - Bilimsel hesaplamalar
+# 2. Görüntü işleme
+cd ../goruntu_isleme && python3 ana_islem.py  # Menüden 6
 
-### Model Paketleri
-- **xgboost** - Gradient boosting modeli
-- **lightgbm** - Alternatif gradient boosting
-- **pillow** - Görüntü I/O
+# 3. Model eğitimi (interaktif)
+cd ../model && python3 train.py
 
-### Görselleştirme
-- **matplotlib** - 2D grafikler
-- **seaborn** - İstatistiksel görselleştirme
-- **plotly** - İnteraktif grafikler
+# 4. Model karşılaştırma
+python3 model_comparison.py
+```
+
+### Senaryo 3: Production Deployment
+```bash
+# Model eğit
+python3 train.py --auto --model xgboost
+
+# Yeni görüntüleri tahmin et
+python3 inference.py --batch ./new_patients/
+
+# Sonuçları analiz et
+python3 model_comparison.py
+```
+- ✅ ASCII klasör isimleri
+- ✅ Her modül 2-3 dosyada birleştirildi
+- ✅ Tek konfigürasyon dosyası
+- ✅ Modüler ve anlaşılır yapı
+
+## 📝 Notlar
+
+- Veri seti klasörü: `Veri_Seti/` (değiştirilebilir)
+- Çıktılar otomatik olarak kaydedilir
+- Tüm işlemler terminal üzerinden yönetilir
+- İlerleme çubukları ile takip edin
+
+## 🤝 Katkı
+
+Katkılarınızı bekliyoruz! Pull request göndermekten çekinmeyin.
 
 ## 📄 Lisans
 
-Bu proje [LICENSE](LICENSE) dosyası altında lisanslanmıştır.
+Bu proje MIT lisansı altında lisanslanmıştır.
 
-## 👥 Katkıda Bulunma
+## 👨‍💻 Yazar
 
-Hata raporları ve öneriler için lütfen issue açınız.
+- GitHub: [@mozybali](https://github.com/mozybali)
 
-## 📞 İletişim
+## 🙏 Teşekkürler
 
-Sorularınız veya önerileriniz için iletişime geçin.
-
----
-
-**Son Güncelleme:** Aralık 2025  
-**Proje Durumu:** Aktif Geliştirme
+MRI veri seti ve ilham için tüm katkıda bulunanlara teşekkürler.

@@ -1,0 +1,80 @@
+# EDA Analiz Modülü
+
+MRI veri seti için keşifsel veri analizi (Exploratory Data Analysis).
+
+## 📦 Kurulum
+
+```bash
+pip install -r requirements.txt
+```
+
+## 🚀 Kullanım
+
+**Interaktif mod:**
+```bash
+python3 eda_calistir.py
+```
+
+Program şunları soracak:
+- Veri seti klasörü yolu (varsayılan: ../../Veri_Seti)
+- Çıktı klasörü yolu (varsayılan: eda_ciktilar)
+
+## 📊 Özellikler
+
+### Analiz Türleri
+- ✅ **Sınıf dağılımı** - Her sınıfta kaç görüntü var?
+- ✅ **Görüntü boyut analizi** - Genişlik, yükseklik, en-boy oranı
+- ✅ **Yoğunluk istatistikleri** - Piksel yoğunluk dağılımları (mean, std, percentiles)
+- ✅ **Korelasyon matrisi** - Özellikler arası ilişkiler
+- ✅ **PCA görselleştirmesi** - 2D boyut indirgeme, sınıf ayrılabilirliği
+
+### Çıktılar
+- 📈 **Grafikler** (PNG formatında):
+  - `1_sinif_dagilimi.png`
+  - `2_boyut_analizi.png`
+  - `3_yogunluk_analizi.png`
+  - `4_korelasyon_matrisi.png`
+  - `5_pca_analizi.png`
+- 📄 **Özet rapor** (TXT):
+  - `0_ozet_istatistikler.txt`
+- 💾 **Veri seti CSV**:
+  - `veri_seti_istatistikler.csv`
+
+## 📁 Çıktı Yapısı
+
+```
+eda_ciktilar/
+├── 0_ozet_istatistikler.txt
+├── 1_sinif_dagilimi.png
+├── 2_boyut_analizi.png
+├── 3_yogunluk_analizi.png
+├── 4_korelasyon_matrisi.png
+├── 5_pca_analizi.png
+└── veri_seti_istatistikler.csv
+```
+
+## 💡 Ne Zaman Kullanılır?
+
+- ✓ Veri setini ilk kez keşfetmek istediğinizde
+- ✓ Sınıf dengesizliği kontrolü için
+- ✓ Görüntü kalitesi ve tutarlılık analizi için
+- ✓ Model eğitiminden önce veri anlayışı için
+
+## 🐛 Sorun Giderme
+
+### Veri seti bulunamadı:
+```bash
+# Veri seti yolunu kontrol edin
+ls -la ../../Veri_Seti/
+```
+
+### Eksik paket:
+```bash
+pip install -r requirements.txt
+```
+
+## 📚 Dosyalar
+
+- `eda_araclar.py` - Ana analiz sınıfı ve fonksiyonlar
+- `eda_calistir.py` - Çalıştırılabilir script
+- `requirements.txt` - Gerekli Python paketleri
