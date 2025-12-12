@@ -22,18 +22,19 @@ MRI_Classification/
 │   ├── MildDemented/
 │   └── ModerateDemented/
 │
-├── goruntu_isleme/               # Görüntü işleme modülü (3 dosya)
+├── goruntu_isleme/               # Görüntü işleme modülü
 │   ├── ayarlar.py                # Konfigürasyon
 │   ├── goruntu_isleyici.py       # İşleme ve veri artırma
 │   ├── ozellik_cikarici.py       # Özellik çıkarma ve CSV
 │   ├── ana_islem.py              # Ana menü programı
-│   ├── requirements.txt
+│   ├── pipeline_quick_test.py    # Sistem kontrolü
+│   ├── test_pipeline.py          # Pipeline test
 │   └── README.md
 │
-├── eda_analiz/                   # Veri analizi modülü (2 dosya)
+├── eda_analiz/                   # Veri analizi modülü
 │   ├── eda_araclar.py            # Analiz araçları
 │   ├── eda_calistir.py           # Ana program
-│   ├── requirements.txt
+│   ├── requirements.txt          # Minimal bağımlılıklar
 │   └── README.md
 │
 ├── model/                        # Model eğitimi modülü
@@ -42,7 +43,6 @@ MRI_Classification/
 │   ├── train.py                  # İnteraktif eğitim scripti
 │   ├── inference.py              # Tahmin scripti
 │   ├── model_comparison.py       # Model karşılaştırma
-│   ├── requirements.txt
 │   └── README.md
 │
 ├── tests/                        # Test suite (v2.0)
@@ -53,7 +53,7 @@ MRI_Classification/
 │   └── test_eda_araclar.py       # EDA testleri
 │
 ├── pytest.ini                    # Pytest konfigürasyonu
-├── requirements-dev.txt          # Test bağımlılıkları
+├── requirements.txt              # Tüm bağımlılıklar (prod + dev)
 └── README.md                     # Bu dosya
 ```
 
@@ -96,24 +96,22 @@ pip install numpy pandas scipy Pillow SimpleITK scikit-learn xgboost lightgbm im
 
 **Veya modül bazlı kurulum:**
 ```bash
-# Görüntü işleme
-cd goruntu_isleme
+# EDA analizi (minimal bağımlılıklar)
+cd eda_analiz
 pip install -r requirements.txt
 
-# EDA analizi
-cd ../eda_analiz
-pip install -r requirements.txt
-
-# Model eğitimi
-cd ../model
+# Tüm proje için ana dizinden
+cd ..
 pip install -r requirements.txt
 ```
 
 ### 3. Sistem kontrolü
 ```bash
 cd goruntu_isleme
-python3 pipeline_quick_test.py
+python pipeline_quick_test.py
 ```
+
+**Not:** Komutlarda `python` veya `python3` kullanabilirsiniz. Windows'ta genellikle `python`, Linux/Mac'te `python3` kullanılır.
 
 ## 📖 Kullanım
 
@@ -139,8 +137,6 @@ Menüden seçim yapın:
 - 🎯 Medikal-spesifik augmentation (elastic deformation, gaussian noise, vb.)
 - 📊 Genişletilmiş scaling seçenekleri
 
-Detaylar için: [goruntu_isleme/DEGISIKLIKLER.md](goruntu_isleme/DEGISIKLIKLER.md)
-
 ### Adım 2: Veri Analizi (İsteğe Bağlı)
 
 ```bash
@@ -161,18 +157,18 @@ python eda_calistir.py
 
 ```bash
 cd ../model
-python3 train.py
+python train.py
 ```
 
 **Hızlı başlatma seçenekleri:**
 ```bash
 # Otomatik mod (varsayılan ayarlar)
-python3 train.py --auto
+python train.py --auto
 
 # Belirli model ile başlat
-python3 train.py --model xgboost
-python3 train.py --model lightgbm
-python3 train.py --model svm
+python train.py --model xgboost
+python train.py --model lightgbm
+python train.py --model svm
 ```
 
 Desteklenen modeller:
@@ -192,13 +188,13 @@ Desteklenen modeller:
 
 ```bash
 # Tek görüntü
-python3 inference.py --image test.jpg
+python inference.py --image test.jpg
 
 # Toplu tahmin (klasör)
-python3 inference.py --batch ./test_images/
+python inference.py --batch ./test_images/
 
 # Belirli model ile
-python3 inference.py --model xgboost_latest.pkl --image test.jpg
+python inference.py --model xgboost_latest.pkl --image test.jpg
 ```
 
 ### Adım 5: Model Karşılaştırma
@@ -206,7 +202,7 @@ python3 inference.py --model xgboost_latest.pkl --image test.jpg
 **Birden fazla model eğittiyseniz performansları karşılaştırın:**
 
 ```bash
-python3 model_comparison.py
+python model_comparison.py
 ```
 
 Çıktılar:
@@ -302,12 +298,13 @@ MRI_Classification/
 │   ├── ayarlar.py                    (Konfigürasyon)
 │   ├── pipeline_quick_test.py        (Sistem kontrolü)
 │   ├── test_pipeline.py              (Pipeline test)
-│   └── requirements.txt
+│   └── README.md
 │
 ├── eda_analiz/                       # EDA modülü
 │   ├── eda_calistir.py               (Ana çalıştırma scripti)
 │   ├── eda_araclar.py                (Analiz araçları)
-│   └── requirements.txt
+│   ├── requirements.txt              (Minimal bağımlılıklar)
+│   └── README.md
 │
 └── model/                            # Model eğitim modülü
     ├── train.py                      (Ana eğitim scripti) ⭐
@@ -315,7 +312,7 @@ MRI_Classification/
     ├── model_comparison.py           (Model karşılaştırma) ⭐
     ├── model_egitici.py              (Core eğitim sınıfı)
     ├── ayarlar.py                    (Konfigürasyon)
-    └── requirements.txt
+    └── README.md
 ```
 
 ## 🎯 Özellikler ve İyileştirmeler (v2.0)
@@ -343,35 +340,35 @@ MRI_Classification/
 ### Senaryo 1: Hızlı Başlangıç (5 dakika)
 ```bash
 pip install -r requirements.txt
-cd goruntu_isleme && python3 ana_islem.py  # Menüden 6
-cd ../model && python3 train.py --auto
+cd goruntu_isleme ; python ana_islem.py  # Menüden 6
+cd ../model ; python train.py --auto
 ```
 
 ### Senaryo 2: Kapsamlı Analiz
 ```bash
 # 1. EDA analizi
-cd eda_analiz && python3 eda_calistir.py
+cd eda_analiz ; python eda_calistir.py
 
 # 2. Görüntü işleme
-cd ../goruntu_isleme && python3 ana_islem.py  # Menüden 6
+cd ../goruntu_isleme ; python ana_islem.py  # Menüden 6
 
 # 3. Model eğitimi (interaktif)
-cd ../model && python3 train.py
+cd ../model ; python train.py
 
 # 4. Model karşılaştırma
-python3 model_comparison.py
+python model_comparison.py
 ```
 
 ### Senaryo 3: Production Deployment
 ```bash
 # Model eğit
-python3 train.py --auto --model xgboost
+python train.py --auto --model xgboost
 
 # Yeni görüntüleri tahmin et
-python3 inference.py --batch ./new_patients/
+python inference.py --batch ./new_patients/
 
 # Sonuçları analiz et
-python3 model_comparison.py
+python model_comparison.py
 ```
 - ✅ ASCII klasör isimleri
 - ✅ Her modül 2-3 dosyada birleştirildi
@@ -385,8 +382,8 @@ Proje, kapsamlı bir test suite ile birlikte gelir. Testler pytest framework'ü 
 ### Test Kurulumu
 
 ```bash
-# Development bağımlılıklarını yükle
-pip install -r requirements-dev.txt
+# Test araçları ana requirements.txt içinde dahil
+pip install -r requirements.txt
 ```
 
 ### Testleri Çalıştırma
