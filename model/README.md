@@ -5,51 +5,57 @@ MRI görüntülerinden çıkarılan özelliklerle makine öğrenmesi modelleri e
 ## 📦 Kurulum
 
 ```bash
+# Ana dizinden tüm bağımlılıkları yükle
+cd ..
 pip install -r requirements.txt
 ```
 
+**Not:** Model modülü için ayrı requirements.txt yok, tüm bağımlılıklar ana `requirements.txt` dosyasında.
+
 ## 🚀 Kullanım
+
+**Not:** Komutlarda `python` veya `python3` kullanabilirsiniz. Windows'ta genellikle `python`, Linux/Mac'te `python3` kullanılır.
 
 ### 1. Temel Kullanım (Önerilen)
 
 **İnteraktif mod:**
 ```bash
-python3 train.py
+python train.py
 ```
 
 **Otomatik mod (hızlı başlangıç):**
 ```bash
-python3 train.py --auto
+python train.py --auto
 ```
 
 **Belirli model ile:**
 ```bash
-python3 train.py --auto --model xgboost
-python3 train.py --auto --model lightgbm
-python3 train.py --auto --model svm
+python train.py --auto --model xgboost
+python train.py --auto --model lightgbm
+python train.py --auto --model svm
 ```
 
 ### 2. Tahmin (Inference)
 
 **Tek görüntü:**
 ```bash
-python3 inference.py --model xgboost_latest.pkl --image test.jpg
+python inference.py --model xgboost_latest.pkl --image test.jpg
 ```
 
 **Toplu tahmin (batch):**
 ```bash
-python3 inference.py --model xgboost_latest.pkl --batch ./test_images/
+python inference.py --model xgboost_latest.pkl --batch ./test_images/
 ```
 
 **En son model ile otomatik:**
 ```bash
-python3 inference.py --image test.jpg
+python inference.py --image test.jpg
 ```
 
 ### 3. Model Karşılaştırma
 
 ```bash
-python3 model_comparison.py
+python model_comparison.py
 ```
 
 Tüm eğitilmiş modelleri karşılaştırır ve en iyisini seçer.
@@ -116,18 +122,18 @@ model/ciktilar/
 
 ```bash
 # 1. Model eğit (otomatik mod)
-python3 train.py --auto --model xgboost
+python train.py --auto --model xgboost
 
 # 2. Test görüntüsü ile tahmin yap
-python3 inference.py --image ../Veri_Seti/NonDemented/test.jpg
+python inference.py --image ../Veri_Seti/NonDemented/test.jpg
 
 # 3. Toplu tahmin
-python3 inference.py --batch ../Veri_Seti/NonDemented/
+python inference.py --batch ../Veri_Seti/NonDemented/
 
 # 4. Birden fazla model eğit ve karşılaştır
-python3 train.py --auto --model xgboost
-python3 train.py --auto --model lightgbm
-python3 model_comparison.py
+python train.py --auto --model xgboost
+python train.py --auto --model lightgbm
+python model_comparison.py
 ```
 
 ## ⚙️ Yapılandırma
@@ -145,7 +151,7 @@ Tüm ayarlar `ayarlar.py` dosyasında:
 ### CSV bulunamadı hatası:
 ```bash
 cd ../goruntu_isleme
-python3 ana_islem.py
+python ana_islem.py
 # Menüden 6'yı seç (tüm işlemleri yap)
 ```
 
@@ -166,11 +172,10 @@ pip install xgboost lightgbm
 - `inference.py` - Tahmin scripti
 - `model_comparison.py` - Model karşılaştırma
 - `ayarlar.py` - Yapılandırma dosyası
-- `requirements.txt` - Bağımlılıklar
 
 ## 💡 İpuçları
 
-1. İlk eğitimde **otomatik mod** kullanın: `python3 train.py --auto`
+1. İlk eğitimde **otomatik mod** kullanın: `python train.py --auto`
 2. **SMOTE** veri dengeleme için önemlidir (varsayılan açık)
 3. **Hyperparameter tuning** çok uzun sürer, ilk denemede kapalı tutun
 4. **Model karşılaştırma** ile en iyi modeli seçin
