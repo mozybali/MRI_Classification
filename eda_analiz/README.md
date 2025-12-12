@@ -4,15 +4,24 @@ MRI veri seti için keşifsel veri analizi (Exploratory Data Analysis).
 
 ## 📦 Kurulum
 
+**Minimal kurulum (sadece EDA için):**
 ```bash
+pip install -r requirements.txt
+```
+
+**Tam kurulum (tüm proje için):**
+```bash
+cd ..
 pip install -r requirements.txt
 ```
 
 ## 🚀 Kullanım
 
+**Not:** Komutlarda `python` veya `python3` kullanabilirsiniz. Windows'ta genellikle `python`, Linux/Mac'te `python3` kullanılır.
+
 **Interaktif mod:**
 ```bash
-python3 eda_calistir.py
+python eda_calistir.py
 ```
 
 Program şunları soracak:
@@ -63,8 +72,13 @@ eda_ciktilar/
 ## 🐛 Sorun Giderme
 
 ### Veri seti bulunamadı:
+```powershell
+# Veri seti yolunu kontrol edin (PowerShell)
+Get-ChildItem ..\..\Veri_Seti\
+```
+
 ```bash
-# Veri seti yolunu kontrol edin
+# Veya bash/Linux için
 ls -la ../../Veri_Seti/
 ```
 
