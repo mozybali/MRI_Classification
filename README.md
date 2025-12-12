@@ -1,6 +1,6 @@
-# MRI Sınıflandırma Projesi
+# MRI Sınıflandırma Projesi v2.0
 
-MRI beyin görüntülerinden demans hastalığı teşhisi yapan basitleştirilmiş makine öğrenmesi projesi.
+MRI beyin görüntülerinden demans hastalığı teşhisi yapan kapsamlı makine öğrenmesi projesi.
 
 ## 📋 Proje Açıklaması
 
@@ -36,12 +36,24 @@ MRI_Classification/
 │   ├── requirements.txt
 │   └── README.md
 │
-├── model/                        # Model eğitimi modülü (2 dosya)
+├── model/                        # Model eğitimi modülü
 │   ├── ayarlar.py                # Konfigürasyon
 │   ├── model_egitici.py          # Eğitim ve değerlendirme
+│   ├── train.py                  # İnteraktif eğitim scripti
+│   ├── inference.py              # Tahmin scripti
+│   ├── model_comparison.py       # Model karşılaştırma
 │   ├── requirements.txt
 │   └── README.md
 │
+├── tests/                        # Test suite (v2.0)
+│   ├── conftest.py               # Test fixtures
+│   ├── test_goruntu_isleyici.py  # Görüntü işleme testleri
+│   ├── test_ozellik_cikarici.py  # Özellik çıkarma testleri
+│   ├── test_model_egitici.py     # Model eğitim testleri (23 test)
+│   └── test_eda_araclar.py       # EDA testleri
+│
+├── pytest.ini                    # Pytest konfigürasyonu
+├── requirements-dev.txt          # Test bağımlılıkları
 └── README.md                     # Bu dosya
 ```
 
@@ -365,6 +377,110 @@ python3 model_comparison.py
 - ✅ Her modül 2-3 dosyada birleştirildi
 - ✅ Tek konfigürasyon dosyası
 - ✅ Modüler ve anlaşılır yapı
+
+## 🧪 Test Suite
+
+Proje, kapsamlı bir test suite ile birlikte gelir. Testler pytest framework'ü kullanılarak yazılmıştır.
+
+### Test Kurulumu
+
+```bash
+# Development bağımlılıklarını yükle
+pip install -r requirements-dev.txt
+```
+
+### Testleri Çalıştırma
+
+**Tüm testleri çalıştır:**
+```bash
+pytest
+```
+
+**Verbose mode ile:**
+```bash
+pytest -v
+```
+
+**Coverage raporu ile:**
+```bash
+pytest --cov=goruntu_isleme --cov=model --cov=eda_analiz --cov-report=html
+```
+
+**Belirli bir test dosyasını çalıştır:**
+```bash
+pytest tests/test_goruntu_isleyici.py
+pytest tests/test_model_egitici.py
+pytest tests/test_ozellik_cikarici.py
+pytest tests/test_eda_araclar.py
+```
+
+**Belirli bir test fonksiyonunu çalıştır:**
+```bash
+pytest tests/test_goruntu_isleyici.py::TestGorselIsleyici::test_init
+```
+
+**Parallel test execution:**
+```bash
+pytest -n auto
+```
+
+### Test Yapısı
+
+```
+tests/
+├── __init__.py
+├── conftest.py                    # Shared fixtures
+├── test_goruntu_isleyici.py       # Görüntü işleme testleri (30+ test)
+├── test_ozellik_cikarici.py       # Özellik çıkarma testleri (25+ test)
+├── test_model_egitici.py          # Model eğitim testleri (30+ test)
+└── test_eda_araclar.py            # EDA testleri (20+ test)
+```
+
+### Test Kategorileri
+
+Testler şu kategorilere ayrılmıştır:
+
+- **Unit Tests**: Tekil fonksiyon ve metod testleri
+- **Integration Tests**: Modüller arası entegrasyon testleri
+- **Edge Cases**: Sınır durumları ve hata yönetimi testleri
+
+### Coverage Hedefi
+
+- Hedef: **>80% code coverage**
+- Kritik modüller: **>90% coverage**
+
+Coverage raporunu görüntülemek için:
+```bash
+pytest --cov-report=html
+# Sonra htmlcov/index.html dosyasını tarayıcıda açın
+```
+
+### Test Fixtures
+
+Proje, test verisi oluşturmak için zengin fixture'lar içerir:
+
+- `test_image`: Test MRI görüntüsü (256x256)
+- `test_image_path`: Geçici dosya yolu
+- `test_dataset_structure`: Minimal veri seti yapısı
+- `sample_features_df`: Örnek özellik DataFrame'i
+- `temp_output_dir`: Geçici çıktı klasörü
+
+### Continuous Integration
+
+GitHub Actions ile otomatik test çalıştırma (yakında):
+
+```yaml
+# .github/workflows/tests.yml
+name: Tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run tests
+        run: pytest
+```
 
 ## 📝 Notlar
 
