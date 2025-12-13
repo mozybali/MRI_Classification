@@ -13,6 +13,10 @@ from PIL import Image
 import random
 from scipy import ndimage
 from tqdm import tqdm
+from multiprocessing import Pool, cpu_count
+from functools import lru_cache
+import warnings
+warnings.filterwarnings('ignore')
 
 try:
     import cv2
@@ -38,6 +42,14 @@ except ImportError:
 from ayarlar import *
 
 
+# Multiprocessing için global fonksiyon (pickle edilebilir olmalı)
+def _islem_wrapper(args):
+    """Tek bir görüntüyü işlemek için wrapper fonksiyon."""
+    dosya_info, cikti_klasoru, artirma_carpanlari = args
+    isleyici = GorselIsleyici()
+    return isleyici._tek_goruntu_isle(dosya_info, cikti_klasoru, artirma_carpanlari)
+
+
 class GorselIsleyici:
     """MRI görüntü işleme sınıfı."""
     
@@ -50,12 +62,19 @@ class GorselIsleyici:
             "basarili": 0,
             "kalite_hatasi": 0
         }
+        self.n_jobs = max(1, cpu_count() - 1)  # Bir çekirdek sisteme bırak
         
     @staticmethod
     def tohum_ayarla(tohum: int = RASTGELE_TOHUM):
         """Rastgelelik tohumu ayarla."""
         random.seed(tohum)
         np.random.seed(tohum)
+    
+    @staticmethod
+    @lru_cache(maxsize=128)  # ⚡ Caching: Aynı yol için tekrar hesaplama önlenir
+    def _cached_path_check(yol_str: str) -> bool:
+        """Dosya yolu kontrolü için cache'lenmiş fonksiyon."""
+        return Path(yol_str).exists()
     
     @staticmethod
     def klasor_olustur(yol: Path):
@@ -985,6 +1004,64 @@ class GorselIsleyici:
     
     # ==================== TOPLU İŞLEM FONKSİYONLARI ====================
     
+    def _tek_goruntu_isle(self, dosya_info: Dict, cikti_klasoru: Path, 
+                          artirma_carpanlari: Dict[str, int]) -> Optional[Dict]:
+        """
+        ⚡ Tek bir görüntüyü işle (paralel işlem için).
+        
+        Args:
+            dosya_info: Dosya bilgileri sözlüğü
+            cikti_klasoru: Çıktı klasörü
+            artirma_carpanlari: Sınıf bazlı augmentation çarpanları
+            
+        Returns:
+            İstatistikler sözlüğü veya None
+        """
+        try:
+            # Çıktı klasörü oluştur
+            sinif_cikti = cikti_klasoru / dosya_info["sinif"]
+            self.klasor_olustur(sinif_cikti)
+            
+            # Görüntüyü işle (kalite kontrol içinde yapılır)
+            goruntu = self.goruntu_isle(dosya_info["yol"])
+            
+            sonuc = {
+                'basarili': 0,
+                'basarisiz': 0,
+                'istatistikler': {sinif: 0 for sinif in SINIF_KLASORLERI}
+            }
+            
+            if goruntu is not None:
+                # Orijinal görüntüyü kaydet
+                dosya_adi = Path(dosya_info["yol"]).stem
+                cikti_yolu = sinif_cikti / f"{dosya_adi}.png"
+                self.goruntu_kaydet(goruntu, str(cikti_yolu))
+                
+                sonuc['basarili'] = 1
+                sonuc['istatistikler'][dosya_info["sinif"]] = 1
+                
+                # Sınıf bazlı veri artırma
+                if VERI_ARTIRMA_AKTIF:
+                    sinif = dosya_info["sinif"]
+                    carpan = artirma_carpanlari.get(sinif, ARTIRMA_CARPANI)
+                    
+                    for i in range(carpan):
+                        artirmis_goruntu = self.veri_artir(goruntu)
+                        artirmis_yol = sinif_cikti / f"{dosya_adi}_aug{i+1}.png"
+                        self.goruntu_kaydet(artirmis_goruntu, str(artirmis_yol))
+                        sonuc['istatistikler'][dosya_info["sinif"]] += 1
+            else:
+                sonuc['basarisiz'] = 1
+                
+            return sonuc
+            
+        except Exception as e:
+            return {
+                'basarili': 0,
+                'basarisiz': 1,
+                'istatistikler': {sinif: 0 for sinif in SINIF_KLASORLERI}
+            }
+    
     def sinif_bazli_artirma_carpani_hesapla(self, dosyalar: List[Dict]) -> Dict[str, int]:
         """
         Sınıf dengesizliğine göre augmentation çarpanını hesapla.
@@ -1084,37 +1161,28 @@ class GorselIsleyici:
         basarisiz = 0
         istatistikler = {sinif: 0 for sinif in SINIF_KLASORLERI}
         
-        for dosya_info in tqdm(dosyalar, desc="Görüntüler işleniyor"):
-            # Çıktı klasörü oluştur
-            sinif_cikti = cikti_klasoru / dosya_info["sinif"]
-            self.klasor_olustur(sinif_cikti)
-            
-            # Görüntüyü işle (kalite kontrol içinde yapılır)
-            goruntu = self.goruntu_isle(dosya_info["yol"])
-            
-            if goruntu is not None:
-                # Orijinal görüntüyü kaydet
-                dosya_adi = Path(dosya_info["yol"]).stem
-                cikti_yolu = sinif_cikti / f"{dosya_adi}.png"
-                self.goruntu_kaydet(goruntu, str(cikti_yolu))
-                
-                basarili += 1
-                self.kalite_istatistikleri["basarili"] += 1
-                istatistikler[dosya_info["sinif"]] += 1
-                
-                # Sınıf bazlı veri artırma ⭐ GELİŞTİRİLDİ
-                if VERI_ARTIRMA_AKTIF:
-                    # Bu sınıf için belirlenen çarpanı kullan
-                    sinif = dosya_info["sinif"]
-                    carpan = artirma_carpanlari.get(sinif, ARTIRMA_CARPANI)
-                    
-                    for i in range(carpan):
-                        artirmis_goruntu = self.veri_artir(goruntu)
-                        artirmis_yol = sinif_cikti / f"{dosya_adi}_aug{i+1}.png"
-                        self.goruntu_kaydet(artirmis_goruntu, str(artirmis_yol))
-                        istatistikler[dosya_info["sinif"]] += 1
-            else:
-                basarisiz += 1
+        # ⚡ PERFORMANS İYİLEŞTİRMESİ: Paralel işleme ile hızlandırma
+        print(f"⚡ Paralel işleme aktif: {self.n_jobs} çekirdek kullanılıyor")
+        
+        # Her görüntü için argümanları hazırla
+        islem_args = [(dosya_info, cikti_klasoru, artirma_carpanlari) for dosya_info in dosyalar]
+        
+        # Paralel işleme ile görüntüleri işle
+        with Pool(processes=self.n_jobs) as pool:
+            sonuclar = list(tqdm(
+                pool.imap(_islem_wrapper, islem_args),
+                total=len(dosyalar),
+                desc="Görüntüler işleniyor (paralel)"
+            ))
+        
+        # Sonuçları topla
+        for sonuc in sonuclar:
+            if sonuc is not None:
+                basarili += sonuc['basarili']
+                basarisiz += sonuc['basarisiz']
+                for sinif, sayi in sonuc['istatistikler'].items():
+                    istatistikler[sinif] += sayi
+                self.kalite_istatistikleri['basarili'] += sonuc['basarili']
         
         # Sonuçları yazdır
         print(f"\n{'='*60}")
