@@ -16,6 +16,38 @@ from PIL import Image
 from tqdm import tqdm
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+from multiprocessing import Pool, cpu_count
+from functools import partial
+
+
+def _istatistik_hesapla_wrapper(satir_dict: Dict) -> Optional[Dict]:
+    """⚡ Paralel istatistik hesaplama için wrapper fonksiyon."""
+    try:
+        goruntu = Image.open(satir_dict["filepath"])
+        if goruntu.mode != 'L':
+            goruntu = goruntu.convert('L')
+        
+        arr = np.array(goruntu)
+        genislik, yukseklik = goruntu.size
+        
+        istat = {
+            "id": satir_dict["id"],
+            "genislik": genislik,
+            "yukseklik": yukseklik,
+            "en_boy_orani": genislik / yukseklik if yukseklik > 0 else 0,
+            "int_ort": float(np.mean(arr)),
+            "int_std": float(np.std(arr)),
+            "int_min": float(np.min(arr)),
+            "int_max": float(np.max(arr)),
+            "int_p1": float(np.percentile(arr, 1)),
+            "int_p25": float(np.percentile(arr, 25)),
+            "int_p50": float(np.percentile(arr, 50)),
+            "int_p75": float(np.percentile(arr, 75)),
+            "int_p99": float(np.percentile(arr, 99))
+        }
+        return istat
+    except Exception:
+        return None
 
 
 class EDAAnaLiz:
@@ -59,6 +91,7 @@ class EDAAnaLiz:
         }
         
         np.random.seed(self.tohum)
+        self.n_jobs = max(1, cpu_count() - 1)  # ⚡ Paralel işleme için
         
     def veri_yukle(self) -> pd.DataFrame:
         """
@@ -107,36 +140,21 @@ class EDAAnaLiz:
         Returns:
             İstatistiklerle genişletilmiş DataFrame
         """
-        istatistikler = []  # Her görüntünün istatistiklerini sakla
+        print(f"⚡ İstatistikler hesaplanıyor (paralel: {self.n_jobs} çekirdek)...")
         
-        for _, satir in tqdm(df.iterrows(), total=len(df), desc="İstatistikler hesaplanıyor"):
-            try:
-                goruntu = Image.open(satir["filepath"])
-                if goruntu.mode != 'L':
-                    goruntu = goruntu.convert('L')
-                
-                arr = np.array(goruntu)
-                genislik, yukseklik = goruntu.size
-                
-                istat = {
-                    "id": satir["id"],
-                    "genislik": genislik,
-                    "yukseklik": yukseklik,
-                    "en_boy_orani": genislik / yukseklik if yukseklik > 0 else 0,
-                    "int_ort": float(np.mean(arr)),
-                    "int_std": float(np.std(arr)),
-                    "int_min": float(np.min(arr)),
-                    "int_max": float(np.max(arr)),
-                    "int_p1": float(np.percentile(arr, 1)),
-                    "int_p25": float(np.percentile(arr, 25)),
-                    "int_p50": float(np.percentile(arr, 50)),
-                    "int_p75": float(np.percentile(arr, 75)),
-                    "int_p99": float(np.percentile(arr, 99))
-                }
-                istatistikler.append(istat)
-                
-            except Exception as e:
-                print(f"[HATA] {satir['filepath']}: {e}")
+        # DataFrame'i dict listesine çevir (multiprocessing için)
+        satir_listesi = df.to_dict('records')
+        
+        # ⚡ Paralel istatistik hesaplama
+        with Pool(processes=self.n_jobs) as pool:
+            istatistikler = list(tqdm(
+                pool.imap(_istatistik_hesapla_wrapper, satir_listesi),
+                total=len(satir_listesi),
+                desc="İstatistikler hesaplanıyor (paralel)"
+            ))
+        
+        # None olmayan sonuçları al
+        istatistikler = [i for i in istatistikler if i is not None]
         
         istat_df = pd.DataFrame(istatistikler)
         return df.merge(istat_df, on="id", how="left")
