@@ -16,6 +16,7 @@ Kullanım:
 import sys
 from pathlib import Path
 import argparse
+import pandas as pd
 
 # Modül yolunu ekle
 sys.path.insert(0, str(Path(__file__).parent))
@@ -197,6 +198,15 @@ def egitim_yap(model_tipi, smote_aktif, feature_selection_aktif, grid_search_akt
                 X_val = X_val[egitici.selected_features]
                 X_test = X_test[egitici.selected_features]
         
+        # Not: Eğer feature selection yapılmadıysa bile,
+        # feature isimlerinin korunduğundan emin olalım
+        if not isinstance(X_train, pd.DataFrame):
+            X_train = pd.DataFrame(X_train, columns=egitici.feature_names)
+        if not isinstance(X_val, pd.DataFrame):
+            X_val = pd.DataFrame(X_val, columns=egitici.selected_features or egitici.feature_names)
+        if not isinstance(X_test, pd.DataFrame):
+            X_test = pd.DataFrame(X_test, columns=egitici.selected_features or egitici.feature_names)
+        
         # Model oluştur
         egitici.model_olustur()
         
@@ -211,7 +221,7 @@ def egitim_yap(model_tipi, smote_aktif, feature_selection_aktif, grid_search_akt
         egitici.degerlendir(X_test, y_test, set_adi="Test")
         
         # Çapraz doğrulama
-        egitici.cross_validation(X_train, y_train)
+        egitici.cross_validate(X_train, y_train)
         
         # Model kaydet
         model_yolu = egitici.model_kaydet()
