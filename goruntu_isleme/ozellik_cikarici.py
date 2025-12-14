@@ -134,7 +134,7 @@ class OzellikCikarici:
             # Bu değer, beyin-arka plan ayrımı için ipucu verir
             try:
                 from skimage.filters import threshold_otsu
-                otsu_esik = float(threshold_otsu(goruntu))
+                otsu_esik = float(threshold_otsu(piksel_array))
             except ImportError:
                 # scikit-image yoksa basit hesaplama
                 otsu_esik = float(np.mean(piksel_array))
@@ -243,12 +243,80 @@ class OzellikCikarici:
         
         # CSV'ye kaydet
         df.to_csv(cikti_csv, index=False, encoding='utf-8')
-        print(f"\n✓ CSV kaydedildi: {cikti_csv}")
-        print(f"  Toplam {len(df)} görüntü")
+        print(f"\n[BASARILI] CSV kaydedildi: {cikti_csv}")
+        print(f"  Toplam {len(df)} goruntu")
         print(f"\nSınıf dağılımı:")
         print(df['sinif'].value_counts().to_string())
         
         return df
+    
+    def nan_temizle(self, csv_dosyasi: Optional[Path] = None, 
+                    metod: str = 'drop') -> pd.DataFrame:
+        """
+        CSV'deki NaN (eksik) değerleri temizle.
+        
+        Args:
+            csv_dosyasi: CSV dosyası (None ise varsayılan)
+            metod: Temizleme metodu
+                - 'drop': NaN içeren satırları çıkar (önerilen)
+                - 'mean': NaN'ları sütun ortalamasıyla doldur
+                - 'median': NaN'ları sütun medyanıyla doldur
+                - 'zero': NaN'ları 0 ile doldur
+                
+        Returns:
+            Temizlenmiş DataFrame
+        """
+        if csv_dosyasi is None:
+            csv_dosyasi = CIKTI_KLASORU / CSV_DOSYA_ADI
+        
+        try:
+            df = pd.read_csv(csv_dosyasi)
+        except Exception as e:
+            print(f"[HATA] CSV okunamadı: {e}")
+            return pd.DataFrame()
+        
+        total_nan = df.isnull().sum().sum()
+        if total_nan == 0:
+            print(f"[BILGI] CSV'de NaN deger YOK - temizlemeye gerek yok")
+            return df
+        
+        print(f"\n[BILGI] {total_nan} NaN deger bulundu")
+        
+        kategorik_sutunlar = ['dosya_adi', 'sinif', 'etiket', 'tam_yol']
+        sayisal_sutunlar = [col for col in df.columns if col not in kategorik_sutunlar]
+        
+        if metod == 'drop':
+            df_temiz = df.dropna()
+            print(f"[ISLEM] NaN iceren {len(df) - len(df_temiz)} satir cikarildi")
+            print(f"   Kalan satir: {len(df_temiz)}")
+        elif metod == 'mean':
+            df_temiz = df.copy()
+            for col in sayisal_sutunlar:
+                if df_temiz[col].isnull().any():
+                    ort = df_temiz[col].mean()
+                    df_temiz[col].fillna(ort, inplace=True)
+                    print(f"   * {col}: NaN -> {ort:.2f} (ortalama)")
+        elif metod == 'median':
+            df_temiz = df.copy()
+            for col in sayisal_sutunlar:
+                if df_temiz[col].isnull().any():
+                    med = df_temiz[col].median()
+                    df_temiz[col].fillna(med, inplace=True)
+                    print(f"   * {col}: NaN -> {med:.2f} (medyan)")
+        elif metod == 'zero':
+            df_temiz = df.copy()
+            df_temiz[sayisal_sutunlar] = df_temiz[sayisal_sutunlar].fillna(0)
+            print(f"[ISLEM] Tum NaN'lar 0 ile dolduruldu")
+        else:
+            print(f"[HATA] Bilinmeyen metod: {metod}")
+            print(f"   Gecerli metodlar: drop, mean, median, zero")
+            return df
+        
+        # Kaydet
+        df_temiz.to_csv(csv_dosyasi, index=False, encoding='utf-8')
+        print(f"\n[BASARILI] Temizlenmis CSV kaydedildi: {csv_dosyasi}")
+        
+        return df_temiz
     
     def scaling_uygula(self, giris_csv: Optional[Path] = None,
                       cikti_csv: Optional[Path] = None,
@@ -307,45 +375,105 @@ class OzellikCikarici:
             print(f"[HATA] CSV okunamadı: {e}")
             return pd.DataFrame()
         
+        # NaN değer kontrolü
+        total_nan = df.isnull().sum().sum()
+        if total_nan > 0:
+            print(f"\n[UYARI] CSV'de {total_nan} adet NaN deger bulundu!")
+            nan_cols = df.isnull().sum()
+            nan_cols = nan_cols[nan_cols > 0]
+            print(f"   NaN iceren sutunlar:")
+            for col, count in nan_cols.items():
+                print(f"   * {col}: {count} NaN ({count/len(df)*100:.2f}%)")
+            
+            print(f"\n   [SECENEKLER]")
+            print(f"   1. NaN degerleri koruyarak devam et (scaler NaN'lari atlar)")
+            print(f"   2. NaN iceren satirlari cikar (onerilen)")
+            print(f"   3. NaN degerleri sutun ortalamasiyla doldur")
+            print(f"\n   Simdilik devam ediliyor... (NaN'lar korunacak)")
+        
         # Ölçeklendirilecek sütunları belirle (sayısal olanlar)
-        kategorik_sutunlar = ['dosya_adi', 'sinif', 'tam_yol']
+        kategorik_sutunlar = ['dosya_adi', 'sinif', 'etiket', 'tam_yol']
         sayisal_sutunlar = [col for col in df.columns if col not in kategorik_sutunlar]
+        
+        # Sabit sütunları tespit et (std = 0 olanlar)
+        sabit_sutunlar = []
+        for col in sayisal_sutunlar:
+            if df[col].std() == 0:
+                sabit_sutunlar.append(col)
+        
+        if sabit_sutunlar:
+            print(f"\n[UYARI] {len(sabit_sutunlar)} sabit sutun bulundu (tum degerler ayni):")
+            for col in sabit_sutunlar[:5]:
+                print(f"   * {col} = {df[col].iloc[0]}")
+            if len(sabit_sutunlar) > 5:
+                print(f"   ... ve {len(sabit_sutunlar) - 5} tane daha")
+            print(f"   Bu sutunlar model egitiminde kullanissiz olabilir.")
         
         # Scaling seçimi
         if metod == "minmax":
             scaler = MinMaxScaler()
-            print(f"\n📊 MinMaxScaler: Değerleri [0, 1] aralığına ölçeklendirir")
+            print(f"\n[BILGI] MinMaxScaler: Degerleri [0, 1] araligina olceklendirir")
         elif metod == "robust":
             scaler = RobustScaler()
-            print(f"\n📊 RobustScaler: Medyan ve IQR kullanır (aykırı değerlere dayanıklı)")
+            print(f"\n[BILGI] RobustScaler: Medyan ve IQR kullanir (aykiri degerlere dayanikli)")
         elif metod == "standard":
             scaler = StandardScaler()
-            print(f"\n📊 StandardScaler: Z-score normalizasyonu (mean=0, std=1)")
+            print(f"\n[BILGI] StandardScaler: Z-score normalizasyonu (mean=0, std=1)")
         elif metod == "maxabs":
             scaler = MaxAbsScaler()
-            print(f"\n📊 MaxAbsScaler: Değerleri [-1, 1] aralığına ölçeklendirir")
+            print(f"\n[BILGI] MaxAbsScaler: Degerleri [-1, 1] araligina olceklendirir")
         else:
             print(f"[HATA] Bilinmeyen scaling metodu: {metod}")
-            print(f"       Geçerli metodlar: minmax, robust, standard, maxabs")
+            print(f"       Gecerli metodlar: minmax, robust, standard, maxabs")
             return df
         
+        # Ölçeklendirme uygula
+        print(f"\n[ISLEM] Olceklendirme uygulanıyor...")
         df_scaled = df.copy()
-        df_scaled[sayisal_sutunlar] = scaler.fit_transform(df[sayisal_sutunlar])
+        try:
+            df_scaled[sayisal_sutunlar] = scaler.fit_transform(df[sayisal_sutunlar])
+        except Exception as e:
+            print(f"\n[HATA] Olceklendirme basarisiz: {e}")
+            return df
+        
+        # Ölçeklendirme sonrası NaN kontrolü
+        nan_after_scaling = df_scaled[sayisal_sutunlar].isnull().sum().sum()
+        if nan_after_scaling > 0:
+            print(f"\n[UYARI] Olceklendirme sonrasi {nan_after_scaling} NaN degeri korundu")
+            print(f"   (sklearn scaler'lari NaN degerleri oldugu gibi birakir)")
         
         # Kaydet
-        df_scaled.to_csv(cikti_csv, index=False, encoding='utf-8')
-        print(f"\n✓ Ölçeklendirilmiş CSV kaydedildi: {cikti_csv}")
-        print(f"  Metod: {metod}")
-        print(f"  İşlenen özellik sayısı: {len(sayisal_sutunlar)}")
+        try:
+            df_scaled.to_csv(cikti_csv, index=False, encoding='utf-8')
+            print(f"\n[BASARILI] Olceklendirilmis CSV kaydedildi!")
+            print(f"   Dosya: {cikti_csv}")
+            print(f"   Metod: {metod}")
+            print(f"   Islenen ozellik sayisi: {len(sayisal_sutunlar)}")
+            print(f"   Toplam satir sayisi: {len(df_scaled)}")
+        except Exception as e:
+            print(f"\n[HATA] CSV kaydedilemedi: {e}")
+            return df
         
         # Scaling istatistikleri göster
-        print(f"\n📈 Ölçeklendirme sonrası değer aralıkları:")
-        for col in sayisal_sutunlar[:5]:  # İlk 5 özelliği göster
-            min_val = df_scaled[col].min()
-            max_val = df_scaled[col].max()
-            print(f"   • {col}: [{min_val:.4f}, {max_val:.4f}]")
-        if len(sayisal_sutunlar) > 5:
-            print(f"   ... ve {len(sayisal_sutunlar) - 5} özellik daha")
+        print(f"\n[ISTATISTIK] Olceklendirme sonrasi deger araliklari:")
+        
+        # Değişken sütunları filtrele (sabit olmayanlar)
+        degisken_sutunlar = [col for col in sayisal_sutunlar if col not in sabit_sutunlar]
+        
+        if degisken_sutunlar:
+            for col in degisken_sutunlar[:5]:  # İlk 5 değişken özelliği göster
+                min_val = df_scaled[col].min()
+                max_val = df_scaled[col].max()
+                ort_val = df_scaled[col].mean()
+                print(f"   * {col}: [{min_val:.4f}, {max_val:.4f}] (ort: {ort_val:.4f})")
+            if len(degisken_sutunlar) > 5:
+                print(f"   ... ve {len(degisken_sutunlar) - 5} degisken ozellik daha")
+        else:
+            print(f"   [UYARI] Hic degisken ozellik yok (tum sutunlar sabit)")
+        
+        if sabit_sutunlar:
+            print(f"\n[IPUCU] Sabit sutunlar ({len(sabit_sutunlar)} adet) model egitiminde")
+            print(f"   cikarilebilir cunku bilgi icermiyorlar.")
         
         return df_scaled
     
@@ -376,13 +504,13 @@ class OzellikCikarici:
         print(f"\n\nTemel istatistikler:")
         print(df.describe().to_string())
         
-        # Eksik değerler
+        # Eksik degerler
         eksik = df.isnull().sum()
         if eksik.sum() > 0:
-            print(f"\n\nEksik değerler:")
+            print(f"\n\nEksik degerler:")
             print(eksik[eksik > 0].to_string())
         else:
-            print(f"\n\n✓ Eksik değer yok")
+            print(f"\n\n[BASARILI] Eksik deger yok")
         
         print("\n" + "="*60)
 
@@ -469,7 +597,7 @@ def veri_boluntule(csv_dosyasi: Optional[Path] = None,
     val_df.to_csv(cikti_klasoru / "dogrulama.csv", index=False)
     test_df.to_csv(cikti_klasoru / "test.csv", index=False)
     
-    print("\n✓ Veri seti bölündü:")
+    print("\n[BASARILI] Veri seti bolundu:")
     print(f"  Eğitim: {len(train_df)} ({EGITIM_ORANI*100:.0f}%)")
     print(f"  Doğrulama: {len(val_df)} ({DOGRULAMA_ORANI*100:.0f}%)")
     print(f"  Test: {len(test_df)} ({TEST_ORANI*100:.0f}%)")
