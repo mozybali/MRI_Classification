@@ -23,23 +23,25 @@ def ana_menu():
     """
     Ana menüyü göster.
     
-    Kullanıcıya 6 farklı işlem seçeneği sunar:
+    Kullanıcıya 7 farklı işlem seçeneği sunar:
     1. Görüntü ön işleme (normalizasyon, histogram eşitleme, vb.)
     2. Özellik çıkarma ve CSV oluşturma
-    3. CSV'ye ölçeklendirme uygulama
-    4. Veri seti bölme (eğitim/doğrulama/test)
-    5. İstatistik raporu gösterme
-    6. Tüm işlemleri otomatik yapma
+    3. CSV'deki NaN değerleri temizleme
+    4. CSV'ye ölçeklendirme uygulama
+    5. Veri seti bölme (eğitim/doğrulama/test)
+    6. İstatistik raporu gösterme
+    7. Tüm işlemleri otomatik yapma
     """
     print("\n" + "="*60)
     print("MRI GÖRÜNTÜ İŞLEME SİSTEMİ")
     print("="*60)
     print("\n1. Görüntüleri ön işle")
     print("2. Özellik çıkar ve CSV oluştur")
-    print("3. CSV'ye ölçeklendirme uygula")
-    print("4. Veri setini böl (eğitim/doğrulama/test)")
-    print("5. İstatistik raporu göster")
-    print("6. TÜM İŞLEMLERİ OTOMATIK YAP")
+    print("3. CSV'deki NaN değerleri temizle")
+    print("4. CSV'ye ölçeklendirme uygula")
+    print("5. Veri setini böl (eğitim/doğrulama/test)")
+    print("6. İstatistik raporu göster")
+    print("7. TÜM İŞLEMLERİ OTOMATIK YAP")
     print("0. Çıkış")
     print("\n" + "="*60)
 
@@ -118,6 +120,47 @@ def ozellik_cikar():
         print("\n✗ Özellik çıkarma başarısız!")
 
 
+def nan_temizle():
+    """
+    CSV'deki NaN değerleri temizle.
+    
+    NaN (Not a Number) değerleri, eksik veya geçersiz veriyi temsil eder.
+    Machine learning modelleri NaN değerlerle çalışamaz, bu yüzden temizlenmeli.
+    
+    Temizleme metodları:
+    - drop: NaN içeren satırları çıkar (veri kaybı olur ama en güvenli)
+    - mean: NaN'ları sütun ortalamasıyla doldur
+    - median: NaN'ları sütun medyanıyla doldur (aykırı değerlere dayanıklı)
+    - zero: NaN'ları 0 ile doldur (bazen mantıklı olabilir)
+    """
+    print("\n[3] NaN DEĞERLERİ TEMİZLEME")
+    print("-" * 60)
+    
+    cikarici = OzellikCikarici()
+    
+    print("\nMevcut temizleme metodları:")
+    print("  1. drop   - NaN içeren satırları çıkar (önerilen)")
+    print("  2. mean   - NaN'ları sütun ortalamasıyla doldur")
+    print("  3. median - NaN'ları sütun medyanıyla doldur")
+    print("  4. zero   - NaN'ları 0 ile doldur")
+    
+    metod = input("\nMetod seçin (drop/mean/median/zero, Enter=drop): ").strip().lower()
+    
+    if metod not in ['drop', 'mean', 'median', 'zero', '']:
+        print("[HATA] Geçersiz metod!")
+        return
+    
+    if not metod:
+        metod = 'drop'
+    
+    df = cikarici.nan_temizle(metod=metod)
+    
+    if not df.empty:
+        print("\n✓ NaN temizleme tamamlandı!")
+    else:
+        print("\n✗ NaN temizleme başarısız!")
+
+
 def scaling_uygula():
     """
     CSV'ye ölçeklendirme uygula.
@@ -131,7 +174,7 @@ def scaling_uygula():
     - Standard: Z-score normalizasyonu (mean=0, std=1)
     - MaxAbs: Değerleri [-1, 1] aralığına ölçeklendirir
     """
-    print("\n[3] ÖLÇEKLENDİRME UYGULAMA")
+    print("\n[4] ÖLÇEKLENDİRME UYGULAMA")
     print("-" * 60)
     
     cikarici = OzellikCikarici()
@@ -172,7 +215,7 @@ def veri_bol():
     Sınıf dengesi korunur (stratified split).
     Her sınıftan aynı oranda veri her sete dağıtılır.
     """
-    print("\n[4] VERİ SETİ BÖLME")
+    print("\n[5] VERİ SETİ BÖLME")
     print("-" * 60)
     print(f"\nOranlar: Eğitim={EGITIM_ORANI}, Doğrulama={DOGRULAMA_ORANI}, Test={TEST_ORANI}")
     
@@ -181,7 +224,7 @@ def veri_bol():
 
 def istatistik_goster():
     """İstatistik raporu göster."""
-    print("\n[5] İSTATİSTİK RAPORU")
+    print("\n[6] İSTATİSTİK RAPORU")
     print("-" * 60)
     
     cikarici = OzellikCikarici()
@@ -202,7 +245,7 @@ def tum_islemleri_yap():
     Kullanıcı müdahalesi gerektirmez, baştan sona otomatik çalışır.
     Yeni başlayanlar veya hızlı işleme için ideal.
     """
-    print("\n[6] TÜM İŞLEMLER OTOMATİK")
+    print("\n[7] TÜM İŞLEMLER OTOMATİK")
     print("-" * 60)
     print("\nŞu işlemler sırayla yapılacak:")
     print("  1. Görüntü ön işleme")
@@ -272,15 +315,17 @@ def main():
             elif secim == '2':
                 ozellik_cikar()
             elif secim == '3':
-                scaling_uygula()
+                nan_temizle()
             elif secim == '4':
-                veri_bol()
+                scaling_uygula()
             elif secim == '5':
-                istatistik_goster()
+                veri_bol()
             elif secim == '6':
+                istatistik_goster()
+            elif secim == '7':
                 tum_islemleri_yap()
             else:
-                print("\n[HATA] Geçersiz seçim! Lütfen 0-6 arası bir sayı girin.")
+                print("\n[HATA] Geçersiz seçim! Lütfen 0-7 arası bir sayı girin.")
             
             input("\nDevam etmek için Enter'a basın...")
             
