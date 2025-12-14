@@ -174,12 +174,12 @@ class ModelEgitici:
         En önemli k özelliği seç (mutual information kullanarak).
         
         Args:
-            X_train: Eğitim özellikleri
+            X_train: Eğitim özellikleri (pandas DataFrame)
             y_train: Eğitim etiketleri
             k: Seçilecek özellik sayısı
             
         Returns:
-            Seçilmiş özellikler
+            Seçilmiş özelliklerle pandas DataFrame
         """
         if not self.feature_selection_aktif:
             return X_train
@@ -188,7 +188,7 @@ class ModelEgitici:
         
         # Mutual information ile özellik skorları hesapla
         selector = SelectKBest(score_func=mutual_info_classif, k=k)
-        X_train_selected = selector.fit_transform(X_train, y_train)
+        selector.fit(X_train, y_train)
         
         # Seçilen özellikleri kaydet
         selected_indices = selector.get_support(indices=True)
@@ -200,7 +200,8 @@ class ModelEgitici:
                                  key=lambda x: x[1], reverse=True)[:10]:
             print(f"      • {feat}: {score:.4f}")
         
-        return X_train_selected
+        # DataFrame olarak döndür (feature isimlerini korumak için)
+        return X_train[self.selected_features]
     
     def model_olustur(self):
         """
@@ -408,6 +409,26 @@ class ModelEgitici:
         if self.model is None:
             self.model_olustur()
         
+        # Cross-validation için early stopping olmadan model oluştur
+        # (çünkü cross_val_score eval_set desteklemiyor)
+        if self.model_tipi == "xgboost":
+            import xgboost as xgb
+            # Early stopping parametrelerini kaldır
+            cv_params = GB_AYARLARI.copy()
+            cv_params.pop('early_stopping_rounds', None)
+            cv_params.pop('callbacks', None)
+            cv_model = xgb.XGBClassifier(**cv_params)
+        elif self.model_tipi == "lightgbm":
+            import lightgbm as lgb
+            # Early stopping parametrelerini kaldır
+            cv_params = GB_AYARLARI.copy()
+            cv_params.pop('early_stopping_rounds', None)
+            cv_params.pop('callbacks', None)
+            cv_model = lgb.LGBMClassifier(**cv_params)
+        else:
+            # SVM veya diğer modeller için mevcut modeli kullan
+            cv_model = self.model
+        
         # Stratified K-Fold (sınıf oranlarını korur)
         skf = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=RASTGELE_TOHUM)
         
@@ -416,7 +437,7 @@ class ModelEgitici:
         cv_results = {}
         
         for metric in scoring_metrics:
-            scores = cross_val_score(self.model, X, y, cv=skf, scoring=metric, n_jobs=-1)
+            scores = cross_val_score(cv_model, X, y, cv=skf, scoring=metric, n_jobs=-1)
             cv_results[metric] = scores
             print(f"   {metric:20s}: {np.mean(scores):.4f} ± {np.std(scores):.4f}")
         
