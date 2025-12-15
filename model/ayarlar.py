@@ -78,20 +78,22 @@ LIGHTGBM_AYARLARI = {
 # Veriler arasında optimal bir karar sınırı bulmaya çalışır
 # Linear SVM, doğrusal ayrılabilir problemler için hızlı ve etkilidir
 SVM_AYARLARI = {
-    'C': 1.0,                    # Regularizasyon parametresi (düşük = daha fazla regularizasyon)
+    'C': 0.1,                    # Regularizasyon parametresi (düşük = daha fazla regularizasyon)
     'loss': 'squared_hinge',     # Kayıp fonksiyonu tipi
-    'max_iter': 2000,            # Maksimum iterasyon sayısı
+    'max_iter': 200000,          # Maksimum iterasyon sayısı (LinearSVC'nin daha rahat konverge etmesi için)
     'random_state': 42,          # Tekrarlanabilirlik
-    'dual': 'auto',              # Otomatik seçim (sklearn 1.3+ uyumlu)
-    'tol': 1e-4,                 # Tolerans (yaklaşım hassasiyeti)
+    'dual': False,               # Örnek sayısı > özellik sayısı ise primal (daha hızlı konverge)
+    'tol': 1e-2,                 # Tolerans (yaklaşım hassasiyeti) - konverjansı hızlandırır
     'class_weight': 'balanced',  # Sınıf dengesizliğini otomatik düzelt
     'verbose': 0,                # Çıktı detay seviyesi
 }
 
 SVM_GRID_PARAMS = {
-    'C': [0.001, 0.01, 0.1, 1, 10, 100],
-    'loss': ['hinge', 'squared_hinge'],
-    'max_iter': [1000, 2000, 5000],
+    'C': [0.001, 0.01, 0.1, 1],
+    'loss': ['squared_hinge'],
+    'dual': [False, True],            # True tercih edilecekse özellik sayısı > örnek sayısı durumunda yararlı
+    'max_iter': [5000, 20000, 50000, 200000],
+    'tol': [1e-2, 5e-3, 1e-3],
 }
 
 # ==================== HİPERPARAMETRE AYARLAMA ====================
