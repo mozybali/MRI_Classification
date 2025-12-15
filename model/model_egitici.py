@@ -250,8 +250,9 @@ class ModelEgitici:
                 # LightGBM parametrelerini XGBoost'tan dönüştür
                 lgb_params = GB_AYARLARI.copy()
                 lgb_params['num_leaves'] = 2 ** GB_AYARLARI['max_depth']
+                lgb_params['class_weight'] = 'balanced'  # Sınıf dengeleme
+                lgb_params['verbose'] = -1  # Uyarıları sustur
                 lgb_params.pop('max_depth', None)
-                lgb_params.pop('early_stopping_rounds', None)
                 
                 self.model = lgb.LGBMClassifier(**lgb_params)
                 print(f"   ✓ LightGBM modeli hazır")
@@ -420,10 +421,12 @@ class ModelEgitici:
             cv_model = xgb.XGBClassifier(**cv_params)
         elif self.model_tipi == "lightgbm":
             import lightgbm as lgb
-            # Early stopping parametrelerini kaldır
+            # LightGBM için uygun parametreleri ayarla
             cv_params = GB_AYARLARI.copy()
-            cv_params.pop('early_stopping_rounds', None)
-            cv_params.pop('callbacks', None)
+            cv_params['num_leaves'] = 2 ** cv_params.get('max_depth', 7)
+            cv_params['class_weight'] = 'balanced'
+            cv_params['verbose'] = -1
+            cv_params.pop('max_depth', None)
             cv_model = lgb.LGBMClassifier(**cv_params)
         else:
             # SVM veya diğer modeller için mevcut modeli kullan
@@ -561,10 +564,13 @@ class ModelEgitici:
         importances = self.model.feature_importances_
         indices = np.argsort(importances)[::-1][:top_n]
         
+        # Feature selection yapıldıysa seçilmiş özellikleri, yoksa tüm özellikleri kullan
+        feature_list = self.selected_features if self.selected_features else self.feature_names
+        
         fig, ax = plt.subplots(figsize=GORSEL_AYARLARI['feature_importance_figsize'])
         ax.barh(range(top_n), importances[indices], color='steelblue')
         ax.set_yticks(range(top_n))
-        ax.set_yticklabels([self.feature_names[i] for i in indices])
+        ax.set_yticklabels([feature_list[i] for i in indices])
         ax.set_xlabel('Önem Skoru', fontsize=12)
         ax.set_title(f'En Önemli {top_n} Özellik - {self.model_tipi.upper()}', fontsize=14, fontweight='bold')
         ax.invert_yaxis()

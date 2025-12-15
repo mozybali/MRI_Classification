@@ -37,7 +37,6 @@ STRATIFY_AKTIF = True      # Sınıf dengesini koru (her sete aynı oranda sın�
 # Gradient Boosting, güçlü bir topluluk öğrenme algoritmasıdır
 # Birden fazla zayıf öğrenci (weak learner) birleştirerek güçlü bir model oluşturur
 GB_AYARLARI = {
-    'algorithm': 'xgboost',      # Kullanılacak kütüphane (xgboost veya lightgbm)
     'n_estimators': 100,         # Ağaç sayısı (daha fazla = daha iyi öğrenme ama daha yavaş)
     'max_depth': 7,              # Ağaç derinliği (daha derin = daha karmaşık model)
     'learning_rate': 0.1,        # Öğrenme hızı (düşük = daha iyi genelleme ama daha yavaş)
@@ -46,9 +45,10 @@ GB_AYARLARI = {
     'colsample_bytree': 0.8,     # Her ağaç için kullanılacak özellik oranı
     'reg_lambda': 1.0,           # L2 regularizasyon (ağırlık cezası)
     'reg_alpha': 0.0,            # L1 regularizasyon
-    'early_stopping_rounds': 10, # Doğrulama skorı 10 tur iyileşmezse dur
-    'scale_pos_weight': None,    # Sınıf dengesizliği için otomatik ağırlık (None = hesapla)
 }
+
+# Early stopping ayarları (fit() metodunda kullanılır, doğrudan model parametresi değil)
+EARLY_STOPPING_ROUNDS = 10       # Doğrulama skorı 10 tur iyileşmezse dur
 
 # Grid Search parametreleri - Otomatik hiperparametre optimizasyonu için
 # Bu değerler denenerek en iyi kombinasyon bulunur (işlemci yoğun!)
@@ -82,7 +82,7 @@ SVM_AYARLARI = {
     'loss': 'squared_hinge',     # Kayıp fonksiyonu tipi
     'max_iter': 2000,            # Maksimum iterasyon sayısı
     'random_state': 42,          # Tekrarlanabilirlik
-    'dual': True,                # İkili (dual) optimizasyon kullan
+    'dual': 'auto',              # Otomatik seçim (sklearn 1.3+ uyumlu)
     'tol': 1e-4,                 # Tolerans (yaklaşım hassasiyeti)
     'class_weight': 'balanced',  # Sınıf dengesizliğini otomatik düzelt
     'verbose': 0,                # Çıktı detay seviyesi

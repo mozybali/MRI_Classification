@@ -217,8 +217,8 @@ def egitim_yap(model_tipi, smote_aktif, feature_selection_aktif, grid_search_akt
         else:
             egitici.egit(X_train, y_train, X_val, y_val)
         
-        # Değerlendirme
-        egitici.degerlendir(X_test, y_test, set_adi="Test")
+        # Değerlendirme - metrikleri kaydet
+        egitici.metrikler = egitici.degerlendir(X_test, y_test, set_adi="Test")
         
         # Çapraz doğrulama
         egitici.cross_validate(X_train, y_train)
