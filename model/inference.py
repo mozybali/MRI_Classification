@@ -25,11 +25,14 @@ from typing import Union, List, Dict, Optional
 from multiprocessing import Pool, cpu_count
 from functools import partial
 from tqdm import tqdm
+from sklearn.preprocessing import MinMaxScaler, RobustScaler, StandardScaler, MaxAbsScaler
 
 # Görüntü işleme için
 sys.path.insert(0, str(Path(__file__).parent.parent / "goruntu_isleme"))
 from goruntu_isleyici import GorselIsleyici
 from ozellik_cikarici import OzellikCikarici
+from ayarlar import PROJE_KOK
+from goruntu_isleme.ayarlar import SCALING_METODU, CSV_DOSYA_ADI
 
 from ayarlar import MODELS_KLASORU
 
@@ -57,6 +60,10 @@ class ModelInference:
             model_yolu: Eğitilmiş model dosyasının yolu (.pkl)
         """
         self.model_yolu = Path(model_yolu)
+        self.scaler = None
+        self.scaler_columns: List[str] = []
+        self.selected_features: Optional[List[str]] = None
+        self.feature_names: Optional[List[str]] = None
         
         if not self.model_yolu.exists():
             # MODELS_KLASORU içinde ara
@@ -68,6 +75,8 @@ class ModelInference:
         
         # Modeli yükle
         self._model_yukle()
+        # Ölçekleyiciyi hazırla (eğitim verisinden)
+        self._hazirla_scaler()
         
         # Görüntü işleyicileri
         self.isleyici = GorselIsleyici()
@@ -101,15 +110,53 @@ class ModelInference:
             print(f"   ✓ Metadata yüklendi")
             print(f"   ℹ️  Model Tipi: {self.metadata.get('model_tipi', 'N/A')}")
             print(f"   ℹ️  Eğitim Tarihi: {self.metadata.get('tarih', 'N/A')}")
+            self.feature_names = self.metadata.get('feature_names')
+            self.selected_features = self.metadata.get('selected_features')
             
             # Metrikler varsa göster
             if 'metrikler' in self.metadata:
                 metriks = self.metadata['metrikler']
-                print(f"   ℹ️  Test Accuracy: {metriks.get('accuracy', 'N/A'):.4f}")
+                acc = metriks.get('accuracy')
+                if isinstance(acc, (int, float)):
+                    print(f"   ℹ️  Test Accuracy: {acc:.4f}")
+                else:
+                    print(f"   ℹ️  Test Accuracy: {acc}")
         else:
             self.metadata = {}
             print(f"   ⚠️  Metadata bulunamadı")
-    
+
+    def _hazirla_scaler(self):
+        """Eğitim verisinden ölçekleyiciyi hazırla."""
+        try:
+            raw_csv = PROJE_KOK / "goruntu_isleme" / "cikti" / CSV_DOSYA_ADI
+            if not raw_csv.exists():
+                print(f"   ⚠️  Ölçekleyici hazırlanamadı (CSV yok): {raw_csv}")
+                return
+            
+            df = pd.read_csv(raw_csv)
+            kategorik = ['dosya_adi', 'sinif', 'etiket', 'tam_yol']
+            self.scaler_columns = [c for c in df.columns if c not in kategorik]
+            
+            if SCALING_METODU == "minmax":
+                scaler = MinMaxScaler()
+            elif SCALING_METODU == "robust":
+                scaler = RobustScaler()
+            elif SCALING_METODU == "standard":
+                scaler = StandardScaler()
+            elif SCALING_METODU == "maxabs":
+                scaler = MaxAbsScaler()
+            else:
+                print(f"   ⚠️  Bilinmeyen SCALING_METODU: {SCALING_METODU}")
+                return
+            
+            scaler.fit(df[self.scaler_columns])
+            self.scaler = scaler
+            if not self.feature_names:
+                self.feature_names = self.scaler_columns
+            print(f"   ✓ Ölçekleyici hazır ({SCALING_METODU})")
+        except Exception as e:
+            print(f"   ⚠️  Ölçekleyici hazırlanamadı: {e}")
+
     def goruntu_isle(self, goruntu_yolu: Union[str, Path]) -> np.ndarray:
         """
         Görüntüyü işle ve model için hazırla.
@@ -156,6 +203,27 @@ class ModelInference:
         # Kategorik kolonları çıkar
         kategorik = ['dosya_adi', 'tam_yol']
         df_ozellikler = df.drop(columns=[c for c in kategorik if c in df.columns])
+        
+        # Ölçekleme: eğitimdeki scaler ile aynı sırayı ve dönüşümü uygula
+        if self.scaler and self.scaler_columns:
+            for col in self.scaler_columns:
+                if col not in df_ozellikler.columns:
+                    df_ozellikler[col] = 0.0
+            df_ozellikler = df_ozellikler[self.scaler_columns]
+            scaled = self.scaler.transform(df_ozellikler)
+            df_ozellikler = pd.DataFrame(scaled, columns=self.scaler_columns)
+        elif self.feature_names:
+            eksik = [c for c in self.feature_names if c not in df_ozellikler.columns]
+            if eksik:
+                raise ValueError(f"Eksik özellik kolonları: {eksik}")
+            df_ozellikler = df_ozellikler[self.feature_names]
+        
+        # Feature selection aktifse seçilen kolonlara indir
+        if self.selected_features:
+            eksik = [c for c in self.selected_features if c not in df_ozellikler.columns]
+            if eksik:
+                raise ValueError(f"Seçilen özellikler veri setinde yok: {eksik}")
+            df_ozellikler = df_ozellikler[self.selected_features]
         
         return df_ozellikler
     
