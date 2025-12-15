@@ -15,7 +15,9 @@ Tüm proje paketleri zaten kuruluysa bu adımı atlayabilirsiniz (`../requiremen
 ```bash
 python eda_calistir.py
 ```
-Komut sırasında veri klasörü (`../../Veri_Seti` varsayılan) ve çıktı klasörü (`eda_ciktilar` varsayılan) sorulur.
+Komut sırasında veri klasörü (varsayılan: depo içindeki `Veri_Seti`) ve çıktı klasörü
+(varsayılan: `eda_analiz/eda_ciktilar`) sorulur. Varsayılanları kabul etmek için Enter
+tuşuna basmanız yeterli; yollar otomatik olarak gerçek konumlara çözümlenir.
 
 ## Üretilenler
 
