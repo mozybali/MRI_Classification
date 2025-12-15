@@ -18,6 +18,7 @@ MODEL SEÇİMİ:
 """
 
 import sys
+import os
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -25,13 +26,14 @@ import numpy as np
 import pandas as pd
 import pickle
 import json
+import inspect
 from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime
 
 # Scikit-learn modülleri
 from sklearn.model_selection import (
     train_test_split, GridSearchCV, RandomizedSearchCV,
-    StratifiedKFold, cross_val_score
+    StratifiedKFold, cross_val_score, cross_validate
 )
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
@@ -52,6 +54,21 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from ayarlar import *
+
+# LightGBM loglarını tamamen kısmak için global çevre değişkeni
+os.environ.setdefault("LIGHTGBM_VERBOSITY", "-1")
+
+
+def _lightgbm_silent():
+    """LightGBM logger'ını tamamen kapat (fallback ile)."""
+    try:
+        import lightgbm as lgb
+        try:
+            lgb.register_logger(lambda msg: None)
+        except Exception:
+            pass
+    except ImportError:
+        pass
 
 # Ensure VERI_CSV is imported
 try:
@@ -247,11 +264,21 @@ class ModelEgitici:
         elif self.model_tipi == "lightgbm":
             try:
                 import lightgbm as lgb
-                # LightGBM parametrelerini XGBoost'tan dönüştür
-                lgb_params = GB_AYARLARI.copy()
-                lgb_params['num_leaves'] = 2 ** GB_AYARLARI['max_depth']
+                _lightgbm_silent()
+                # LightGBM parametrelerini ayarlardan al
+                lgb_params = LIGHTGBM_AYARLARI.copy()
+                if 'max_depth' in lgb_params and 'num_leaves' not in lgb_params:
+                    lgb_params['num_leaves'] = 2 ** lgb_params['max_depth']
                 lgb_params['class_weight'] = 'balanced'  # Sınıf dengeleme
                 lgb_params['verbose'] = -1  # Uyarıları sustur
+                lgb_params['verbosity'] = -1  # Yeni sürümlerde de sessiz mod
+                lgb_params['force_col_wise'] = True  # Log spamini ve auto-seçim mesajlarını önle
+                # Tüm fit'lerde logları sustur (cross_validate klonlarında da çalışır)
+                try:
+                    import lightgbm as lgb
+                    lgb_params['callbacks'] = [lgb.log_evaluation(period=0)]
+                except Exception:
+                    pass
                 lgb_params.pop('max_depth', None)
                 
                 self.model = lgb.LGBMClassifier(**lgb_params)
@@ -318,14 +345,35 @@ class ModelEgitici:
                 self.model.fit(
                     X_train, y_train,
                     eval_set=[(X_val, y_val)],
-                    verbose=False
+                    verbose=False,
+                    early_stopping_rounds=EARLY_STOPPING_ROUNDS
                 )
             else:  # lightgbm
-                # LightGBM 'verbose' yerine 'log_evaluation' kullanır
-                self.model.fit(
-                    X_train, y_train,
-                    eval_set=[(X_val, y_val)]
-                )
+                fit_kwargs = {'eval_set': [(X_val, y_val)]}
+
+                # LightGBM 4.x ile early_stopping_rounds fit() imzasından kaldırıldı.
+                # Callback tabanlı erken durdurma ekleyip imzaya göre parametre ekle.
+                try:
+                    import lightgbm as lgb
+                    callbacks = [lgb.log_evaluation(period=0)]
+                    if hasattr(lgb, "early_stopping"):
+                        callbacks.append(lgb.early_stopping(EARLY_STOPPING_ROUNDS, verbose=False))
+                    if callbacks:
+                        fit_kwargs["callbacks"] = callbacks
+                except Exception:
+                    pass
+
+                try:
+                    fit_sig = inspect.signature(self.model.fit).parameters
+                except (TypeError, ValueError):
+                    fit_sig = {}
+
+                if "verbose" in fit_sig:
+                    fit_kwargs["verbose"] = -1
+                if "early_stopping_rounds" in fit_sig:
+                    fit_kwargs["early_stopping_rounds"] = EARLY_STOPPING_ROUNDS
+
+                self.model.fit(X_train, y_train, **fit_kwargs)
             print(f"   ✓ Early stopping ile eğitim tamamlandı")
         else:
             self.model.fit(X_train, y_train)
@@ -421,11 +469,20 @@ class ModelEgitici:
             cv_model = xgb.XGBClassifier(**cv_params)
         elif self.model_tipi == "lightgbm":
             import lightgbm as lgb
+            _lightgbm_silent()
             # LightGBM için uygun parametreleri ayarla
-            cv_params = GB_AYARLARI.copy()
-            cv_params['num_leaves'] = 2 ** cv_params.get('max_depth', 7)
+            cv_params = LIGHTGBM_AYARLARI.copy()
+            if 'max_depth' in cv_params and 'num_leaves' not in cv_params:
+                cv_params['num_leaves'] = 2 ** cv_params.get('max_depth', 7)
             cv_params['class_weight'] = 'balanced'
             cv_params['verbose'] = -1
+            cv_params['verbosity'] = -1
+            cv_params['force_col_wise'] = True
+            try:
+                import lightgbm as lgb
+                cv_params['callbacks'] = [lgb.log_evaluation(period=0)]
+            except Exception:
+                pass
             cv_params.pop('max_depth', None)
             cv_model = lgb.LGBMClassifier(**cv_params)
         else:
@@ -435,13 +492,25 @@ class ModelEgitici:
         # Stratified K-Fold (sınıf oranlarını korur)
         skf = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=RASTGELE_TOHUM)
         
-        # Farklı metriklerle skorla
-        scoring_metrics = ['accuracy', 'precision_macro', 'recall_macro', 'f1_macro']
-        cv_results = {}
+        # Farklı metrikleri tek seferde hesapla (daha az tekrar eğitim)
+        scoring_metrics = {
+            'accuracy': 'accuracy',
+            'precision_macro': 'precision_macro',
+            'recall_macro': 'recall_macro',
+            'f1_macro': 'f1_macro'
+        }
+        cv_raw = cross_validate(
+            cv_model,
+            X,
+            y,
+            cv=skf,
+            scoring=scoring_metrics,
+            n_jobs=-1,
+            return_train_score=False
+        )
+        cv_results = {metric: cv_raw[f"test_{metric}"] for metric in scoring_metrics}
         
-        for metric in scoring_metrics:
-            scores = cross_val_score(cv_model, X, y, cv=skf, scoring=metric, n_jobs=-1)
-            cv_results[metric] = scores
+        for metric, scores in cv_results.items():
             print(f"   {metric:20s}: {np.mean(scores):.4f} ± {np.std(scores):.4f}")
         
         self.cv_scores = cv_results
@@ -480,11 +549,11 @@ class ModelEgitici:
         if self.model_tipi == "xgboost":
             import xgboost as xgb
             param_distributions = {
-                'n_estimators': [100, 200, 300, 500],
-                'max_depth': [3, 5, 7, 9, 11],
-                'learning_rate': [0.01, 0.05, 0.1, 0.2],
-                'subsample': [0.6, 0.8, 1.0],
-                'colsample_bytree': [0.6, 0.8, 1.0],
+                'n_estimators': GB_GRID_PARAMS.get('n_estimators', [100, 200, 300, 500]),
+                'max_depth': GB_GRID_PARAMS.get('max_depth', [3, 5, 7, 9, 11]),
+                'learning_rate': GB_GRID_PARAMS.get('learning_rate', [0.01, 0.05, 0.1, 0.2]),
+                'subsample': GB_GRID_PARAMS.get('subsample', [0.6, 0.8, 1.0]),
+                'colsample_bytree': GB_GRID_PARAMS.get('colsample_bytree', [0.6, 0.8, 1.0]),
                 'gamma': [0, 0.1, 0.2, 0.5],
                 'min_child_weight': [1, 3, 5, 7],
             }
@@ -500,27 +569,45 @@ class ModelEgitici:
                 'colsample_bytree': [0.6, 0.8, 1.0],
                 'min_child_samples': [10, 20, 30, 50],
             }
-            base_model = lgb.LGBMClassifier(random_state=RASTGELE_TOHUM)
+            base_model = lgb.LGBMClassifier(
+                random_state=RASTGELE_TOHUM,
+                class_weight='balanced'
+            )
             
         elif self.model_tipi == "svm":
             from sklearn.svm import LinearSVC
             param_distributions = {
-                'C': [0.1, 0.5, 1.0, 2.0, 5.0, 10.0],
-                'loss': ['hinge', 'squared_hinge'],
-                'max_iter': [1000, 2000, 5000],
+                'C': SVM_GRID_PARAMS.get('C', [0.1, 0.5, 1.0, 2.0, 5.0, 10.0]),
+                'loss': SVM_GRID_PARAMS.get('loss', ['squared_hinge']),
+                'dual': SVM_GRID_PARAMS.get('dual', [False, True]),
+                'max_iter': SVM_GRID_PARAMS.get('max_iter', [5000, 20000, 50000, 200000]),
+                'tol': SVM_GRID_PARAMS.get('tol', [1e-2, 5e-3, 1e-3]),
             }
-            base_model = LinearSVC(random_state=RASTGELE_TOHUM)
+            base_model = LinearSVC(random_state=RASTGELE_TOHUM, class_weight='balanced')
+        
+        # Toplam kombinasyon sayısını hesapla ve gereksiz uyarıları engellemek için n_iter'ı uyumlu hale getir
+        n_iter_effective = n_iter
+        try:
+            combo_sayisi = 1
+            for values in param_distributions.values():
+                combo_sayisi *= len(values)
+        except TypeError:
+            combo_sayisi = None
+        
+        if combo_sayisi is not None and n_iter_effective > combo_sayisi:
+            print(f"   [UYARI] Parametre kombinasyonları {combo_sayisi} ile sınırlı. n_iter {combo_sayisi} olarak güncellendi.")
+            n_iter_effective = combo_sayisi
         
         # RandomizedSearchCV ile arama yap
         random_search = RandomizedSearchCV(
             estimator=base_model,
             param_distributions=param_distributions,
-            n_iter=n_iter,
-            cv=5,
+            n_iter=n_iter_effective,
+            cv=GRID_SEARCH_AYARLARI.get('cv_folds', 5),
             scoring='f1_macro',
-            n_jobs=-1,
+            n_jobs=GRID_SEARCH_AYARLARI.get('n_jobs', -1),
             random_state=RASTGELE_TOHUM,
-            verbose=1
+            verbose=GRID_SEARCH_AYARLARI.get('verbose', 1)
         )
         
         random_search.fit(X_train, y_train)
@@ -562,14 +649,24 @@ class ModelEgitici:
             return
         
         importances = self.model.feature_importances_
-        indices = np.argsort(importances)[::-1][:top_n]
+        # Grafik boyutunu eldeki gerçek özellik sayısına göre ayarla
+        top_n = min(top_n, len(importances))
         
         # Feature selection yapıldıysa seçilmiş özellikleri, yoksa tüm özellikleri kullan
         feature_list = self.selected_features if self.selected_features else self.feature_names
+        if feature_list is None:
+            feature_list = []
+        if len(feature_list) < len(importances):
+            feature_list = feature_list + [f"feature_{i}" for i in range(len(feature_list), len(importances))]
+        elif len(feature_list) > len(importances):
+            feature_list = feature_list[:len(importances)]
+        
+        indices = np.argsort(importances)[::-1][:top_n]
+        y_pos = np.arange(top_n)
         
         fig, ax = plt.subplots(figsize=GORSEL_AYARLARI['feature_importance_figsize'])
-        ax.barh(range(top_n), importances[indices], color='steelblue')
-        ax.set_yticks(range(top_n))
+        ax.barh(y_pos, importances[indices], color='steelblue')
+        ax.set_yticks(y_pos)
         ax.set_yticklabels([feature_list[i] for i in indices])
         ax.set_xlabel('Önem Skoru', fontsize=12)
         ax.set_title(f'En Önemli {top_n} Özellik - {self.model_tipi.upper()}', fontsize=14, fontweight='bold')
@@ -769,6 +866,9 @@ class ModelEgitici:
                          for k, v in self.metrikler.items() 
                          if not isinstance(v, (np.ndarray, str))},
             'feature_names': self.feature_names,
+            'selected_features': self.selected_features,
+            'feature_selection_aktif': self.feature_selection_aktif,
+            'veri_kaynagi': str(VERI_CSV),
             'ayarlar': GB_AYARLARI if self.model_tipi in ["xgboost", "lightgbm"] else SVM_AYARLARI
         }
         
