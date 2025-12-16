@@ -119,7 +119,7 @@ pip install opencv-python
 pip install --only-binary=:all: scikit-image
 
 # Kalan paketleri yükle
-pip install numpy pandas scipy Pillow SimpleITK scikit-learn xgboost lightgbm imbalanced-learn matplotlib seaborn tqdm
+pip install numpy pandas scipy Pillow SimpleITK "scikit-learn>=1.3.2,<1.5" xgboost lightgbm "imbalanced-learn>=0.14.0,<0.15" matplotlib seaborn tqdm
 ```
 
 **Veya modül bazlı kurulum:**
@@ -138,12 +138,6 @@ pip install -r requirements.txt
 cd goruntu_isleme
 python pipeline_quick_test.py
 ```
-
-### 4. Performans testi (v3.0) ⚡
-```bash
-python3 performance_benchmark.py
-```
-Paralel işleme ve performans iyileştirmelerini test eder.
 
 **Not:** Komutlarda `python` veya `python3` kullanabilirsiniz. Windows'ta genellikle `python`, Linux/Mac'te `python3` kullanılır.
 

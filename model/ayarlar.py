@@ -62,9 +62,10 @@ GB_GRID_PARAMS = {
 # ==================== LIGHTGBM ====================
 # LightGBM, XGBoost'a alternatif hızlı gradient boosting kütüphanesi
 LIGHTGBM_AYARLARI = {
-    'n_estimators': 100,
+    # Daha düsük öğrenme hızı + daha fazla iterasyon (early stopping ile kontrol)
+    'n_estimators': 400,
     'max_depth': 7,
-    'learning_rate': 0.1,
+    'learning_rate': 0.05,
     'random_state': 42,
     'subsample': 0.8,
     'colsample_bytree': 0.8,

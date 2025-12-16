@@ -46,9 +46,10 @@ from sklearn.feature_selection import SelectKBest, mutual_info_classif
 try:
     from imblearn.over_sampling import SMOTE
     SMOTE_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     SMOTE_AVAILABLE = False
-    print("[UYARI] imbalanced-learn yüklü değil. SMOTE kullanılamayacak.")
+    print("[UYARI] imbalanced-learn yüklenemedi (paket eksik veya scikit-learn uyumsuz). SMOTE kullanılamayacak.")
+    print(f"        Detay: {e}")
 
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -562,12 +563,13 @@ class ModelEgitici:
         elif self.model_tipi == "lightgbm":
             import lightgbm as lgb
             param_distributions = {
-                'n_estimators': [100, 200, 300, 500],
-                'num_leaves': [15, 31, 63, 127],
-                'learning_rate': [0.01, 0.05, 0.1, 0.2],
+                # Daha düsük lr + daha fazla iterasyon kombinasyonlarını dene
+                'n_estimators': [200, 400, 800],
+                'num_leaves': [31, 63, 127],
+                'learning_rate': [0.05, 0.1],
                 'subsample': [0.6, 0.8, 1.0],
                 'colsample_bytree': [0.6, 0.8, 1.0],
-                'min_child_samples': [10, 20, 30, 50],
+                'min_child_samples': [10, 20, 40],
             }
             base_model = lgb.LGBMClassifier(
                 random_state=RASTGELE_TOHUM,
@@ -626,12 +628,38 @@ class ModelEgitici:
     def confusion_matrix_ciz(self, y_true, y_pred, dosya_adi: str = "confusion_matrix.png"):
         """Karışıklık matrisi çiz ve kaydet."""
         cm = confusion_matrix(y_true, y_pred)
+        # Hücre anotasyonlarına TP / FN-FP etiketlerini ekle
+        annot_labels = []
+        for i in range(cm.shape[0]):
+            row = []
+            for j in range(cm.shape[1]):
+                if i == j:
+                    row.append(f"{cm[i, j]}\nTP")
+                else:
+                    row.append(f"{cm[i, j]}\nFN/FP")
+            annot_labels.append(row)
         
         fig, ax = plt.subplots(figsize=GORSEL_AYARLARI['confusion_matrix_figsize'])
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax, cbar_kws={'label': 'Sayı'})
+        sns.heatmap(
+            cm,
+            annot=annot_labels,
+            fmt="",
+            cmap='Blues',
+            ax=ax,
+            cbar_kws={'label': 'Sayı'},
+            annot_kws={'fontsize': 10}
+        )
         ax.set_xlabel('Tahmin Edilen Sınıf', fontsize=12)
         ax.set_ylabel('Gerçek Sınıf', fontsize=12)
         ax.set_title(f'Karışıklık Matrisi - {self.model_tipi.upper()}', fontsize=14, fontweight='bold')
+        
+        aciklama = (
+            "TP: Köşegen (doğru sınıf)\n"
+            "FN: Satırdaki diğer sütunlar (gerçeği kaçırdı)\n"
+            "FP: Sütundaki diğer satırlar (yanlış sınıfa atandı)\n"
+            "TN: Multi-class matriste hücre olarak gösterilmez"
+        )
+        fig.text(1.02, 0.5, aciklama, va='center', ha='left', fontsize=10, transform=ax.transAxes)
         
         kayit_yolu = GORSELLER_KLASORU / dosya_adi
         fig.savefig(kayit_yolu, dpi=GORSEL_AYARLARI['dpi'], bbox_inches='tight')
