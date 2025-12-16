@@ -1,101 +1,38 @@
-# MRI Sınıflandırma Projesi v3.0 🚀
+# MRI Beyin Görüntüsü Sınıflandırma
 
-MRI beyin görüntülerinden demans hastalığı teşhisi yapan kapsamlı makine öğrenmesi projesi.
+MRI beyin görüntülerinden demans seviyesini tahmin etmek için uçtan uca bir makine öğrenmesi projesi. Görüntü işleme, özellik çıkarma, EDA, klasik ML modelleri (XGBoost, LightGBM, Linear SVM) ve testler tek bir depo içinde.
 
-## 🆕 v3.0 Yenilikleri (13 Aralık 2025)
-
-### ⚡ Performans İyileştirmeleri (7-8x Hız Artışı!)
-- **Multiprocessing ile Paralel İşleme**: Tüm modüller CPU çekirdeğinizi tam kullanıyor
-- **Akıllı Önbellekleme (Caching)**: Tekrar eden işlemler için LRU cache
-- **Toplu İşleme**: Batch processing ile model inference optimizasyonu
-- **Otomatik CPU Yönetimi**: (n-1) çekirdek otomatik kullanılır
-
-### 📊 Performans Kazanımları
-| İşlem | Eski Süre | Yeni Süre | İyileştirme |
-|-------|-----------|-----------|-------------|
-| Görüntü İşleme (30K) | 2-3 saat | 20-40 dk | **4-8x** ⚡ |
-| Özellik Çıkarma | 30-45 dk | 3-5 dk | **8-10x** 🚀 |
-| EDA Analizi | 15-20 dk | 3-4 dk | **4-6x** 📈 |
-| Batch Tahmin (1000) | 10-15 dk | 1-2 dk | **6-8x** 💨 |
-
-**Toplam proje süresi: 3.5 saat → ~30 dakika**
-
-### ✅ Geriye Uyumlu
-- Tüm eski kodunuz aynen çalışır
-- Hiçbir API değişikliği yok
-- Testler değişiklik gerektirmiyor
-- Yeni özellikler otomatik çalışır
-
-📖 **Detaylar:** [PERFORMANCE_IMPROVEMENTS.md](./PERFORMANCE_IMPROVEMENTS.md) | [PERFORMANCE_QUICKSTART.md](./PERFORMANCE_QUICKSTART.md)
-
----
-
-## 📋 Proje Açıklaması
-
-Bu proje, MRI beyin görüntülerini kullanarak 4 farklı demans seviyesini otomatik olarak sınıflandırır:
-
-- **NonDemented** - Sağlıklı (Demans yok)
-- **VeryMildDemented** - Çok hafif demans
-- **MildDemented** - Hafif demans  
-- **ModerateDemented** - Orta seviye demans
-
-## 🏗️ Basitleştirilmiş Proje Yapısı
+## Proje Yapısı
 
 ```
 MRI_Classification/
-│
-├── Veri_Seti/                    # Ham MRI görüntüleri
-│   ├── NonDemented/
-│   ├── VeryMildDemented/
-│   ├── MildDemented/
-│   └── ModerateDemented/
-│
-├── goruntu_isleme/               # Görüntü işleme modülü
-│   ├── ayarlar.py                # Konfigürasyon
-│   ├── goruntu_isleyici.py       # İşleme ve veri artırma
-│   ├── ozellik_cikarici.py       # Özellik çıkarma ve CSV
-│   ├── ana_islem.py              # Ana menü programı
-│   ├── pipeline_quick_test.py    # Sistem kontrolü
-│   ├── test_pipeline.py          # Pipeline test
-│   └── README.md
-│
-├── eda_analiz/                   # Veri analizi modülü
-│   ├── eda_araclar.py            # Analiz araçları
-│   ├── eda_calistir.py           # Ana program
-│   ├── requirements.txt          # Minimal bağımlılıklar
-│   └── README.md
-│
-├── model/                        # Model eğitimi modülü
-│   ├── ayarlar.py                # Konfigürasyon
-│   ├── model_egitici.py          # Eğitim ve değerlendirme
-│   ├── train.py                  # İnteraktif eğitim scripti
-│   ├── inference.py              # Tahmin scripti
-│   ├── model_comparison.py       # Model karşılaştırma
-│   └── README.md
-│
-├── tests/                        # Test suite (v2.0)
-│   ├── conftest.py               # Test fixtures
-│   ├── test_goruntu_isleyici.py  # Görüntü işleme testleri
-│   ├── test_ozellik_cikarici.py  # Özellik çıkarma testleri
-│   ├── test_model_egitici.py     # Model eğitim testleri (23 test)
-│   └── test_eda_araclar.py       # EDA testleri
-│
-├── pytest.ini                    # Pytest konfigürasyonu
-├── requirements.txt              # Tüm bağımlılıklar (prod + dev)
-└── README.md                     # Bu dosya
+├── Veri_Seti/                 # Ham görüntüler (sınıf klasörleri: NonDemented, VeryMildDemented, MildDemented, ModerateDemented)
+├── goruntu_isleme/            # Ön işleme + özellik çıkarma
+│   ├── ana_islem.py           # Menü tabanlı ana akış
+│   ├── goruntu_isleyici.py    # Ön işleme pipeline'ı (bias correction, skull stripping, hizalama, CLAHE, augmentasyon)
+│   ├── ozellik_cikarici.py    # 20+ özellik çıkarımı ve CSV oluşturma
+│   ├── pipeline_quick_test.py # Tek görüntü için hızlı kontrol
+│   ├── test_pipeline.py       # Pipeline testi
+│   └── ayarlar.py             # Konfigürasyon
+├── eda_analiz/                # Keşifsel veri analizi
+│   ├── eda_calistir.py        # Basit arayüz
+│   ├── eda_araclar.py         # Paralel istatistik + görselleştirme
+│   └── requirements.txt       # Minimal bağımlılıklar
+├── model/                     # Model eğitimi ve tahmin
+│   ├── train.py               # İnteraktif/otomatik eğitim
+│   ├── inference.py           # Tek/batch tahmin
+│   ├── model_comparison.py    # Eğitilmiş modelleri kıyaslama
+│   ├── model_egitici.py       # Eğitim mantığı ve raporlama
+│   └── ayarlar.py             # Model ayarları
+├── tests/                     # Pytest senaryoları
+├── requirements.txt           # Tüm bağımlılıklar (dev dahil)
+└── LICENSE
 ```
 
-## 🚀 Kurulum
+## Kurulum
 
-### 1. Depoyu klonlayın
-```bash
-git clone https://github.com/mozybali/MRI_Classification.git
-cd MRI_Classification
-```
-
-### 2. Gerekli paketleri yükleyin
-
-**Hızlı kurulum (önerilen):**
+1) Python ortamınızı hazırlayın (ör. `python -m venv .venv` ve etkinleştirin).  
+2) Ana dizinde bağımlılıkları kurun:
 ```bash
 pip install -r requirements.txt
 ```
@@ -119,7 +56,7 @@ pip install opencv-python
 pip install --only-binary=:all: scikit-image
 
 # Kalan paketleri yükle
-pip install numpy pandas scipy Pillow SimpleITK "scikit-learn>=1.3.2,<1.5" xgboost lightgbm "imbalanced-learn>=0.14.0,<0.15" matplotlib seaborn tqdm
+pip install numpy pandas scipy Pillow SimpleITK scikit-learn xgboost lightgbm imbalanced-learn matplotlib seaborn tqdm
 ```
 
 **Veya modül bazlı kurulum:**
@@ -138,6 +75,12 @@ pip install -r requirements.txt
 cd goruntu_isleme
 python pipeline_quick_test.py
 ```
+
+### 4. Performans testi (v3.0) ⚡
+```bash
+python3 performance_benchmark.py
+```
+Paralel işleme ve performans iyileştirmelerini test eder.
 
 **Not:** Komutlarda `python` veya `python3` kullanabilirsiniz. Windows'ta genellikle `python`, Linux/Mac'te `python3` kullanılır.
 
@@ -185,347 +128,55 @@ python eda_calistir.py
 
 ```bash
 cd ../model
+python train.py --auto                 # Varsayılan ayarlarla XGBoost
+# veya etkileşimli seçim için
 python train.py
 ```
+Modeller ve raporlar `model/ciktilar/` klasöründe saklanır.
 
-**Hızlı başlatma seçenekleri:**
-```bash
-# Otomatik mod (varsayılan ayarlar)
-python train.py --auto
-
-# Belirli model ile başlat
-python train.py --model xgboost
-python train.py --model lightgbm
-python train.py --model svm
-```
-
-Desteklenen modeller:
-- **XGBoost** (önerilen) - Yüksek doğruluk
-- **LightGBM** - Hızlı eğitim
-- **Linear SVM** - Basit ve hızlı
-
-**Gelişmiş özellikler:**
-- 🔄 SMOTE ile veri dengeleme
-- 🎯 Sınıf ağırlıklandırma
-- 📊 Hyperparameter tuning
-- 🔍 Feature selection
-
-### Adım 4: Tahmin (Inference)
-
-**Eğitilmiş model ile yeni görüntüleri tahmin et:**
-
+3) **Tahmin**  
 ```bash
 # Tek görüntü
-python inference.py --image test.jpg
-
-# Toplu tahmin (klasör)
-python inference.py --batch ./test_images/
-
-# Belirli model ile
-python inference.py --model xgboost_latest.pkl --image test.jpg
+python inference.py --model model/ciktilar/modeller/xgboost_YYYYMMDD_HHMMSS.pkl --image /path/to/image.jpg
+# Klasör içindeki tüm görüntüler
+python inference.py --model model/ciktilar/modeller/xgboost_YYYYMMDD_HHMMSS.pkl --batch /path/to/folder/
 ```
 
-### Adım 5: Model Karşılaştırma
-
-**Birden fazla model eğittiyseniz performansları karşılaştırın:**
-
+4) **EDA (isteğe bağlı)**  
 ```bash
-python model_comparison.py
+cd ../eda_analiz
+python eda_calistir.py    # Çıktılar: eda_ciktilar/
 ```
 
-Çıktılar:
-- 📊 Performans karşılaştırma grafikleri
-- 🎯 Radar chart
-- 🏆 En iyi model önerisi
+## Modül Detayları
 
-## 📊 Özellikler
+- **goruntu_isleme**: Bias field correction (SimpleITK mevcutsa N4ITK), skull stripping, hizalama, adaptif CLAHE, z-score normalizasyonu, medikal augmentasyon, sınıf bazlı artırma ve çok çekirdekli toplu işleme. `ozellik_cikarici.py` 20+ öznitelik çıkarır, `ayarlar.py` üzerinden değiştirilebilir.
+- **eda_analiz**: Paralel temel istatistik hesaplama, sınıf dağılımı, boyut analizi, yoğunluk dağılımı, korelasyon matrisi ve PCA grafikleri üretir.
+- **model**: SMOTE ile dengeleme, sınıf ağırlıkları, isteğe bağlı özellik seçimi ve grid search; XGBoost/LightGBM/Linear SVM desteği; JSON metadata ve görsellerle raporlama; tek veya toplu tahmin.
 
-### Görüntü İşleme (v2.0)
-- ✅ Bias field correction (N4ITK)
-- ✅ Skull stripping (kafatası çıkarma)
-- ✅ Center of mass alignment
-- ✅ Adaptif histogram eşitleme (CLAHE)
-- ✅ Medikal-spesifik veri artırma
-- ✅ Sınıf bazlı dengesiz augmentation
-- ✅ Özellik çıkarma (20+ özellik)
-- ✅ Çoklu ölçeklendirme metodu
+## Ayarlar
 
-### Model Eğitimi (Güncellenmiş)
-- ✅ İnteraktif eğitim arayüzü
-- ✅ SMOTE ile veri dengeleme
-- ✅ Otomatik veri bölme (70/15/15)
-- ✅ Cross-validation desteği
-- ✅ Hyperparameter tuning (opsiyonel)
-- ✅ Performans metrikleri (accuracy, precision, recall, F1, ROC-AUC, Cohen's Kappa)
-- ✅ Karışıklık matrisi
-- ✅ ROC eğrileri (multi-class)
-- ✅ Precision-Recall eğrileri
-- ✅ Özellik önemi analizi
-- ✅ Detaylı raporlar
-- ✅ Model ve metadata kaydetme
-- ✅ Inference scripti (tek/batch tahmin)
-- ✅ Model karşılaştırma aracı
+- `goruntu_isleme/ayarlar.py`: hedef boyut, normalizasyon stratejisi, bias correction, skull stripping, registration, augmentasyon ve ölçekleme yöntemi (`SCALING_METODU`).
+- `model/ayarlar.py`: veri yolları, train/val/test oranları, model hiperparametreleri, grid search parametreleri, log ve çıktı yolları.
 
-### EDA Analizi
-- ✅ Kapsamlı istatistiksel analiz
-- ✅ Görselleştirme (matplotlib + seaborn)
-- ✅ PCA boyut indirgeme
-- ✅ Özet raporlar
+## Testler
 
-## 🔧 Konfigürasyon
-
-Her modülün `ayarlar.py` dosyasını düzenleyerek özelleştirin:
-
-**goruntu_isleme/ayarlar.py**
-```python
-HEDEF_GENISLIK = 256
-HEDEF_YUKSEKLIK = 256
-VERI_ARTIRMA_AKTIF = True
-SINIF_BAZLI_ARTIRMA_AKTIF = True  # Sınıf dengesizliği için
-BIAS_FIELD_CORRECTION_AKTIF = True
-SKULL_STRIPPING_AKTIF = True
-```
-
-**model/ayarlar.py**
-```python
-GB_AYARLARI = {
-    'n_estimators': 100,
-    'max_depth': 7,
-    'learning_rate': 0.1,
-    'scale_pos_weight': None,  # Otomatik sınıf ağırlığı
-    ...
-}
-```
-
-## 📈 Beklenen Performans
-
-Tipik sonuçlar (33,984 görüntü, XGBoost ile):
-- **Accuracy**: ~85-92%
-- **F1 Score**: ~0.82-0.88
-- **ROC-AUC**: ~0.88-0.93
-- **Training Time**: 3-8 dakika (CPU)
-- **Inference Time**: ~50-100ms per image
-
-## 📚 Proje Yapısı
-
-```
-MRI_Classification/
-├── README.md                          # Ana dokümantasyon
-├── requirements.txt                   # Tüm bağımlılıklar
-├── LICENSE
-├── Veri_Seti/                        # Ham MRI görüntüleri (33,984 adet)
-│   ├── NonDemented/                  (9,600 görüntü)
-│   ├── VeryMildDemented/             (8,960 görüntü)
-│   ├── MildDemented/                 (8,960 görüntü)
-│   └── ModerateDemented/             (6,464 görüntü)
-│
-├── goruntu_isleme/                   # Görüntü işleme modülü
-│   ├── ana_islem.py                  (Ana çalıştırma scripti)
-│   ├── goruntu_isleyici.py           (Core işleme)
-│   ├── ozellik_cikarici.py           (Feature extraction)
-│   ├── ayarlar.py                    (Konfigürasyon)
-│   ├── pipeline_quick_test.py        (Sistem kontrolü)
-│   ├── test_pipeline.py              (Pipeline test)
-│   └── README.md
-│
-├── eda_analiz/                       # EDA modülü
-│   ├── eda_calistir.py               (Ana çalıştırma scripti)
-│   ├── eda_araclar.py                (Analiz araçları)
-│   ├── requirements.txt              (Minimal bağımlılıklar)
-│   └── README.md
-│
-└── model/                            # Model eğitim modülü
-    ├── train.py                      (Ana eğitim scripti) ⭐
-    ├── inference.py                  (Tahmin scripti) ⭐
-    ├── model_comparison.py           (Model karşılaştırma) ⭐
-    ├── model_egitici.py              (Core eğitim sınıfı)
-    ├── ayarlar.py                    (Konfigürasyon)
-    └── README.md
-```
-
-## 🎯 Özellikler ve İyileştirmeler (v2.0)
-
-### ✅ Yeni Eklenenler
-- 🆕 Kullanıcı dostu `train.py` scripti (interaktif + otomatik mod)
-- 🆕 `inference.py` - Production-ready tahmin scripti
-- 🆕 `model_comparison.py` - Model performans karşılaştırma
-- 🆕 `pipeline_quick_test.py` - Sistem ön kontrolü
-- 🆕 SMOTE veri dengeleme entegrasyonu
-- 🆕 Sınıf bazlı augmentation çarpanları
-- 🆕 ROC ve Precision-Recall eğrileri
-- 🆕 Kapsamlı README'ler her modül için
-
-### 🔄 İyileştirilenler
-- ⬆️ Bias field correction (N4ITK)
-- ⬆️ Skull stripping algoritması
-- ⬆️ Medikal-spesifik augmentation
-- ⬆️ 20+ feature extraction
-- ⬆️ Class weights stratejisi
-- ⬆️ Detaylı dokümantasyon
-
-## 🎯 Kullanım Senaryoları
-
-### Senaryo 1: Hızlı Başlangıç (5 dakika)
-```bash
-pip install -r requirements.txt
-cd goruntu_isleme ; python ana_islem.py  # Menüden 6
-cd ../model ; python train.py --auto
-```
-
-### Senaryo 2: Kapsamlı Analiz
-```bash
-# 1. EDA analizi
-cd eda_analiz ; python eda_calistir.py
-
-# 2. Görüntü işleme
-cd ../goruntu_isleme ; python ana_islem.py  # Menüden 6
-
-# 3. Model eğitimi (interaktif)
-cd ../model ; python train.py
-
-# 4. Model karşılaştırma
-python model_comparison.py
-```
-
-### Senaryo 3: Production Deployment
-```bash
-# Model eğit
-python train.py --auto --model xgboost
-
-# Yeni görüntüleri tahmin et
-python inference.py --batch ./new_patients/
-
-# Sonuçları analiz et
-python model_comparison.py
-```
-- ✅ ASCII klasör isimleri
-- ✅ Her modül 2-3 dosyada birleştirildi
-- ✅ Tek konfigürasyon dosyası
-- ✅ Modüler ve anlaşılır yapı
-
-## 🧪 Test Suite
-
-Proje, kapsamlı bir test suite ile birlikte gelir. Testler pytest framework'ü kullanılarak yazılmıştır.
-
-### Test Kurulumu
-
-```bash
-# Test araçları ana requirements.txt içinde dahil
-pip install -r requirements.txt
-```
-
-### Testleri Çalıştırma
-
-**Tüm testleri çalıştır:**
+Testleri çalıştırmak için ana dizinde:
 ```bash
 pytest
 ```
-
-**Verbose mode ile:**
-```bash
-pytest -v
-```
-
-**Coverage raporu ile:**
-```bash
-pytest --cov=goruntu_isleme --cov=model --cov=eda_analiz --cov-report=html
-```
-
-**Belirli bir test dosyasını çalıştır:**
+Belirli modüller için:
 ```bash
 pytest tests/test_goruntu_isleyici.py
 pytest tests/test_model_egitici.py
-pytest tests/test_ozellik_cikarici.py
-pytest tests/test_eda_araclar.py
 ```
 
-**Belirli bir test fonksiyonunu çalıştır:**
-```bash
-pytest tests/test_goruntu_isleyici.py::TestGorselIsleyici::test_init
-```
+## Çıktılar
 
-**Parallel test execution:**
-```bash
-pytest -n auto
-```
+- `goruntu_isleme/cikti/`: İşlenmiş görüntüler, ham ve ölçekli özellik CSV'leri, stratified bölünmüş `egitim.csv`/`dogrulama.csv`/`test.csv`.
+- `model/ciktilar/`: Eğitilmiş modeller (`.pkl`), metadata (`.json`), raporlar ve değerlendirme görselleri.
+- `eda_analiz/eda_ciktilar/`: EDA grafikleri ve özet CSV.
 
-### Test Yapısı
+## Lisans
 
-```
-tests/
-├── __init__.py
-├── conftest.py                    # Shared fixtures
-├── test_goruntu_isleyici.py       # Görüntü işleme testleri (30+ test)
-├── test_ozellik_cikarici.py       # Özellik çıkarma testleri (25+ test)
-├── test_model_egitici.py          # Model eğitim testleri (30+ test)
-└── test_eda_araclar.py            # EDA testleri (20+ test)
-```
-
-### Test Kategorileri
-
-Testler şu kategorilere ayrılmıştır:
-
-- **Unit Tests**: Tekil fonksiyon ve metod testleri
-- **Integration Tests**: Modüller arası entegrasyon testleri
-- **Edge Cases**: Sınır durumları ve hata yönetimi testleri
-
-### Coverage Hedefi
-
-- Hedef: **>80% code coverage**
-- Kritik modüller: **>90% coverage**
-
-Coverage raporunu görüntülemek için:
-```bash
-pytest --cov-report=html
-# Sonra htmlcov/index.html dosyasını tarayıcıda açın
-```
-
-### Test Fixtures
-
-Proje, test verisi oluşturmak için zengin fixture'lar içerir:
-
-- `test_image`: Test MRI görüntüsü (256x256)
-- `test_image_path`: Geçici dosya yolu
-- `test_dataset_structure`: Minimal veri seti yapısı
-- `sample_features_df`: Örnek özellik DataFrame'i
-- `temp_output_dir`: Geçici çıktı klasörü
-
-### Continuous Integration
-
-GitHub Actions ile otomatik test çalıştırma (yakında):
-
-```yaml
-# .github/workflows/tests.yml
-name: Tests
-on: [push, pull_request]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Run tests
-        run: pytest
-```
-
-## 📝 Notlar
-
-- Veri seti klasörü: `Veri_Seti/` (değiştirilebilir)
-- Çıktılar otomatik olarak kaydedilir
-- Tüm işlemler terminal üzerinden yönetilir
-- İlerleme çubukları ile takip edin
-
-## 🤝 Katkı
-
-Katkılarınızı bekliyoruz! Pull request göndermekten çekinmeyin.
-
-## 📄 Lisans
-
-Bu proje MIT lisansı altında lisanslanmıştır.
-
-## 👨‍💻 Yazar
-
-- GitHub: [@mozybali](https://github.com/mozybali)
-
-## 🙏 Teşekkürler
-
-MRI veri seti ve ilham için tüm katkıda bulunanlara teşekkürler.
+MIT lisansı için `LICENSE` dosyasına bakın.

@@ -1,168 +1,59 @@
 # Görüntü İşleme Modülü
 
-MRI görüntülerini işlemek ve özellik çıkarmak için gelişmiş modül.
+Ham MRI görüntülerini kalite kontrolünden geçirir, normalize eder, hizalar, sınıf bazlı augmentasyon uygular ve model eğitimine hazır özellik CSV’leri üretir. Tüm ağır işler çok çekirdekli çalışır.
 
-## 🆕 v3.0 Performans İyileştirmeleri
+## Kurulum
 
-### ⚡ Multiprocessing ile 4-10x Hızlanma
-- **Paralel görüntü işleme**: CPU çekirdeğinizi tam kullanır
-- **Paralel özellik çıkarma**: 8-10x daha hızlı CSV oluşturma
-- **Otomatik CPU yönetimi**: (n-1) çekirdek otomatik kullanılır
-- **Akıllı önbellekleme**: Tekrar eden işlemler cache'lenir
-
-📊 **Performans Kazanımları:**
-- Görüntü işleme: 2-3 saat → 20-40 dakika (**4-8x**)
-- Özellik çıkarma: 30-45 dk → 3-5 dakika (**8-10x**)
-
-✅ **Geriye Uyumlu**: Tüm eski kodunuz aynen çalışır, hiçbir değişiklik gerekmez!
-
----
-
-## 📦 Kurulum
-
+Ana dizinden bağımlılıkları yükleyin:
 ```bash
-# Ana dizinden tüm bağımlılıkları yükle
-cd ..
-pip install -r requirements.txt
+pip install -r ../requirements.txt
 ```
+Veri yapısı: `../Veri_Seti/<SınıfAdı>/` (NonDemented, VeryMildDemented, MildDemented, ModerateDemented).
 
-**Not:** Görüntü işleme modülü için ayrı requirements.txt yok, tüm bağımlılıklar ana `requirements.txt` dosyasında.
+## Modüller ve İş Akışı
 
-## 🚀 Kullanım
-
-**Not:** Komutlarda `python` veya `python3` kullanabilirsiniz. Windows'ta genellikle `python`, Linux/Mac'te `python3` kullanılır.
-
-### 1. Sistem Kontrolü (Önerilen)
-```bash
-python pipeline_quick_test.py
-```
-Paket ve veri seti kontrolü yapar.
-
-### 2. Ana İşleme Pipeline
+### 1) Ana menü (ana_islem.py)
 ```bash
 python ana_islem.py
 ```
+- **1 Ön işleme**: Kalite kontrol → median filtre → bias field correction (SimpleITK varsa N4ITK, yoksa hızlı yöntem) → skull stripping → hizalama (center-of-mass/affine) → yoğunluk normalizasyonu + adaptif CLAHE → yeniden boyutlandırma → sınıf bazlı augmentasyon. Çıkış: `cikti/<sınıf>/`.
+- **2 Özellik çıkarma**: `ozellik_cikarici.py` ile 20+ öznitelik (boyut, yoğunluk istatistikleri, entropi, kontrast, gradyan, Otsu eşiği) hesaplanır, `goruntu_ozellikleri.csv` oluşturulur.
+- **3 NaN temizleme**: CSV’deki eksik değerleri düşürme veya doldurma (drop/mean/median/zero).
+- **4 Ölçeklendirme**: `SCALING_METODU` (minmax/robust/standard/maxabs) ile `goruntu_ozellikleri_scaled.csv`.
+- **5 Veri bölme**: Stratified train/val/test CSV’leri (`egitim.csv`, `dogrulama.csv`, `test.csv`).
+- **6 İstatistik raporu**: CSV özetlerini terminalde gösterir.
+- **7 Otomatik**: 1→2→3→4→5 adımlarını sırayla çalıştırır (önerilen).
 
-**Menü seçenekleri:**
-```
-1. Görüntüleri ön işle          → Normalize, CLAHE, bias correction
-2. Özellik çıkar ve CSV oluştur → 20+ özellik çıkarma
-3. CSV'ye ölçeklendirme uygula  → MinMax/Robust/Standard scaling
-4. Veri setini böl              → Train/Val/Test split
-5. İstatistik raporu göster     → Özet istatistikler
-6. TÜM İŞLEMLERİ OTOMATIK YAP   → ⭐ Önerilen
-```
-
-### 3. Pipeline Test (Tek Görüntü)
+### 2) Hızlı kontrol (pipeline_quick_test.py)
 ```bash
-python test_pipeline.py [goruntu_yolu]
+python pipeline_quick_test.py
 ```
-Tek görüntü üzerinde tüm adımları görselleştirir.
+Paket ve veri dizini kontrolü yapar.
 
-## 📁 Modül Yapısı
-
-```
-goruntu_isleme/
-├── ayarlar.py                 # Merkezi konfigürasyon
-├── goruntu_isleyici.py        # Core işleme sınıfı
-├── ozellik_cikarici.py        # Özellik çıkarma
-├── ana_islem.py               # Ana menü (⭐ buradan başla)
-├── pipeline_quick_test.py     # Sistem kontrolü
-├── test_pipeline.py           # Pipeline test
-└── requirements.txt           # Bağımlılıklar
-```
-
-## ✨ Özellikler (v2.0)
-
-### Gelişmiş Ön İşleme
-- ✅ **Bias field correction** (N4ITK) - MRI yoğunluk düzeltme
-- ✅ **Skull stripping** - Kafatası çıkarma
-- ✅ **Center of mass alignment** - Görüntü hizalama
-- ✅ **Adaptive CLAHE** - Akıllı kontrast iyileştirme
-- ✅ **Gürültü giderme** - Median/Gaussian filtreleme
-- ✅ **Z-score normalizasyonu** - Standardizasyon
-
-### Medikal-Spesifik Augmentation
-- ✅ **Elastic deformation** - Doku benzeri deformasyon
-- ✅ **Gaussian noise** - Gerçekçi gürültü ekleme
-- ✅ **Random crop & resize** - Rastgele kırpma
-- ✅ **Intensity shift** - Yoğunluk kayması
-- ✅ **Flip (horizontal/vertical)** - Aynalama
-- ✅ **Sınıf bazlı dengesiz augmentation** - Az örnekli sınıflar için daha fazla artırma
-
-### Özellik Çıkarma
-**20+ özellik:**
-- Boyut özellikleri (genişlik, yükseklik, en-boy oranı)
-- Yoğunluk istatistikleri (mean, std, min, max, percentiles)
-- Doku özellikleri (entropi, kontrast, homojenlik, enerji)
-- Gelişmiş özellikler (skewness, kurtosis, gradient, Otsu threshold)
-
-### Ölçeklendirme
-- ✅ MinMax (0-1 aralığı)
-- ✅ Robust (outlier'lara dayanıklı)
-- ✅ Standard (Z-score)
-- ✅ MaxAbs ([-1, 1] aralığı)
-
-## 📊 Çıktılar
-
-```
-goruntu_isleme/cikti/
-├── NonDemented/                      # İşlenmiş görüntüler
-├── VeryMildDemented/
-├── MildDemented/
-├── ModerateDemented/
-├── goruntu_ozellikleri.csv           # Ham özellikler
-├── goruntu_ozellikleri_scaled.csv    # Ölçeklendirilmiş (model için)
-├── train/                            # Eğitim seti
-├── validation/                       # Doğrulama seti
-└── test/                             # Test seti
-```
-
-## ⚙️ Konfigürasyon
-
-`ayarlar.py` dosyasından tüm parametreler ayarlanabilir:
-
-```python
-# Görüntü boyutu
-HEDEF_GENISLIK = 256
-HEDEF_YUKSEKLIK = 256
-
-# Veri artırma
-VERI_ARTIRMA_AKTIF = True
-SINIF_BAZLI_ARTIRMA_AKTIF = True
-SINIF_BAZLI_CARPANLAR = {
-    "NonDemented": 1,
-    "ModerateDemented": 3,  # En az örnek - en çok artır
-}
-
-# Gelişmiş işleme
-BIAS_FIELD_CORRECTION_AKTIF = True
-SKULL_STRIPPING_AKTIF = True
-```
-
-## 🐛 Sorun Giderme
-
-### OpenCV/scikit-image/tqdm yüklü değil:
+### 3) Tek görüntü görselleştirme (test_pipeline.py)
 ```bash
-pip install opencv-python scikit-image tqdm
+python test_pipeline.py /path/to/image.jpg
 ```
+Pipeline adımlarını tek bir görüntü üzerinde görselleştirir; argüman verilmezse veri setinden örnek arar.
 
-### SimpleITK eksik (opsiyonel):
-```bash
-pip install SimpleITK
-```
-SimpleITK yoksa bias correction çalışmaz ama diğer özellikler çalışır.
+## Çıktılar
 
-### Veri seti bulunamadı:
-```bash
-# Veri setinin doğru konumda olduğunu kontrol edin
-ls -la ../Veri_Seti/
-```
+`cikti/` altında:
+- İşlenmiş görüntüler (`<sınıf>/<dosya>.png`, augmentasyon dahil)
+- `goruntu_ozellikleri.csv` (ham özellikler)
+- `goruntu_ozellikleri_scaled.csv` (ölçekli özellikler)
+- `egitim.csv`, `dogrulama.csv`, `test.csv` (stratified bölünmüş setler)
 
-## 💡 İpuçları
+## Ayarlar (ayarlar.py)
 
-1. **İlk kullanımda** `pipeline_quick_test.py` çalıştırın
-2. **Hızlı başlangıç** için ana_islem.py'de "6" seçin
-3. **Tek görüntü test** için test_pipeline.py kullanın
-4. **Augmentation çarpanlarını** sınıf dengesine göre ayarlayın
-5. **SimpleITK** kurarak daha iyi bias correction elde edin
+- Boyut ve normalizasyon: `HEDEF_GENISLIK`, `HEDEF_YUKSEKLIK`, `NORMALIZASYON_STRATEJISI`
+- Görüntü iyileştirme: `BIAS_FIELD_CORRECTION_AKTIF`, `SKULL_STRIPPING_AKTIF`, `REGISTRATION_AKTIF`
+- Augmentasyon: `VERI_ARTIRMA_AKTIF`, `SINIF_BAZLI_ARTIRMA_AKTIF`, `SINIF_BAZLI_CARPANLAR`
+- Ölçekleme: `SCALING_METODU`
+- Bölme oranları: `EGITIM_ORANI`, `DOGRULAMA_ORANI`, `TEST_ORANI`
+
+## İpuçları
+
+- SimpleITK yoksa bias correction otomatik hızlı metoda düşer (uyarı görürsünüz).  
+- Paralel işlem sayısı `GorselIsleyici.n_jobs` ile sınırlanabilir.  
+- CSV’de NaN varsa menü 3 → 4 → 5 adımlarını yeniden çalıştırın.

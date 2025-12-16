@@ -13,21 +13,36 @@ from pathlib import Path
 # Modül yolunu ekle
 sys.path.insert(0, str(Path(__file__).parent))
 
-from eda_araclar import EDAAnaLiz
+from eda_araclar import (
+    EDAAnaLiz,
+    DEFAULT_VERI_KLASORU,
+    DEFAULT_CIKTI_KLASORU,
+)
 
 
 def main():
     """Ana program."""
     print("\nMRI Veri Seti EDA Analizi Başlatılıyor...\n")
     
-    # Kullanıcıdan girdi al
-    veri_klasoru = input("Veri seti klasörü (Enter=varsayılan: ../../Veri_Seti): ").strip()
-    if not veri_klasoru:
-        veri_klasoru = "../../Veri_Seti"
+    varsayilan_veri = DEFAULT_VERI_KLASORU
+    varsayilan_cikti = DEFAULT_CIKTI_KLASORU
     
-    cikti_klasoru = input("Çıktı klasörü (Enter=varsayılan: eda_ciktilar): ").strip()
-    if not cikti_klasoru:
-        cikti_klasoru = "eda_ciktilar"
+    # Kullanıcıdan girdi al
+    veri_klasoru_girdi = input(
+        f"Veri seti klasörü (Enter=varsayılan: {varsayilan_veri}): "
+    ).strip()
+    if not veri_klasoru_girdi:
+        veri_klasoru = varsayilan_veri
+    else:
+        veri_klasoru = Path(veri_klasoru_girdi).expanduser()
+    
+    cikti_klasoru_girdi = input(
+        f"Çıktı klasörü (Enter=varsayılan: {varsayilan_cikti}): "
+    ).strip()
+    if not cikti_klasoru_girdi:
+        cikti_klasoru = varsayilan_cikti
+    else:
+        cikti_klasoru = Path(cikti_klasoru_girdi).expanduser()
     
     # Analiz yap
     try:

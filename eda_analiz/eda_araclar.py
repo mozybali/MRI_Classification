@@ -5,47 +5,48 @@ MRI görüntü veri seti için keşifsel veri analizi (EDA) araçları.
 İstatistik hesaplama ve görselleştirme fonksiyonları.
 """
 
-import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Dict, Optional, Union
 from PIL import Image
 from tqdm import tqdm
 from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE
 from multiprocessing import Pool, cpu_count
-from functools import partial
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_VERI_KLASORU = PROJECT_ROOT / "Veri_Seti"
+DEFAULT_CIKTI_KLASORU = Path(__file__).resolve().parent / "eda_ciktilar"
 
 
 def _istatistik_hesapla_wrapper(satir_dict: Dict) -> Optional[Dict]:
     """⚡ Paralel istatistik hesaplama için wrapper fonksiyon."""
     try:
-        goruntu = Image.open(satir_dict["filepath"])
-        if goruntu.mode != 'L':
-            goruntu = goruntu.convert('L')
-        
-        arr = np.array(goruntu)
-        genislik, yukseklik = goruntu.size
-        
-        istat = {
-            "id": satir_dict["id"],
-            "genislik": genislik,
-            "yukseklik": yukseklik,
-            "en_boy_orani": genislik / yukseklik if yukseklik > 0 else 0,
-            "int_ort": float(np.mean(arr)),
-            "int_std": float(np.std(arr)),
-            "int_min": float(np.min(arr)),
-            "int_max": float(np.max(arr)),
-            "int_p1": float(np.percentile(arr, 1)),
-            "int_p25": float(np.percentile(arr, 25)),
-            "int_p50": float(np.percentile(arr, 50)),
-            "int_p75": float(np.percentile(arr, 75)),
-            "int_p99": float(np.percentile(arr, 99))
-        }
-        return istat
+        with Image.open(satir_dict["filepath"]) as goruntu:
+            if goruntu.mode != 'L':
+                goruntu = goruntu.convert('L')
+
+            arr = np.array(goruntu)
+            genislik, yukseklik = goruntu.size
+
+            istat = {
+                "id": satir_dict["id"],
+                "genislik": genislik,
+                "yukseklik": yukseklik,
+                "en_boy_orani": genislik / yukseklik if yukseklik > 0 else 0,
+                "int_ort": float(np.mean(arr)),
+                "int_std": float(np.std(arr)),
+                "int_min": float(np.min(arr)),
+                "int_max": float(np.max(arr)),
+                "int_p1": float(np.percentile(arr, 1)),
+                "int_p25": float(np.percentile(arr, 25)),
+                "int_p50": float(np.percentile(arr, 50)),
+                "int_p75": float(np.percentile(arr, 75)),
+                "int_p99": float(np.percentile(arr, 99))
+            }
+            return istat
     except Exception:
         return None
 
@@ -53,8 +54,8 @@ def _istatistik_hesapla_wrapper(satir_dict: Dict) -> Optional[Dict]:
 class EDAAnaLiz:
     """MRI görüntü veri seti için EDA sınıfı."""
     
-    def __init__(self, veri_klasoru: str = "../../Veri_Seti",
-                 cikti_klasoru: str = "eda_ciktilar",
+    def __init__(self, veri_klasoru: Union[str, Path] = DEFAULT_VERI_KLASORU,
+                 cikti_klasoru: Union[str, Path] = DEFAULT_CIKTI_KLASORU,
                  rastgele_tohum: int = 42):
         """
         EDA analizörünü başlat.
@@ -68,10 +69,9 @@ class EDAAnaLiz:
             cikti_klasoru: Grafiklerin kaydedileceği klasör
             rastgele_tohum: Tekrarlanabilirlik için rastgeleliği sabitleme tohumu
         """
-        # Klasör yollarını ayarla
-        self.veri_klasoru = Path(veri_klasoru)
-        self.cikti_klasoru = Path(cikti_klasoru)
-        self.cikti_klasoru.mkdir(parents=True, exist_ok=True)  # Çıktı klasörünü oluştur
+        self.veri_klasoru = Path(veri_klasoru).expanduser().resolve()
+        self.cikti_klasoru = Path(cikti_klasoru).expanduser().resolve()
+        self.cikti_klasoru.mkdir(parents=True, exist_ok=True)
         self.tohum = rastgele_tohum
         
         # Sınıf tanımları (demans seviyeleri)
@@ -92,7 +92,18 @@ class EDAAnaLiz:
         
         np.random.seed(self.tohum)
         self.n_jobs = max(1, cpu_count() - 1)  # ⚡ Paralel işleme için
+    
+    def _veri_klasorunu_dogrula(self):
+        """Veri klasörü var mı ve beklenen alt klasörlerden en az biri mevcut mu kontrol et."""
+        if not self.veri_klasoru.exists():
+            raise FileNotFoundError(f"Veri klasörü bulunamadı: {self.veri_klasoru}")
         
+        alt_klasor_var = any((self.veri_klasoru / klasor).exists() for klasor in self.sinif_klasorleri)
+        if not alt_klasor_var:
+            raise FileNotFoundError(
+                f"Veri klasörü beklenen sınıf klasörlerini içermiyor: {self.veri_klasoru}"
+            )
+
     def veri_yukle(self) -> pd.DataFrame:
         """
         Veri setinden tüm görüntü yollarını ve etiketlerini yükle.
@@ -104,6 +115,7 @@ class EDAAnaLiz:
         Returns:
             DataFrame: id, filepath, label, label_name kolonları içeren tablo
         """
+        self._veri_klasorunu_dogrula()
         kayitlar = []  # Tüm görüntü kayıtlarını sakla
         idx = 0        # Benzersiz ID sayacı
         
@@ -124,7 +136,10 @@ class EDAAnaLiz:
                     })
                     idx += 1
         
-        return pd.DataFrame(kayitlar)
+        df = pd.DataFrame(kayitlar)
+        if df.empty:
+            raise ValueError(f"Veri klasöründe desteklenen uzantılarda görüntü bulunamadı: {self.veri_klasoru}")
+        return df
     
     def goruntu_istatistikleri_hesapla(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -140,6 +155,9 @@ class EDAAnaLiz:
         Returns:
             İstatistiklerle genişletilmiş DataFrame
         """
+        if df.empty:
+            raise ValueError("İstatistik hesaplamak için en az bir satır gerekli.")
+
         print(f"⚡ İstatistikler hesaplanıyor (paralel: {self.n_jobs} çekirdek)...")
         
         # DataFrame'i dict listesine çevir (multiprocessing için)
@@ -155,6 +173,10 @@ class EDAAnaLiz:
         
         # None olmayan sonuçları al
         istatistikler = [i for i in istatistikler if i is not None]
+        if not istatistikler:
+            raise ValueError("Hiçbir görüntüden istatistik hesaplanamadı. Dosyalar okunabilir mi kontrol edin.")
+        if len(istatistikler) != len(df):
+            print(f"[UYARI] {len(df) - len(istatistikler)} görüntüden istatistik alınamadı; dosyalar atlandı.")
         
         istat_df = pd.DataFrame(istatistikler)
         return df.merge(istat_df, on="id", how="left")
@@ -302,6 +324,9 @@ class EDAAnaLiz:
             "int_ort", "int_std", "int_min", "int_max",
             "int_p1", "int_p99"
         ]
+        if len(df) < 2:
+            print("PCA atlandı: En az iki örnek gerekiyor.")
+            return
         
         df_sample = df.sample(min(n_ornekler, len(df)), random_state=self.tohum)
         X = df_sample[ozellikler].fillna(0).values
@@ -313,7 +338,7 @@ class EDAAnaLiz:
         
         # Görselleştir
         fig, ax = plt.subplots(figsize=(10, 7))
-        for sinif in df["label_name"].unique():
+        for sinif in np.unique(y):
             mask = y == sinif
             ax.scatter(X_pca[mask, 0], X_pca[mask, 1], 
                       label=sinif, alpha=0.6, s=50)
@@ -359,7 +384,7 @@ class EDAAnaLiz:
         print("="*70 + "\n")
         
         # Veri yükle
-        print("1. Veri yükleniyor...")
+        print(f"1. Veri yükleniyor... ({self.veri_klasoru})")
         df = self.veri_yukle()
         print(f"   ✓ {len(df)} görüntü yüklendi\n")
         

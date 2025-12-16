@@ -1,196 +1,61 @@
 # Model Eğitim Modülü
 
-MRI görüntülerinden çıkarılan özelliklerle makine öğrenmesi modelleri eğitir.
+Ön işlenmiş MRI görüntülerinden çıkarılan özelliklerle XGBoost, LightGBM veya Linear SVM modelleri eğitir; metrikleri raporlar ve eğitilmiş modellerle tek/batch tahmin yapar.
 
-## 🆕 v3.0 Performans İyileştirmeleri
+## Gereksinimler
 
-### ⚡ Batch Tahmin Optimizasyonu
-- **Paralel inference**: Batch tahmin 6-8x daha hızlı
-- **Otomatik CPU yönetimi**: Çok çekirdekli işlem
-- **Toplu işleme**: Binlerce görüntü dakikalar içinde
+Ana dizindeki `requirements.txt` tüm bağımlılıkları içerir. Eğitim için `goruntu_isleme/cikti/goruntu_ozellikleri_scaled.csv` dosyasının hazır olması gerekir.
 
-📊 **Performans Kazanımları:**
-- Batch tahmin (1000 görüntü): 10-15 dk → 1-2 dakika (**6-8x**)
-
-✅ **Geriye Uyumlu**: API değişikliği yok, otomatik çalışır!
-
----
-
-## 📦 Kurulum
-
-```bash
-# Ana dizinden tüm bağımlılıkları yükle
-cd ..
-pip install -r requirements.txt
-```
-
-**Not:** Model modülü için ayrı requirements.txt yok, tüm bağımlılıklar ana `requirements.txt` dosyasında.
-
-## 🚀 Kullanım
-
-**Not:** Komutlarda `python` veya `python3` kullanabilirsiniz. Windows'ta genellikle `python`, Linux/Mac'te `python3` kullanılır.
-
-### 1. Temel Kullanım (Önerilen)
-
-**İnteraktif mod:**
-```bash
-python train.py
-```
-
-**Otomatik mod (hızlı başlangıç):**
-```bash
-python train.py --auto
-```
-
-**Belirli model ile:**
-```bash
-python train.py --auto --model xgboost
-python train.py --auto --model lightgbm
-python train.py --auto --model svm
-```
-
-### 2. Tahmin (Inference)
-
-**Tek görüntü:**
-```bash
-python inference.py --model xgboost_latest.pkl --image test.jpg
-```
-
-**Toplu tahmin (batch):**
-```bash
-python inference.py --model xgboost_latest.pkl --batch ./test_images/
-```
-
-**En son model ile otomatik:**
-```bash
-python inference.py --image test.jpg
-```
-
-### 3. Model Karşılaştırma
-
-```bash
-python model_comparison.py
-```
-
-Tüm eğitilmiş modelleri karşılaştırır ve en iyisini seçer.
-
-## 🤖 Desteklenen Modeller
-
-| Model | Özellikler | Kullanım |
-|-------|-----------|----------|
-| **XGBoost** | Yüksek doğruluk, güçlü performans | Önerilen ⭐ |
-| **LightGBM** | Hızlı eğitim, büyük veri setleri | Alternatif |
-| **Linear SVM** | Basit, hızlı | Test/karşılaştırma |
-
-## ✨ Özellikler
+## Kullanım
 
 ### Eğitim
-- ✅ İnteraktif kullanıcı arayüzü
-- ✅ SMOTE ile veri dengeleme
-- ✅ Sınıf ağırlıklandırma (class weights)
-- ✅ Otomatik veri bölme (70/15/15)
-- ✅ K-fold cross-validation
-- ✅ Hyperparameter tuning (opsiyonel)
-- ✅ Feature selection (opsiyonel)
-
-### Değerlendirme
-- ✅ Kapsamlı metrikler (Accuracy, Precision, Recall, F1, ROC-AUC, Cohen's Kappa)
-- ✅ Confusion matrix (ısı haritası)
-- ✅ ROC curves (multi-class)
-- ✅ Precision-Recall curves
-- ✅ Feature importance
-- ✅ Detaylı raporlar (TXT + JSON)
-
-### Inference
-- ✅ Tek görüntü tahmini
-- ✅ Batch tahmin (klasör)
-- ✅ Olasılık skorları
-- ✅ Güven skoru
-- ✅ CSV export
-
-### Karşılaştırma
-- ✅ Tüm modelleri karşılaştır
-- ✅ Performans grafikleri
-- ✅ Radar chart
-- ✅ En iyi model seçimi
-
-## 📁 Çıktı Yapısı
-
-```
-model/ciktilar/
-├── modeller/
-│   ├── xgboost_20251210_120000.pkl      # Model
-│   └── xgboost_20251210_120000.json     # Metadata
-├── raporlar/
-│   └── rapor_xgboost_20251210_120000.txt
-└── gorseller/
-    ├── confusion_matrix.png
-    ├── roc_curves.png
-    ├── precision_recall_curves.png
-    ├── ozellik_onemi_xgboost.png
-    ├── model_karsilastirma.png
-    └── model_radar_chart.png
-```
-
-## 📊 Örnek Kullanım Senaryosu
-
 ```bash
-# 1. Model eğit (otomatik mod)
-python train.py --auto --model xgboost
+# Otomatik mod (varsayılan ayarlarla)
+python train.py --auto
 
-# 2. Test görüntüsü ile tahmin yap
-python inference.py --image ../Veri_Seti/NonDemented/test.jpg
+# İnteraktif mod
+python train.py
 
-# 3. Toplu tahmin
-python inference.py --batch ../Veri_Seti/NonDemented/
+# Model seçerek otomatik mod
+python train.py --auto --model xgboost   # veya lightgbm, svm
+```
+Eğitim çıktıları `model/ciktilar/` altına kaydedilir (`modeller/`, `raporlar/`, `gorseller/`).
 
-# 4. Birden fazla model eğit ve karşılaştır
-python train.py --auto --model xgboost
-python train.py --auto --model lightgbm
+### Tahmin
+```bash
+# Tek görüntü
+python inference.py --model model/ciktilar/modeller/xgboost_YYYYMMDD_HHMMSS.pkl --image /path/to/image.jpg
+
+# Klasör içi batch
+python inference.py --model model/ciktilar/modeller/xgboost_YYYYMMDD_HHMMSS.pkl --batch /path/to/folder/
+```
+Tahmin sırasında görüntü ön işlemesi ve özellik çıkarımı otomatik yapılır; sonuçlar ekrana yazılır ve CSV olarak kaydedilebilir.
+
+### Model karşılaştırma
+```bash
 python model_comparison.py
 ```
+`modeller/` klasöründeki kayıtlı modellerin performanslarını yan yana raporlar.
 
-## ⚙️ Yapılandırma
+## Özellikler
 
-Tüm ayarlar `ayarlar.py` dosyasında:
+- SMOTE ile dengesiz sınıfları dengeleme, sınıf ağırlıklandırma.  
+- İsteğe bağlı özellik seçimi (SelectKBest) ve grid search.  
+- Stratified train/val/test bölme ve 5 katlı cross-validation.  
+- Değerlendirme metrikleri: accuracy, precision, recall, F1, ROC-AUC, Cohen’s kappa.  
+- Rapor ve görseller: confusion matrix, ROC ve precision-recall eğrileri, model destekliyorsa feature importance grafiği.  
+- Model + metadata kaydı (`.pkl` + `.json`) ve zaman damgalı dosya adları.
 
-- **Veri bölme oranları** (train/val/test)
-- **Model hiperparametreleri** (XGBoost, LightGBM, SVM)
-- **Grid search parametreleri**
-- **Görselleştirme ayarları**
-- **Dosya yolları**
+## Yapılandırma
 
-## 🐛 Sorun Giderme
+`ayarlar.py` üzerinden:
+- Veri yolları ve split oranları (`EGITIM_ORANI`, `DOGRULAMA_ORANI`, `TEST_ORANI`)
+- Model hiperparametreleri (`GB_AYARLARI`, `LIGHTGBM_AYARLARI`, `SVM_AYARLARI`)
+- Grid search parametreleri (`GB_GRID_PARAMS`, `SVM_GRID_PARAMS`)
+- Çıktı klasörleri ve log ayarları
 
-### CSV bulunamadı hatası:
-```bash
-cd ../goruntu_isleme
-python ana_islem.py
-# Menüden 6'yı seç (tüm işlemleri yap)
-```
+## Sorun Giderme
 
-### SMOTE hatası:
-```bash
-pip install imbalanced-learn
-```
-
-### XGBoost/LightGBM yüklü değil:
-```bash
-pip install xgboost lightgbm
-```
-
-## 📚 Dosyalar
-
-- `train.py` - Ana eğitim scripti (kullanıcı dostu)
-- `model_egitici.py` - Model eğitim sınıfı (core)
-- `inference.py` - Tahmin scripti
-- `model_comparison.py` - Model karşılaştırma
-- `ayarlar.py` - Yapılandırma dosyası
-
-## 💡 İpuçları
-
-1. İlk eğitimde **otomatik mod** kullanın: `python train.py --auto`
-2. **SMOTE** veri dengeleme için önemlidir (varsayılan açık)
-3. **Hyperparameter tuning** çok uzun sürer, ilk denemede kapalı tutun
-4. **Model karşılaştırma** ile en iyi modeli seçin
-5. **Inference** için en son eğitilen model otomatik kullanılır
+- **CSV bulunamadı**: `goruntu_isleme/ana_islem.py` ile 7. seçeneği çalıştırıp özellik CSV'lerini oluşturun.  
+- **Paket eksik uyarıları**: Ana dizinde `pip install -r requirements.txt`.  
+- **LightGBM/XGBoost yok**: Eksik paketleri ayrıca kurabilirsiniz (`pip install xgboost lightgbm`).
