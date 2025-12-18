@@ -149,9 +149,9 @@ def feature_selection_sec():
 
 
 def grid_search_sec():
-    """Grid search kullanımını sor."""
+    """Grid/Bayes search kullanımını sor ve iterasyon sayısını al."""
     print("\n" + "-"*70)
-    print("HİPERPARAMETRE OPTİMİZASYONU (Grid Search)")
+    print("HİPERPARAMETRE OPTİMİZASYONU (Grid/Random/Bayes Search)")
     print("-"*70)
     print("\nOtomatik parametre ayarlama:")
     print("  ✓ En iyi parametreleri bulur")
@@ -161,12 +161,28 @@ def grid_search_sec():
     print("⚠️  Önerilmez (ilk eğitimde varsayılan parametreler yeterli)")
     print()
     
-    secim = input("Grid search kullanılsın mı? (e/H, varsayılan=H): ").strip().lower()
-    return secim == "e" or secim == "yes"
+    secim = input("Grid/Random/Bayes search kullanılsın mı? (e/H, varsayılan=H): ").strip().lower()
+    aktif = secim == "e" or secim == "yes"
+    
+    method = "random"
+    n_iter = 30
+    if aktif:
+        method_secim = input("Arama metodu [r=Randomized, b=Bayes] (varsayılan=r): ").strip().lower()
+        if method_secim in ("b", "bayes"):
+            method = "bayes"
+        try:
+            n_iter_input = input("Iterasyon sayısı (varsayılan=30): ").strip()
+            if n_iter_input:
+                n_iter = max(1, int(n_iter_input))
+        except ValueError:
+            print("Geçersiz değer, varsayılan 30 kullanılıyor.")
+            n_iter = 30
+    return aktif, method, n_iter
 
 
-def egitim_yap(model_tipi, smote_aktif, feature_selection_aktif, grid_search_aktif):
+def egitim_yap(model_tipi, smote_aktif, feature_selection_aktif, grid_search_aktif, search_method="random", n_iter=30):
     """Model eğitimini başlat."""
+    search_method = (search_method or "random").strip().lower()
     print("\n" + "="*70)
     print("MODEL EĞİTİMİ BAŞLIYOR")
     print("="*70)
@@ -175,6 +191,10 @@ def egitim_yap(model_tipi, smote_aktif, feature_selection_aktif, grid_search_akt
     print(f"  • SMOTE: {'Evet' if smote_aktif else 'Hayır'}")
     print(f"  • Feature Selection: {'Evet' if feature_selection_aktif else 'Hayır'}")
     print(f"  • Grid Search: {'Evet' if grid_search_aktif else 'Hayır'}")
+    if grid_search_aktif:
+        arama_metodu = "Bayes" if search_method == "bayes" else "Randomized"
+        print(f"  • Arama Metodu: {arama_metodu}")
+        print(f"  • Iterasyon: {n_iter}")
     print()
     
     input("Devam etmek için ENTER'a basın (Çıkmak için Ctrl+C)...")
@@ -213,7 +233,7 @@ def egitim_yap(model_tipi, smote_aktif, feature_selection_aktif, grid_search_akt
         # Grid search veya normal eğitim
         if grid_search_aktif:
             print("\n⚠️  Grid search başlıyor... Bu uzun sürebilir!")
-            egitici.grid_search(X_train, y_train)
+            egitici.grid_search(X_train, y_train, n_iter=n_iter, search_method=search_method)
         else:
             egitici.egit(X_train, y_train, X_val, y_val)
         
@@ -236,8 +256,9 @@ def egitim_yap(model_tipi, smote_aktif, feature_selection_aktif, grid_search_akt
         print("✓ EĞİTİM TAMAMLANDI!")
         print("="*70)
         print(f"\nModel kaydedildi: {model_yolu}")
-        print(f"Raporlar: {RAPORLAR_KLASORU}")
-        print(f"Grafikler: {GORSELLER_KLASORU}")
+        print(f"Raporlar: {egitici.raporlar_klasoru}")
+        print(f"Grafikler: {egitici.gorseller_klasoru}")
+        print(f"Tüm çıktı klasörü: {egitici.cikti_klasoru}")
         print()
         
         return True
@@ -276,10 +297,10 @@ def interaktif_mod():
     model_tipi = model_sec()
     smote_aktif = smote_sec()
     feature_selection_aktif = feature_selection_sec()
-    grid_search_aktif = grid_search_sec()
+    grid_search_aktif, search_method, n_iter = grid_search_sec()
     
     # Eğitim
-    return egitim_yap(model_tipi, smote_aktif, feature_selection_aktif, grid_search_aktif)
+    return egitim_yap(model_tipi, smote_aktif, feature_selection_aktif, grid_search_aktif, search_method, n_iter)
 
 
 def main():
