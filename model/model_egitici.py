@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+﻿#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 """
@@ -23,10 +23,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import numpy as np
+if not hasattr(np, "int"):  # NumPy 1.24+ uyumluluğu: np.int kaldırıldı
+    np.int = int  # type: ignore[attr-defined]
 import pandas as pd
 import pickle
 import json
 import inspect
+import warnings
 from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime
 
@@ -71,6 +74,13 @@ def _lightgbm_silent():
     except ImportError:
         pass
 
+def _lightgbm_log_period(default: int = 0) -> int:
+    """LightGBM log periyodunu ayarlardan al, hata olursa varsayılanda bırak."""
+    try:
+        return max(0, int(LIGHTGBM_LOG_PERIOD))
+    except Exception:
+        return default
+
 # Ensure VERI_CSV is imported
 try:
     from ayarlar import VERI_CSV
@@ -111,11 +121,17 @@ class ModelEgitici:
         self.feature_selection_aktif = feature_selection_aktif
         self.cv_scores = None
         
-        # Çıktı klasörlerini oluştur
+        # Çıktı klasörlerini oluştur (her koşu için ayrı)
         print(f"\n📁 Çıktı klasörleri oluşturuluyor...")
-        for klasor in [CIKTI_KLASORU, MODELS_KLASORU, RAPORLAR_KLASORU, GORSELLER_KLASORU]:
+        CIKTI_KLASORU.mkdir(parents=True, exist_ok=True)
+        self.run_zaman_damgasi = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.cikti_klasoru = CIKTI_KLASORU / f"{self.model_tipi}_{self.run_zaman_damgasi}"
+        self.modeller_klasoru = self.cikti_klasoru / "modeller"
+        self.raporlar_klasoru = self.cikti_klasoru / "raporlar"
+        self.gorseller_klasoru = self.cikti_klasoru / "gorseller"
+        for klasor in [self.cikti_klasoru, self.modeller_klasoru, self.raporlar_klasoru, self.gorseller_klasoru]:
             klasor.mkdir(parents=True, exist_ok=True)
-        print(f"   ✓ Klasörler hazır: {CIKTI_KLASORU}")
+        print(f"   ✓ Klasörler hazır: {self.cikti_klasoru}")
     
     def veri_yukle(self, csv_yolu: Path = VERI_CSV) -> Tuple:
         """
@@ -277,7 +293,8 @@ class ModelEgitici:
                 # Tüm fit'lerde logları sustur (cross_validate klonlarında da çalışır)
                 try:
                     import lightgbm as lgb
-                    lgb_params['callbacks'] = [lgb.log_evaluation(period=0)]
+                    log_period = _lightgbm_log_period()
+                    lgb_params['callbacks'] = [lgb.log_evaluation(period=log_period)]
                 except Exception:
                     pass
                 lgb_params.pop('max_depth', None)
@@ -356,7 +373,8 @@ class ModelEgitici:
                 # Callback tabanlı erken durdurma ekleyip imzaya göre parametre ekle.
                 try:
                     import lightgbm as lgb
-                    callbacks = [lgb.log_evaluation(period=0)]
+                    log_period = _lightgbm_log_period()
+                    callbacks = [lgb.log_evaluation(period=log_period)]
                     if hasattr(lgb, "early_stopping"):
                         callbacks.append(lgb.early_stopping(EARLY_STOPPING_ROUNDS, verbose=False))
                     if callbacks:
@@ -481,7 +499,8 @@ class ModelEgitici:
             cv_params['force_col_wise'] = True
             try:
                 import lightgbm as lgb
-                cv_params['callbacks'] = [lgb.log_evaluation(period=0)]
+                log_period = _lightgbm_log_period()
+                cv_params['callbacks'] = [lgb.log_evaluation(period=log_period)]
             except Exception:
                 pass
             cv_params.pop('max_depth', None)
@@ -517,7 +536,7 @@ class ModelEgitici:
         self.cv_scores = cv_results
         return cv_results
     
-    def grid_search(self, X_train, y_train, n_iter: int = 50) -> Dict:
+    def grid_search(self, X_train, y_train, n_iter: int = 50, search_method: str = "random") -> Dict:
         """
         Geriye donuk uyumluluk icin hyperparameter_tuning kisayolu.
         
@@ -525,25 +544,28 @@ class ModelEgitici:
             X_train: Egitim ozellikleri
             y_train: Egitim etiketleri
             n_iter: RandomizedSearch iterasyon sayisi
+            search_method: "random" veya "bayes"
             
         Returns:
             En iyi parametreler
         """
-        return self.hyperparameter_tuning(X_train, y_train, n_iter=n_iter)
+        return self.hyperparameter_tuning(X_train, y_train, n_iter=n_iter, search_method=search_method)
     
-    def hyperparameter_tuning(self, X_train, y_train, n_iter: int = 50) -> Dict:
+    def hyperparameter_tuning(self, X_train, y_train, n_iter: int = 50, search_method: str = "random") -> Dict:
         """
         Hyperparameter tuning ile en iyi parametreleri bul.
         
         Args:
             X_train: Eğitim özellikleri
             y_train: Eğitim etiketleri
-            n_iter: RandomizedSearchCV iterasyon sayısı
+            n_iter: Arama iterasyon sayısı
+            search_method: "random" (RandomizedSearchCV) veya "bayes" (BayesSearchCV)
             
         Returns:
             En iyi parametreler
         """
-        print(f"\n🔧 Hyperparameter Tuning başlıyor ({n_iter} iterasyon)...")
+        search_method = (search_method or "random").lower()
+        print(f"\n🔧 Hyperparameter Tuning başlıyor ({search_method} search, {n_iter} iterasyon)...")
         print(f"   Bu işlem birkaç dakika sürebilir...\n")
         
         # Model tipine göre parametre grid'i belirle
@@ -600,43 +622,96 @@ class ModelEgitici:
             print(f"   [UYARI] Parametre kombinasyonları {combo_sayisi} ile sınırlı. n_iter {combo_sayisi} olarak güncellendi.")
             n_iter_effective = combo_sayisi
         
-        # RandomizedSearchCV ile arama yap
-        random_search = RandomizedSearchCV(
-            estimator=base_model,
-            param_distributions=param_distributions,
-            n_iter=n_iter_effective,
-            cv=GRID_SEARCH_AYARLARI.get('cv_folds', 5),
-            scoring='f1_macro',
-            n_jobs=GRID_SEARCH_AYARLARI.get('n_jobs', -1),
-            random_state=RASTGELE_TOHUM,
-            verbose=GRID_SEARCH_AYARLARI.get('verbose', 1)
-        )
+        use_bayes = search_method == "bayes"
+        if use_bayes:
+            try:
+                from skopt import BayesSearchCV
+                from skopt.space import Categorical
+            except ImportError:
+                print("   [UYARI] BayesSearchCV bulunamadı, RandomizedSearchCV ile devam ediliyor.")
+                use_bayes = False
         
-        random_search.fit(X_train, y_train)
+        if use_bayes:
+            search_spaces = {}
+            for param, values in param_distributions.items():
+                if isinstance(values, (list, tuple)):
+                    search_spaces[param] = Categorical(list(values))
+                else:
+                    search_spaces[param] = values
+
+            # BayesSearchCV varsayilan n_initial_points=10 degerini,
+            # toplam iterasyon sayisini asmamasi icin kisalt.
+            bayes_init = min(10, max(1, n_iter_effective))
+            optimizer_kwargs = {
+                "random_state": RASTGELE_TOHUM,
+                "n_initial_points": bayes_init,
+            }
+
+            searcher = BayesSearchCV(
+                estimator=base_model,
+                search_spaces=search_spaces,
+                n_iter=n_iter_effective,
+                cv=GRID_SEARCH_AYARLARI.get('cv_folds', 5),
+                scoring='f1_macro',
+                n_jobs=GRID_SEARCH_AYARLARI.get('n_jobs', -1),
+                random_state=RASTGELE_TOHUM,
+                verbose=GRID_SEARCH_AYARLARI.get('verbose', 1),
+                optimizer_kwargs=optimizer_kwargs,
+            )
+        else:
+            searcher = RandomizedSearchCV(
+                estimator=base_model,
+                param_distributions=param_distributions,
+                n_iter=n_iter_effective,
+                cv=GRID_SEARCH_AYARLARI.get('cv_folds', 5),
+                scoring='f1_macro',
+                n_jobs=GRID_SEARCH_AYARLARI.get('n_jobs', -1),
+                random_state=RASTGELE_TOHUM,
+                verbose=GRID_SEARCH_AYARLARI.get('verbose', 1)
+            )
+
+        # skopt, ayni nokta tekrar geldiyse uyarip rastgele nokta seciyor.
+        # Bayes arama kullanirken bu uyarilari gürültüden kaçınmak için gizliyoruz.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"The objective has been evaluated at point .* before, using random point .*",
+                category=UserWarning,
+                module="skopt"
+            )
+            warnings.filterwarnings(
+                "ignore",
+                message=r"The objective has been evaluated at this point before.*",
+                category=UserWarning,
+                module="skopt"
+            )
+            searcher.fit(X_train, y_train)
         
         print(f"\n✓ Hyperparameter tuning tamamlandı!")
         print(f"\n🏆 En iyi parametreler:")
-        for param, value in random_search.best_params_.items():
+        for param, value in searcher.best_params_.items():
             print(f"   {param}: {value}")
-        print(f"\n📈 En iyi CV skoru: {random_search.best_score_:.4f}")
+        print(f"\n📈 En iyi CV skoru: {searcher.best_score_:.4f}")
         
         # En iyi modeli kullan
-        self.model = random_search.best_estimator_
+        self.model = searcher.best_estimator_
         
-        return random_search.best_params_
+        return searcher.best_params_
     
     def confusion_matrix_ciz(self, y_true, y_pred, dosya_adi: str = "confusion_matrix.png"):
-        """Karışıklık matrisi çiz ve kaydet."""
-        cm = confusion_matrix(y_true, y_pred)
-        # Hücre anotasyonlarına TP / FN-FP etiketlerini ekle
+        """Karışıklık matrisi çizer ve kaydeder."""
+        # Sınıf etiketlerini aynı sıra ile göster
+        classes = np.unique(np.concatenate([y_true, y_pred]))
+        cm = confusion_matrix(y_true, y_pred, labels=classes)
+
         annot_labels = []
         for i in range(cm.shape[0]):
             row = []
             for j in range(cm.shape[1]):
                 if i == j:
-                    row.append(f"{cm[i, j]}\nTP")
+                    row.append(f"{cm[i, j]}\nTP ({classes[i]})")
                 else:
-                    row.append(f"{cm[i, j]}\nFN/FP")
+                    row.append(f"{cm[i, j]}\nFN:{classes[i]}\nFP:{classes[j]}")
             annot_labels.append(row)
         
         fig, ax = plt.subplots(figsize=GORSEL_AYARLARI['confusion_matrix_figsize'])
@@ -652,20 +727,22 @@ class ModelEgitici:
         ax.set_xlabel('Tahmin Edilen Sınıf', fontsize=12)
         ax.set_ylabel('Gerçek Sınıf', fontsize=12)
         ax.set_title(f'Karışıklık Matrisi - {self.model_tipi.upper()}', fontsize=14, fontweight='bold')
+        ax.set_xticklabels(classes, rotation=45, ha='right')
+        ax.set_yticklabels(classes, rotation=0)
         
         aciklama = (
-            "TP: Köşegen (doğru sınıf)\n"
-            "FN: Satırdaki diğer sütunlar (gerçeği kaçırdı)\n"
-            "FP: Sütundaki diğer satırlar (yanlış sınıfa atandı)\n"
-            "TN: Multi-class matriste hücre olarak gösterilmez"
+            "Satır = Gerçek sınıf, Sütun = Tahmin edilen sınıf\n"
+            "TP: Köşegen (doğru tahmin)\n"
+            "FN: Satırdaki diğer sütunlar (gerçek sınıf yanlış sınıfa gitti)\n"
+            "FP: Sütundaki diğer satırlar (yanlış sınıf bu sütuna toplandı)"
         )
         fig.text(1.02, 0.5, aciklama, va='center', ha='left', fontsize=10, transform=ax.transAxes)
         
-        kayit_yolu = GORSELLER_KLASORU / dosya_adi
+        kayit_yolu = self.gorseller_klasoru / dosya_adi
         fig.savefig(kayit_yolu, dpi=GORSEL_AYARLARI['dpi'], bbox_inches='tight')
         plt.close()
         print(f"   ✓ Karışıklık matrisi kaydedildi: {kayit_yolu}")
-    
+
     def ozellik_onemi_ciz(self, top_n: int = 20):
         """Özellik önemini çiz (gradient boosting için)."""
         if self.model_tipi not in ["xgboost", "lightgbm"]:
@@ -701,7 +778,7 @@ class ModelEgitici:
         ax.invert_yaxis()
         plt.tight_layout()
         
-        kayit_yolu = GORSELLER_KLASORU / f"ozellik_onemi_{self.model_tipi}.png"
+        kayit_yolu = self.gorseller_klasoru / f"ozellik_onemi_{self.model_tipi}.png"
         fig.savefig(kayit_yolu, dpi=GORSEL_AYARLARI['dpi'], bbox_inches='tight')
         plt.close()
         print(f"   ✓ Özellik önemi grafiği kaydedildi: {kayit_yolu}")
@@ -752,7 +829,7 @@ class ModelEgitici:
             ax.grid(alpha=0.3)
             plt.tight_layout()
             
-            kayit_yolu = GORSELLER_KLASORU / dosya_adi
+            kayit_yolu = self.gorseller_klasoru / dosya_adi
             fig.savefig(kayit_yolu, dpi=GORSEL_AYARLARI['dpi'], bbox_inches='tight')
             plt.close()
             print(f"   ✓ ROC eğrileri kaydedildi: {kayit_yolu}")
@@ -805,7 +882,7 @@ class ModelEgitici:
             ax.grid(alpha=0.3)
             plt.tight_layout()
             
-            kayit_yolu = GORSELLER_KLASORU / dosya_adi
+            kayit_yolu = self.gorseller_klasoru / dosya_adi
             fig.savefig(kayit_yolu, dpi=GORSEL_AYARLARI['dpi'], bbox_inches='tight')
             plt.close()
             print(f"   ✓ Precision-Recall eğrileri kaydedildi: {kayit_yolu}")
@@ -833,7 +910,7 @@ class ModelEgitici:
     
     def rapor_olustur(self):
         """Detaylı performans raporu oluştur."""
-        rapor_yolu = RAPORLAR_KLASORU / f"rapor_{self.model_tipi}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        rapor_yolu = self.raporlar_klasoru / f"rapor_{self.model_tipi}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
         
         with open(rapor_yolu, 'w', encoding='utf-8') as f:
             f.write("="*70 + "\n")
@@ -878,7 +955,7 @@ class ModelEgitici:
             zaman_damgasi = datetime.now().strftime("%Y%m%d_%H%M%S")
             dosya_adi = f"{self.model_tipi}_{zaman_damgasi}.pkl"
         
-        kayit_yolu = MODELS_KLASORU / dosya_adi
+        kayit_yolu = self.modeller_klasoru / dosya_adi
         
         # Modeli kaydet
         with open(kayit_yolu, 'wb') as f:
@@ -906,12 +983,14 @@ class ModelEgitici:
         
         print(f"   ✓ Metadata kaydedildi: {metadata_yolu}")
     
-    def tam_egitim_yap(self, hyperparameter_tuning_aktif: bool = False):
+    def tam_egitim_yap(self, hyperparameter_tuning_aktif: bool = False, search_method: str = "random", n_iter: int = 30):
         """
         Tam eğitim pipeline'ı çalıştır.
         
         Args:
             hyperparameter_tuning_aktif: Hyperparameter tuning yapılsın mı?
+            search_method: Hyperparameter arama yöntemi ("random" veya "bayes")
+            n_iter: Hyperparameter arama iterasyon sayısı
         """
         # 1. Veri yükle ve hazırla
         X_train, X_val, X_test, y_train, y_val, y_test = self.veri_yukle()
@@ -935,7 +1014,7 @@ class ModelEgitici:
             print(f"\n{'='*60}")
             print(f"🔧 HYPERPARAMETER TUNING")
             print(f"{'='*60}")
-            best_params = self.hyperparameter_tuning(X_train, y_train, n_iter=30)
+            best_params = self.hyperparameter_tuning(X_train, y_train, n_iter=n_iter, search_method=search_method)
         else:
             # Normal model oluştur
             self.model_olustur()
@@ -1074,8 +1153,8 @@ def main():
         print(f"\n\n{'='*70}")
         print(f"✅ TÜM EĞİTİMLER TAMAMLANDI!")
         print(f"{'='*70}")
-        print(f"\n📊 Sonuçları karşılaştırmak için:")
-        print(f"   {GORSELLER_KLASORU}")
+        print(f"\n📊 Sonuçları karşılaştırmak için çıktı klasörlerine bakın.")
+        print(f"   Ana dizin: {CIKTI_KLASORU}")
 
 
 if __name__ == "__main__":
