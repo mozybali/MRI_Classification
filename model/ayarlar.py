@@ -62,7 +62,7 @@ GB_GRID_PARAMS = {
 # ==================== LIGHTGBM ====================
 # LightGBM, XGBoost'a alternatif hızlı gradient boosting kütüphanesi
 LIGHTGBM_AYARLARI = {
-    # Daha düsük öğrenme hızı + daha fazla iterasyon (early stopping ile kontrol)
+    # Daha düşük öğrenme hızı + daha fazla iterasyon (early stopping ile kontrol)
     'n_estimators': 400,
     'max_depth': 7,
     'learning_rate': 0.05,
@@ -73,6 +73,9 @@ LIGHTGBM_AYARLARI = {
     'reg_alpha': 0.0,
     'class_weight': 'balanced',  # Otomatik sınıf ağırlıklandırma
 }
+
+# LightGBM'de log basma periyodu (iterasyon). 0 yaparsanız tamamen sessiz çalışır.
+LIGHTGBM_LOG_PERIOD = 50
 
 # ==================== LINEAR SVM ====================
 # Support Vector Machine (Destek Vektör Makinesi)
