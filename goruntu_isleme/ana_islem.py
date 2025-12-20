@@ -35,7 +35,7 @@ def ana_menu():
     print("\n" + "="*60)
     print("MRI GÖRÜNTÜ İŞLEME SİSTEMİ")
     print("="*60)
-    print("\n1. Görüntüleri ön işle")
+    print("\n1. Görüntüleri ön işle (2D/3D)")
     print("2. Özellik çıkar ve CSV oluştur")
     print("3. CSV'deki NaN değerleri temizle")
     print("4. CSV'ye ölçeklendirme uygula")
@@ -60,7 +60,47 @@ def goruntu_on_isleme():
     """
     print("\n[1] GÖRÜNTÜ ÖN İŞLEME")
     print("-" * 60)
-    
+
+    # 2D/3D secim
+    mod = input("\nIsleme modu (2d/3d, Enter=2d): ").strip().lower()
+    if mod == "3d":
+        try:
+            import importlib
+            islem3d = importlib.import_module("3d_isleme")
+        except Exception as e:
+            print(f"[HATA] 3D islem modulu yuklenemedi: {e}")
+            return
+
+        hacim_yolu = input("3D hacim dosyasi (nii/nii.gz/npy) veya DICOM klasoru: ").strip()
+        if not hacim_yolu:
+            print("[HATA] Hacim yolu gerekli.")
+            return
+
+        sinif_adi = input(f"Sinif adi ({'/'.join(SINIF_KLASORLERI)}): ").strip()
+        if sinif_adi and sinif_adi not in SINIF_KLASORLERI:
+            print(f"[HATA] Gecersiz sinif: {sinif_adi}")
+            return
+        if not sinif_adi:
+            sinif_adi = SINIF_KLASORLERI[0]
+
+        model_yolu_girdi = input(f"3D model yolu (varsayilan: {islem3d.DEFAULT_MODEL_PATH}): ").strip()
+        model_yolu = Path(model_yolu_girdi) if model_yolu_girdi else islem3d.DEFAULT_MODEL_PATH
+
+        cikti3d_girdi = input(f"3D cikti klasoru (varsayilan: {CIKTI_KLASORU / '3d'}): ").strip()
+        cikti3d = Path(cikti3d_girdi) if cikti3d_girdi else CIKTI_KLASORU / "3d"
+
+        try:
+            kayit = islem3d.calistir_3d_infer(
+                Path(hacim_yolu),
+                model_path=model_yolu,
+                output_dir=cikti3d,
+                sinif_adi=sinif_adi,
+            )
+            print(f"\n3D islem tamamlandi. Maske: {kayit}")
+        except Exception as e:
+            print(f"[HATA] 3D islem basarisiz: {e}")
+        return
+
     isleyici = GorselIsleyici()
     
     # Kullanıcıdan girdi al
