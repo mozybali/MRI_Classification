@@ -13,6 +13,7 @@ Kullanım:
 """
 
 import sys
+import os
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -30,11 +31,12 @@ from sklearn.preprocessing import MinMaxScaler, RobustScaler, StandardScaler, Ma
 # Görüntü işleme için
 sys.path.insert(0, str(Path(__file__).parent.parent / "goruntu_isleme"))
 from goruntu_isleyici import GorselIsleyici
-from ozellik_cikarici import OzellikCikarici
 from ayarlar import PROJE_KOK
 from goruntu_isleme.ayarlar import SCALING_METODU, CSV_DOSYA_ADI
 
 from ayarlar import MODELS_KLASORU
+from scipy import ndimage
+from scipy.stats import skew, kurtosis
 
 
 def _batch_tahmin_wrapper(goruntu_yolu: Path, model_yolu: Path) -> Dict:
@@ -78,9 +80,8 @@ class ModelInference:
         # Ölçekleyiciyi hazırla (eğitim verisinden)
         self._hazirla_scaler()
         
-        # Görüntü işleyicileri
+        # Görüntü işleyici
         self.isleyici = GorselIsleyici()
-        self.cikarici = OzellikCikarici()
         
         # Sınıf isimleri
         self.sinif_isimleri = {
@@ -159,52 +160,113 @@ class ModelInference:
 
     def goruntu_isle(self, goruntu_yolu: Union[str, Path]) -> np.ndarray:
         """
-        Görüntüyü işle ve model için hazırla.
-        
-        Args:
-            goruntu_yolu: Ham görüntü dosyasının yolu
-            
-        Returns:
-            İşlenmiş görüntü
+        Görüntüyü eğitim pipeline'ıyla aynı şekilde (goruntu_isleyici.goruntu_isle) işle.
         """
-        goruntu = self.isleyici.goruntu_yukle(str(goruntu_yolu))
+        goruntu = self.isleyici.goruntu_isle(str(goruntu_yolu))
         if goruntu is None:
-            raise ValueError(f"Görüntü yüklenemedi: {goruntu_yolu}")
-        
-        # Tam işleme pipeline'ı
-        goruntu = self.isleyici.gurultu_gider(goruntu)
-        goruntu = self.isleyici.bias_field_correction(goruntu)
-        goruntu = self.isleyici.skull_strip(goruntu)
-        goruntu = self.isleyici.center_of_mass_alignment(goruntu)
-        goruntu = self.isleyici.yogunluk_normalize(goruntu)
-        goruntu = self.isleyici.histogram_esitle(goruntu, adaptive=True)
-        goruntu = self.isleyici.boyutlandir(goruntu)
-        
+            raise ValueError(f"Görüntü işlenemedi: {goruntu_yolu}")
         return goruntu
+
+    def _ozellikler_from_array(
+        self,
+        goruntu: np.ndarray,
+        dosya_adi: str,
+        boyut_bayt: int,
+        tam_yol: str,
+    ) -> Dict:
+        """
+        İşlenmiş görüntüden (np.ndarray) eğitimdeki ile aynı sayısal özellikleri çıkar.
+        """
+        piksel_array = goruntu.astype(np.float32)
+        yukseklik, genislik = piksel_array.shape
+        en_boy_orani = genislik / yukseklik if yukseklik > 0 else 0.0
+
+        ort_yogunluk = float(np.mean(piksel_array))
+        std_yogunluk = float(np.std(piksel_array))
+        min_yogunluk = float(np.min(piksel_array))
+        max_yogunluk = float(np.max(piksel_array))
+
+        p1_yogunluk = float(np.percentile(piksel_array, 1))
+        p25_yogunluk = float(np.percentile(piksel_array, 25))
+        p50_yogunluk = float(np.percentile(piksel_array, 50))
+        p75_yogunluk = float(np.percentile(piksel_array, 75))
+        p99_yogunluk = float(np.percentile(piksel_array, 99))
+
+        hist, _ = np.histogram(piksel_array.astype(np.uint8), bins=256, range=(0, 256))
+        hist = hist / (hist.sum() + 1e-8)
+        hist_nonzero = hist[hist > 0]
+        entropi = float(-np.sum(hist_nonzero * np.log2(hist_nonzero))) if hist_nonzero.size > 0 else 0.0
+
+        laplacian = ndimage.laplace(piksel_array)
+        kontrast = float(np.var(laplacian))
+        homojenlik = 1.0 / (1.0 + std_yogunluk) if std_yogunluk is not None else 0.0
+        enerji = float(np.sum(hist ** 2))
+
+        carpiklik = float(skew(piksel_array.flatten()))
+        basiklik = float(kurtosis(piksel_array.flatten()))
+
+        grad_y, grad_x = np.gradient(piksel_array)
+        gradient_magnitude = np.sqrt(grad_x ** 2 + grad_y ** 2)
+        ortalama_gradyan = float(np.mean(gradient_magnitude))
+        max_gradyan = float(np.max(gradient_magnitude))
+
+        try:
+            from skimage.filters import threshold_otsu
+
+            otsu_esik = float(threshold_otsu(piksel_array))
+        except Exception:
+            otsu_esik = float(np.mean(piksel_array))
+
+        return {
+            "dosya_adi": dosya_adi,
+            "boyut_bayt": int(boyut_bayt),
+            "genislik": int(genislik),
+            "yukseklik": int(yukseklik),
+            "en_boy_orani": round(en_boy_orani, 4),
+            "piksel_sayisi": int(genislik * yukseklik),
+            "ort_yogunluk": round(ort_yogunluk, 2),
+            "std_yogunluk": round(std_yogunluk, 2),
+            "min_yogunluk": round(min_yogunluk, 2),
+            "max_yogunluk": round(max_yogunluk, 2),
+            "p1_yogunluk": round(p1_yogunluk, 2),
+            "p25_yogunluk": round(p25_yogunluk, 2),
+            "medyan_yogunluk": round(p50_yogunluk, 2),
+            "p75_yogunluk": round(p75_yogunluk, 2),
+            "p99_yogunluk": round(p99_yogunluk, 2),
+            "entropi": round(entropi, 4),
+            "kontrast": round(kontrast, 2),
+            "homojenlik": round(homojenlik, 4),
+            "enerji": round(enerji, 4),
+            "carpiklik": round(carpiklik, 4),
+            "basiklik": round(basiklik, 4),
+            "ortalama_gradyan": round(ortalama_gradyan, 2),
+            "max_gradyan": round(max_gradyan, 2),
+            "otsu_esik": round(otsu_esik, 2),
+            "tam_yol": tam_yol,
+        }
     
     def ozellik_cikar(self, goruntu_yolu: Union[str, Path]) -> pd.DataFrame:
         """
-        Görüntüden özellikleri çıkar.
-        
-        Args:
-            goruntu_yolu: Görüntü dosyasının yolu
-            
-        Returns:
-            Özellikler DataFrame'i
+        Görüntüyü eğitim pipeline'ıyla işle ve sayısal özellikleri çıkar.
         """
-        ozellikler = self.cikarici.tek_goruntu_ozellikleri(str(goruntu_yolu))
-        
-        if ozellikler is None:
-            raise ValueError(f"Özellik çıkarılamadı: {goruntu_yolu}")
-        
-        # DataFrame'e çevir
+        goruntu_yolu = Path(goruntu_yolu)
+        islenmis = self.goruntu_isle(goruntu_yolu)
+
+        boyut_bayt = os.path.getsize(goruntu_yolu) if goruntu_yolu.exists() else 0
+        ozellikler = self._ozellikler_from_array(
+            islenmis,
+            dosya_adi=goruntu_yolu.name,
+            boyut_bayt=boyut_bayt,
+            tam_yol=str(goruntu_yolu),
+        )
+
         df = pd.DataFrame([ozellikler])
-        
+
         # Kategorik kolonları çıkar
-        kategorik = ['dosya_adi', 'tam_yol']
+        kategorik = ["dosya_adi", "tam_yol"]
         df_ozellikler = df.drop(columns=[c for c in kategorik if c in df.columns])
-        
-        # Ölçekleme: eğitimdeki scaler ile aynı sırayı ve dönüşümü uygula
+
+        # Ölçekleme
         if self.scaler and self.scaler_columns:
             for col in self.scaler_columns:
                 if col not in df_ozellikler.columns:
@@ -217,14 +279,13 @@ class ModelInference:
             if eksik:
                 raise ValueError(f"Eksik özellik kolonları: {eksik}")
             df_ozellikler = df_ozellikler[self.feature_names]
-        
-        # Feature selection aktifse seçilen kolonlara indir
+
         if self.selected_features:
             eksik = [c for c in self.selected_features if c not in df_ozellikler.columns]
             if eksik:
                 raise ValueError(f"Seçilen özellikler veri setinde yok: {eksik}")
             df_ozellikler = df_ozellikler[self.selected_features]
-        
+
         return df_ozellikler
     
     def tahmin_yap(self, goruntu_yolu: Union[str, Path], 
