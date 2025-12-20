@@ -36,8 +36,8 @@ SINIF_ETIKETI = {
 
 # ==================== GÖRÜNTÜ İŞLEME AYARLARI ====================
 # Hedef boyut - Tüm görüntüler bu boyuta getirilir (standartlaştırma)
-HEDEF_GENISLIK = 256   # Piksel cinsinden genişlik
-HEDEF_YUKSEKLIK = 256  # Piksel cinsinden yükseklik
+HEDEF_GENISLIK = 512   # Piksel cinsinden genişlik
+HEDEF_YUKSEKLIK = 512  # Piksel cinsinden yükseklik
 
 # İzin verilen görüntü dosya uzantıları
 GORUNTU_UZANTILARI = [".jpg", ".jpeg", ".png"]
@@ -51,7 +51,7 @@ KIRPMA_YUZDELERI = (1, 99)
 # "minimal": Sadece percentile clipping + resize
 # "standard": percentile + CLAHE + resize (önerilen)
 # "aggressive": percentile + CLAHE + z-score + resize
-NORMALIZASYON_STRATEJISI = "standard"  # "minimal", "standard", "aggressive"
+NORMALIZASYON_STRATEJISI = "aggressive"  # "minimal", "standard", "aggressive"
 
 # Z-score normalizasyonu: Ortalama=0, Std=1 yapma (isteğe bağlı)
 Z_SCORE_NORMALIZASYON_AKTIF = True
@@ -70,7 +70,7 @@ MASKE_KENAR_PAYI = 5
 
 # Skull stripping (kafatası çıkarma)
 SKULL_STRIPPING_AKTIF = True
-SKULL_STRIPPING_METHOD = "advanced"  # "simple" veya "advanced" (morfolojik işlemlerle)
+SKULL_STRIPPING_METHOD = "simple"  # "simple" veya "advanced" (morfolojik işlemlerle)
 
 # Bias field correction (MRI yoğunluk düzensizliği düzeltme)
 BIAS_FIELD_CORRECTION_AKTIF = True
@@ -108,7 +108,7 @@ ELASTIC_DEFORMATION_AKTIF = True
 ELASTIC_ALPHA = 100              # Deformasyon şiddeti
 ELASTIC_SIGMA = 10               # Deformasyon yumuşaklığı
 
-RANDOM_CROP_AKTIF = True
+RANDOM_CROP_AKTIF = False
 RANDOM_CROP_RATIO = 0.9          # Kırpma oranı (0.9 = %90'ını al)
 
 GAUSSIAN_NOISE_AKTIF = True
@@ -116,7 +116,7 @@ GAUSSIAN_NOISE_MEAN = 0
 GAUSSIAN_NOISE_SIGMA = 5         # Gürültü şiddeti
 
 INTENSITY_SHIFT_AKTIF = True
-INTENSITY_SHIFT_LIMIT = 0.1      # Yoğunluk kayması limiti (%10)
+INTENSITY_SHIFT_LIMIT = 0.05      # Yogunluk kaymasi limiti (%5)
 
 # ==================== VERİ BÖLÜMLEME AYARLARI ====================
 # Veri seti üç parçaya bölünür:
@@ -138,7 +138,7 @@ CSV_SCALED_DOSYA_ADI = "goruntu_ozellikleri_scaled.csv"  # Ölçeklendirilmiş �
 # "robust": Aykırı değerlere karşı daha dayanıklı, medyan ve IQR kullanır
 # "standard": Z-score normalizasyonu (mean=0, std=1)
 # "maxabs": [-1, 1] aralığına ölçeklendirir
-SCALING_METODU = "minmax"
+SCALING_METODU = "robust"
 
 # ==================== KALİTE KONTROL AYARLARI ====================
 # Görüntü kalite kontrol eşikleri
