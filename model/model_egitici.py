@@ -700,21 +700,47 @@ class ModelEgitici:
     
     def confusion_matrix_ciz(self, y_true, y_pred, dosya_adi: str = "confusion_matrix.png"):
         """Karışıklık matrisi çizer ve kaydeder."""
-        # Sınıf etiketlerini aynı sıra ile göster
+        # Sınıf etiketlerini aynı sıra ile göster (görselde isim kullanmak için eşleme yap)
         classes = np.unique(np.concatenate([y_true, y_pred]))
         cm = confusion_matrix(y_true, y_pred, labels=classes)
 
+        # Sayısal etiketleri okunabilir isimlere çevir (gelen veri string ise olduğu gibi kullanılır)
+        label_map = {
+            0: "NonDemented",
+            1: "VeryMildDemented",
+            2: "MildDemented",
+            3: "ModerateDemented",
+        }
+
+        def _etiket_isim(c):
+            try:
+                c_int = int(c)
+                if isinstance(c, (int, np.integer)) or c_int == c:
+                    return label_map.get(c_int, str(c))
+            except Exception:
+                pass
+            return label_map.get(c, str(c))
+
+        class_names = [_etiket_isim(c) for c in classes]
+
+        toplam_ornek = int(cm.sum())
+
+        # Hücreleri sade bir şekilde sayım + satır yüzdesi olacak şekilde hazırla
+        satir_toplamlari = cm.sum(axis=1, keepdims=True).astype(np.float64)
         annot_labels = []
         for i in range(cm.shape[0]):
             row = []
             for j in range(cm.shape[1]):
-                if i == j:
-                    row.append(f"{cm[i, j]}\nTP ({classes[i]})")
+                adet = cm[i, j]
+                if satir_toplamlari[i, 0] > 0:
+                    yuzde = adet / satir_toplamlari[i, 0] * 100
+                    row.append(f"{adet}\n{yuzde:4.1f}%")
                 else:
-                    row.append(f"{cm[i, j]}\nFN:{classes[i]}\nFP:{classes[j]}")
+                    row.append(str(adet))
             annot_labels.append(row)
-        
+
         fig, ax = plt.subplots(figsize=GORSEL_AYARLARI['confusion_matrix_figsize'])
+        fig.subplots_adjust(bottom=0.25)
         sns.heatmap(
             cm,
             annot=annot_labels,
@@ -727,17 +753,15 @@ class ModelEgitici:
         ax.set_xlabel('Tahmin Edilen Sınıf', fontsize=12)
         ax.set_ylabel('Gerçek Sınıf', fontsize=12)
         ax.set_title(f'Karışıklık Matrisi - {self.model_tipi.upper()}', fontsize=14, fontweight='bold')
-        ax.set_xticklabels(classes, rotation=45, ha='right')
-        ax.set_yticklabels(classes, rotation=0)
-        
+        ax.set_xticklabels(class_names, rotation=30, ha='right')
+        ax.set_yticklabels(class_names, rotation=0)
+
         aciklama = (
-            "Satır = Gerçek sınıf, Sütun = Tahmin edilen sınıf\n"
-            "TP: Köşegen (doğru tahmin)\n"
-            "FN: Satırdaki diğer sütunlar (gerçek sınıf yanlış sınıfa gitti)\n"
-            "FP: Sütundaki diğer satırlar (yanlış sınıf bu sütuna toplandı)"
+            f"Hücredeki üst satır: örnek adedi (toplam: {toplam_ornek}). "
+            "Alt satır: satıra göre yüzde. Satır = gerçek sınıf, sütun = tahmin edilen sınıf."
         )
-        fig.text(1.02, 0.5, aciklama, va='center', ha='left', fontsize=10, transform=ax.transAxes)
-        
+        fig.text(0.5, 0.05, aciklama, va='center', ha='center', fontsize=10, wrap=True)
+
         kayit_yolu = self.gorseller_klasoru / dosya_adi
         fig.savefig(kayit_yolu, dpi=GORSEL_AYARLARI['dpi'], bbox_inches='tight')
         plt.close()
