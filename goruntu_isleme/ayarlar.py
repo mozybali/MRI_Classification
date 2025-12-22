@@ -51,26 +51,28 @@ KIRPMA_YUZDELERI = (1, 99)
 # "minimal": Sadece percentile clipping + resize
 # "standard": percentile + CLAHE + resize (önerilen)
 # "aggressive": percentile + CLAHE + z-score + resize
-NORMALIZASYON_STRATEJISI = "aggressive"  # "minimal", "standard", "aggressive"
+NORMALIZASYON_STRATEJISI = "standard"  # "minimal", "standard", "aggressive"
 
 # Z-score normalizasyonu: Ortalama=0, Std=1 yapma (isteğe bağlı)
 Z_SCORE_NORMALIZASYON_AKTIF = True
 
 # Histogram eşitleme (CLAHE) - Kontrast iyileştirme
 HISTOGRAM_ESITLEME_AKTIF = True
-CLAHE_CLIP_LIMIT = 2.0  # Kırpma sınırı (yüksek = daha fazla kontrast)
+CLAHE_CLIP_LIMIT = 5.0  # Kırpma sınırı (yüksek = daha fazla kontrast)
 
 # Filtreler - Gelişmiş görüntü filtreleme seçenekleri
-GELISMIS_FILTRE_AKTIF = True
+GELISMIS_FILTRE_AKTIF = False
+BILATERAL_FILTRE_AKTIF = True  # Bilateral filtreleme (kenar koruma)
+
 GAUSSIAN_BLUR_AKTIF = False  # Gaussian bulanıklaştırma (gürültü azaltma)
-GAUSSIAN_BLUR_SIGMA = 1.0    # Bulanıklaştırma şiddeti
+GAUSSIAN_BLUR_SIGMA = 0.5    # Bulanıklaştırma şiddeti
 
 # Arka plan işleme
 MASKE_KENAR_PAYI = 5
 
 # Skull stripping (kafatası çıkarma)
 SKULL_STRIPPING_AKTIF = True
-SKULL_STRIPPING_METHOD = "simple"  # "simple" veya "advanced" (morfolojik işlemlerle)
+SKULL_STRIPPING_METHOD = "advanced"  # "simple" veya "advanced" (morfolojik işlemlerle)
 
 # Bias field correction (MRI yoğunluk düzensizliği düzeltme)
 BIAS_FIELD_CORRECTION_AKTIF = True
@@ -81,7 +83,7 @@ REGISTRATION_AKTIF = True
 REGISTRATION_METHOD = "affine"  # "simple" (center-of-mass), "affine" (gelişmiş), "rigid"
 
 # Morfolojik işlemler
-MORFOLOJIK_OPERASYONLAR_AKTIF = False
+MORFOLOJIK_OPERASYONLAR_AKTIF = True
 MORFOLOJIK_KERNEL_BOYUTU = 3
 
 # ==================== VERİ ARTIRMA AYARLARI ====================
@@ -108,7 +110,7 @@ ELASTIC_DEFORMATION_AKTIF = True
 ELASTIC_ALPHA = 100              # Deformasyon şiddeti
 ELASTIC_SIGMA = 10               # Deformasyon yumuşaklığı
 
-RANDOM_CROP_AKTIF = False
+RANDOM_CROP_AKTIF = True
 RANDOM_CROP_RATIO = 0.9          # Kırpma oranı (0.9 = %90'ını al)
 
 GAUSSIAN_NOISE_AKTIF = True
