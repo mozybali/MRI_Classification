@@ -37,9 +37,9 @@ STRATIFY_AKTIF = True      # Sınıf dengesini koru (her sete aynı oranda sın�
 # Gradient Boosting, güçlü bir topluluk öğrenme algoritmasıdır
 # Birden fazla zayıf öğrenci (weak learner) birleştirerek güçlü bir model oluşturur
 GB_AYARLARI = {
-    'n_estimators': 100,         # Ağaç sayısı (daha fazla = daha iyi öğrenme ama daha yavaş)
+    'n_estimators': 300,         # Ağaç sayısı (daha fazla = daha iyi öğrenme ama daha yavaş)
     'max_depth': 7,              # Ağaç derinliği (daha derin = daha karmaşık model)
-    'learning_rate': 0.1,        # Öğrenme hızı (düşük = daha iyi genelleme ama daha yavaş)
+    'learning_rate': 0.05,        # Öğrenme hızı (düşük = daha iyi genelleme ama daha yavaş)
     'random_state': 42,          # Tekrarlanabilirlik için
     'subsample': 0.8,            # Her ağaç için kullanılacak veri oranı (overfitting önler)
     'colsample_bytree': 0.8,     # Her ağaç için kullanılacak özellik oranı
@@ -53,9 +53,9 @@ EARLY_STOPPING_ROUNDS = 10       # Doğrulama skorı 10 tur iyileşmezse dur
 # Grid Search parametreleri - Otomatik hiperparametre optimizasyonu için
 # Bu değerler denenerek en iyi kombinasyon bulunur (işlemci yoğun!)
 GB_GRID_PARAMS = {
-    'n_estimators': [50, 100, 200],        # Denenenecek ağaç sayıları
+    'n_estimators': [200, 400, 600],        # Denenenecek ağaç sayıları
     'max_depth': [5, 7, 9],                # Denenenecek derinlikler
-    'learning_rate': [0.01, 0.1, 0.2],     # Denenenecek öğrenme hızları
+    'learning_rate': [0.01, 0.03, 0.05, 0.08],     # Denenenecek öğrenme hızları
     'subsample': [0.7, 0.8, 0.9],          # Denenenecek örnekleme oranları
 }
 
@@ -63,9 +63,9 @@ GB_GRID_PARAMS = {
 # LightGBM, XGBoost'a alternatif hızlı gradient boosting kütüphanesi
 LIGHTGBM_AYARLARI = {
     # Daha düşük öğrenme hızı + daha fazla iterasyon (early stopping ile kontrol)
-    'n_estimators': 400,
+    'n_estimators': 800,
     'max_depth': 7,
-    'learning_rate': 0.05,
+    'learning_rate': 0.03,
     'random_state': 42,
     'subsample': 0.8,
     'colsample_bytree': 0.8,
