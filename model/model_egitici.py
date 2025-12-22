@@ -572,9 +572,9 @@ class ModelEgitici:
         if self.model_tipi == "xgboost":
             import xgboost as xgb
             param_distributions = {
-                'n_estimators': GB_GRID_PARAMS.get('n_estimators', [100, 200, 300, 500]),
+                'n_estimators': GB_GRID_PARAMS.get('n_estimators', [200, 400, 600, 800]),
                 'max_depth': GB_GRID_PARAMS.get('max_depth', [3, 5, 7, 9, 11]),
-                'learning_rate': GB_GRID_PARAMS.get('learning_rate', [0.01, 0.05, 0.1, 0.2]),
+                'learning_rate': GB_GRID_PARAMS.get('learning_rate', [0.01, 0.03, 0.05, 0.08]),
                 'subsample': GB_GRID_PARAMS.get('subsample', [0.6, 0.8, 1.0]),
                 'colsample_bytree': GB_GRID_PARAMS.get('colsample_bytree', [0.6, 0.8, 1.0]),
                 'gamma': [0, 0.1, 0.2, 0.5],
@@ -586,9 +586,9 @@ class ModelEgitici:
             import lightgbm as lgb
             param_distributions = {
                 # Daha düsük lr + daha fazla iterasyon kombinasyonlarını dene
-                'n_estimators': [200, 400, 800],
+                'n_estimators': [400, 800, 1200],
                 'num_leaves': [31, 63, 127],
-                'learning_rate': [0.05, 0.1],
+                'learning_rate': [0.02, 0.03, 0.05],
                 'subsample': [0.6, 0.8, 1.0],
                 'colsample_bytree': [0.6, 0.8, 1.0],
                 'min_child_samples': [10, 20, 40],
