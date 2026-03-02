@@ -65,6 +65,7 @@ def sample_features_df():
     import pandas as pd
     
     data = {
+        'dosya_adi': [f"img_{i}.png" for i in range(10)],
         'genislik': [256] * 10,
         'yukseklik': [256] * 10,
         'ortalama_yogunluk': np.random.uniform(50, 200, 10),
@@ -74,7 +75,8 @@ def sample_features_df():
         'medyan_yogunluk': np.random.uniform(50, 200, 10),
         'sinif': ['NonDemented'] * 3 + ['VeryMildDemented'] * 3 + 
                  ['MildDemented'] * 2 + ['ModerateDemented'] * 2,
-        'etiket': [0] * 3 + [1] * 3 + [2] * 2 + [3] * 2
+        'etiket': [0] * 3 + [1] * 3 + [2] * 2 + [3] * 2,
+        'tam_yol': [f"/tmp/img_{i}.png" for i in range(10)],
     }
     
     return pd.DataFrame(data)

@@ -620,10 +620,10 @@ class GorselIsleyici:
             Hizalanmış görüntü
         """
         try:
-            # İlk görüntü şablon olarak ayarla
+            # İlk görüntüde güvenli fallback: en azından merkez hizalama uygula.
             if self.template_image is None:
-                self.template_image = goruntu.copy()
-                return goruntu  # İlk görüntü olduğu gibi dön
+                self.template_image = self._simple_center_alignment(goruntu)
+                return self.template_image
             
             # Moving ve fixed image oluştur
             fixed_image = sitk.GetImageFromArray(self.template_image.astype(np.float32))
@@ -815,9 +815,14 @@ class GorselIsleyici:
     
     @staticmethod
     def rastgele_dondur(goruntu: np.ndarray) -> np.ndarray:
-        """0, 90, 180 veya 270 derece rastgele döndür."""
-        k = random.choice([0, 1, 2, 3])
-        return np.rot90(goruntu, k=k) if k > 0 else goruntu
+        """Küçük açılı rotasyon uygula."""
+        if not ROTASYON_AKTIF:
+            return goruntu
+        aci = random.uniform(-ROTASYON_MAKS_ACI, ROTASYON_MAKS_ACI)
+        if abs(aci) < 1e-3:
+            return goruntu
+        donmus = ndimage.rotate(goruntu, angle=aci, reshape=False, order=1, mode='nearest')
+        return np.clip(donmus, 0, 255).astype(np.uint8)
     
     @staticmethod
     def parlaklik_kontrast_degistir(goruntu: np.ndarray) -> np.ndarray:
@@ -969,15 +974,11 @@ class GorselIsleyici:
         g = goruntu.copy()  # Orijinali korumak için kopyala
         
         # BASIT AUGMENTATION
-        # %50 ihtimalle yatay aynalama (sol-sağ çevirme)
-        if random.random() < 0.5:
+        # Beyin MR'larında ayna dönüşümleri anatomik yanlılık üretebilir.
+        if YATAY_AYNA_AKTIF and random.random() < YATAY_AYNA_OLASILIK:
             g = self.yatay_ayna(g)
-        
-        # %30 ihtimalle dikey aynalama (üst-alt çevirme)
-        if random.random() < 0.3:
-            g = self.dikey_ayna(g)
-        
-        # Rastgele döndürme (0, 90, 180, 270 derece)
+
+        # Küçük açılı rotasyon
         g = self.rastgele_dondur(g)
         
         # Parlaklık ve kontrast değişimi
@@ -1077,6 +1078,12 @@ class GorselIsleyici:
         if not SINIF_BAZLI_ARTIRMA_AKTIF:
             # Tüm sınıflar için aynı çarpan
             return {sinif: ARTIRMA_CARPANI for sinif in SINIF_KLASORLERI}
+
+        if SINIF_BAZLI_CARPANLAR:
+            return {
+                sinif: max(0, int(SINIF_BAZLI_CARPANLAR.get(sinif, ARTIRMA_CARPANI)))
+                for sinif in SINIF_KLASORLERI
+            }
         
         # Her sınıftaki örnek sayısını hesapla
         sinif_sayilari = {}

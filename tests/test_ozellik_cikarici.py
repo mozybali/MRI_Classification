@@ -200,6 +200,7 @@ class TestVeriBoluntule:
         try:
             # Veri bölme fonksiyonunu çalıştır
             train_df, val_df, test_df = veri_boluntule(
+                csv_dosyasi=csv_path,
                 cikti_klasoru=temp_output_dir
             )
             
@@ -236,6 +237,7 @@ class TestVeriBoluntule:
         
         try:
             train_df, val_df, test_df = veri_boluntule(
+                csv_dosyasi=csv_path,
                 cikti_klasoru=temp_output_dir
             )
             
@@ -267,6 +269,7 @@ class TestVeriBoluntule:
         
         try:
             train_df, val_df, test_df = veri_boluntule(
+                csv_dosyasi=csv_path,
                 cikti_klasoru=temp_output_dir
             )
             
@@ -313,3 +316,26 @@ class TestEdgeCases:
         # Sabit özellikleri hatasız işlemeli
         assert not scaled_df.empty
         assert 'constant_feature' in scaled_df.columns
+
+    def test_veri_boluntule_kaynak_grubu_korur(self, temp_output_dir):
+        """Aynı kaynak görüntünün augmentasyonları farklı split'lere düşmemeli."""
+        data = {
+            'dosya_adi': ['img1.png', 'img1_aug1.png', 'img2.png', 'img2_aug1.png', 'img3.png', 'img3_aug1.png', 'img4.png', 'img4_aug1.png'],
+            'feature1': np.random.rand(8),
+            'sinif': ['A', 'A', 'B', 'B', 'C', 'C', 'D', 'D'],
+            'etiket': [0, 0, 1, 1, 2, 2, 3, 3],
+        }
+        df = pd.DataFrame(data)
+        csv_path = temp_output_dir / "grouped.csv"
+        df.to_csv(csv_path, index=False)
+
+        train_df, val_df, test_df = veri_boluntule(csv_dosyasi=csv_path, cikti_klasoru=temp_output_dir)
+        splitler = [train_df, val_df, test_df]
+
+        kaynak_splitleri = {}
+        for idx, split_df in enumerate(splitler):
+            for dosya_adi in split_df['dosya_adi']:
+                kaynak = dosya_adi.replace('_aug1', '').replace('.png', '')
+                kaynak_splitleri.setdefault(kaynak, set()).add(idx)
+
+        assert all(len(split_setleri) == 1 for split_setleri in kaynak_splitleri.values())

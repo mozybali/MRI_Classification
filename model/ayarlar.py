@@ -16,6 +16,10 @@ PROJE_KOK = Path(__file__).parent.parent
 # Veri yolları
 # Eğitim için kullanılacak ölçeklendirilmiş özellik CSV'si
 VERI_CSV = PROJE_KOK / "goruntu_isleme" / "cikti" / "goruntu_ozellikleri_scaled.csv"
+EGITIM_CSV = PROJE_KOK / "goruntu_isleme" / "cikti" / "egitim_scaled.csv"
+DOGRULAMA_CSV = PROJE_KOK / "goruntu_isleme" / "cikti" / "dogrulama_scaled.csv"
+TEST_CSV = PROJE_KOK / "goruntu_isleme" / "cikti" / "test_scaled.csv"
+SCALER_DOSYASI = PROJE_KOK / "goruntu_isleme" / "cikti" / "feature_scaler.pkl"
 
 # Model çıktıları için ana klasör
 CIKTI_KLASORU = PROJE_KOK / "model" / "ciktilar"

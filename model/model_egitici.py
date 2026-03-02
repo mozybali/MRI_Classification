@@ -83,9 +83,12 @@ def _lightgbm_log_period(default: int = 0) -> int:
 
 # Ensure VERI_CSV is imported
 try:
-    from ayarlar import VERI_CSV
+    from ayarlar import VERI_CSV, EGITIM_CSV, DOGRULAMA_CSV, TEST_CSV
 except ImportError:
     VERI_CSV = Path("goruntu_isleme/cikti/goruntu_ozellikleri_scaled.csv")
+    EGITIM_CSV = Path("goruntu_isleme/cikti/egitim_scaled.csv")
+    DOGRULAMA_CSV = Path("goruntu_isleme/cikti/dogrulama_scaled.csv")
+    TEST_CSV = Path("goruntu_isleme/cikti/test_scaled.csv")
 
 
 class ModelEgitici:
@@ -151,40 +154,55 @@ class ModelEgitici:
                 f"   Önce 'goruntu_isleme/ana_islem.py' çalıştırarak CSV oluşturun!"
             )
         
-        # CSV'yi oku
-        df = pd.read_csv(csv_yolu)
-        print(f"   ✓ {len(df)} kayıt yüklendi")
-        print(f"   ✓ {df['sinif'].nunique()} sınıf var: {df['sinif'].unique().tolist()}")
-        
-        # Özellikler ve etiketler
-        kategorik = ['dosya_adi', 'sinif', 'tam_yol']
-        X = df.drop(columns=[c for c in kategorik if c in df.columns] + ['etiket'])
-        y = df['etiket']
-        
-        self.feature_names = X.columns.tolist()
+        kategorik = ['dosya_adi', 'sinif', 'tam_yol', 'kaynak_id', 'kaynak_grup', 'augmentasyon_mu']
+
+        if csv_yolu == VERI_CSV and EGITIM_CSV.exists() and DOGRULAMA_CSV.exists() and TEST_CSV.exists():
+            print("   ✓ Hazır split dosyaları bulundu, doğrudan kullanılıyor")
+            train_df = pd.read_csv(EGITIM_CSV)
+            val_df = pd.read_csv(DOGRULAMA_CSV)
+            test_df = pd.read_csv(TEST_CSV)
+
+            print(f"   ✓ Eğitim: {len(train_df)}, Doğrulama: {len(val_df)}, Test: {len(test_df)}")
+
+            X_train = train_df.drop(columns=[c for c in kategorik if c in train_df.columns] + ['etiket'])
+            X_val = val_df.drop(columns=[c for c in kategorik if c in val_df.columns] + ['etiket'])
+            X_test = test_df.drop(columns=[c for c in kategorik if c in test_df.columns] + ['etiket'])
+            y_train = train_df['etiket']
+            y_val = val_df['etiket']
+            y_test = test_df['etiket']
+        else:
+            # CSV'yi oku
+            df = pd.read_csv(csv_yolu)
+            print(f"   ✓ {len(df)} kayıt yüklendi")
+            print(f"   ✓ {df['sinif'].nunique()} sınıf var: {df['sinif'].unique().tolist()}")
+
+            X = df.drop(columns=[c for c in kategorik if c in df.columns] + ['etiket'])
+            y = df['etiket']
+
+            # Geriye dönük fallback: tek CSV'den böl.
+            X_train, X_temp, y_train, y_temp = train_test_split(
+                X, y,
+                test_size=(1 - EGITIM_ORANI),
+                random_state=RASTGELE_TOHUM,
+                stratify=y if STRATIFY_AKTIF else None
+            )
+
+            val_oran = DOGRULAMA_ORANI / (DOGRULAMA_ORANI + TEST_ORANI)
+            X_val, X_test, y_val, y_test = train_test_split(
+                X_temp, y_temp,
+                test_size=(1 - val_oran),
+                random_state=RASTGELE_TOHUM,
+                stratify=y_temp if STRATIFY_AKTIF else None
+            )
+
+        self.feature_names = X_train.columns.tolist()
         print(f"   ✓ {len(self.feature_names)} özellik kullanılacak")
-        
-        # İlk bölme: eğitim + geçici (doğrulama + test)
-        X_train, X_temp, y_train, y_temp = train_test_split(
-            X, y,
-            test_size=(1 - EGITIM_ORANI),
-            random_state=RASTGELE_TOHUM,
-            stratify=y if STRATIFY_AKTIF else None
-        )
-        
-        # İkinci bölme: doğrulama + test
-        val_oran = DOGRULAMA_ORANI / (DOGRULAMA_ORANI + TEST_ORANI)
-        X_val, X_test, y_val, y_test = train_test_split(
-            X_temp, y_temp,
-            test_size=(1 - val_oran),
-            random_state=RASTGELE_TOHUM,
-            stratify=y_temp if STRATIFY_AKTIF else None
-        )
-        
+
         print(f"\n📂 Veri seti bölündü:")
-        print(f"   • Eğitim: {len(X_train)} ({len(X_train)/len(df)*100:.1f}%)")
-        print(f"   • Doğrulama: {len(X_val)} ({len(X_val)/len(df)*100:.1f}%)")
-        print(f"   • Test: {len(X_test)} ({len(X_test)/len(df)*100:.1f}%)")
+        toplam = len(X_train) + len(X_val) + len(X_test)
+        print(f"   • Eğitim: {len(X_train)} ({len(X_train)/toplam*100:.1f}%)")
+        print(f"   • Doğrulama: {len(X_val)} ({len(X_val)/toplam*100:.1f}%)")
+        print(f"   • Test: {len(X_test)} ({len(X_test)/toplam*100:.1f}%)")
         
         # Sınıf dağılımını göster
         print(f"\n📊 Sınıf dağılımı (Eğitim seti):")

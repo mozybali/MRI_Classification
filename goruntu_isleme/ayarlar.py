@@ -36,8 +36,8 @@ SINIF_ETIKETI = {
 
 # ==================== GÖRÜNTÜ İŞLEME AYARLARI ====================
 # Hedef boyut - Tüm görüntüler bu boyuta getirilir (standartlaştırma)
-HEDEF_GENISLIK = 512   # Piksel cinsinden genişlik
-HEDEF_YUKSEKLIK = 512  # Piksel cinsinden yükseklik
+HEDEF_GENISLIK = 256   # Piksel cinsinden genişlik
+HEDEF_YUKSEKLIK = 256  # Piksel cinsinden yükseklik
 
 # İzin verilen görüntü dosya uzantıları
 GORUNTU_UZANTILARI = [".jpg", ".jpeg", ".png"]
@@ -80,7 +80,7 @@ BIAS_FIELD_METHOD = "n4itk"  # "n4itk" (profesyonel) veya "simple" (hızlı)
 
 # Registration/Hizalama
 REGISTRATION_AKTIF = True
-REGISTRATION_METHOD = "affine"  # "simple" (center-of-mass), "affine" (gelişmiş), "rigid"
+REGISTRATION_METHOD = "simple"  # "simple" (center-of-mass), "affine" (gelişmiş), "rigid"
 
 # Morfolojik işlemler
 MORFOLOJIK_OPERASYONLAR_AKTIF = True
@@ -95,23 +95,27 @@ ARTIRMA_CARPANI = 2  # Her orijinal görüntüden kaç artırılmış versiyon �
 # Sınıf bazlı dengesiz augmentation - Az örnekli sınıfları daha fazla artır
 SINIF_BAZLI_ARTIRMA_AKTIF = True
 SINIF_BAZLI_CARPANLAR = {
-    "NonDemented": 1,        # En fazla örneğe sahip (9600) - az artır
-    "VeryMildDemented": 2,   # Orta (8960) - orta artır
-    "MildDemented": 2,       # Orta (8960) - orta artır
-    "ModerateDemented": 3,   # En az örneğe sahip (6464) - çok artır
+    "NonDemented": 0,        # Sadece orijinal örnekleri kullan
+    "VeryMildDemented": 1,   # Hafif artır
+    "MildDemented": 1,       # Hafif artır
+    "ModerateDemented": 3,   # En az örnekli sınıf - daha fazla artır
 }
 
 # Artırma parametreleri (basit)
+YATAY_AYNA_AKTIF = False
+YATAY_AYNA_OLASILIK = 0.15
+ROTASYON_AKTIF = True
+ROTASYON_MAKS_ACI = 10.0      # 90/180 derece yerine küçük açılı rotasyon
 PARLAKLIK_ARALIK = (-20, 20)     # Parlaklık değişimi aralığı (piksel)
 KONTRAST_ARALIK = (0.9, 1.1)     # Kontrast çarpanı aralığı
 
 # Gelişmiş medikal-spesifik artırma parametreleri
 ELASTIC_DEFORMATION_AKTIF = True
-ELASTIC_ALPHA = 100              # Deformasyon şiddeti
-ELASTIC_SIGMA = 10               # Deformasyon yumuşaklığı
+ELASTIC_ALPHA = 25               # Deformasyon şiddeti
+ELASTIC_SIGMA = 8                # Deformasyon yumuşaklığı
 
 RANDOM_CROP_AKTIF = True
-RANDOM_CROP_RATIO = 0.9          # Kırpma oranı (0.9 = %90'ını al)
+RANDOM_CROP_RATIO = 0.95         # Kırpma oranı (0.95 = %95'ini al)
 
 GAUSSIAN_NOISE_AKTIF = True
 GAUSSIAN_NOISE_MEAN = 0
@@ -134,6 +138,13 @@ RASTGELE_TOHUM = 42        # Tekrarlanabilirlik için sabit tohum
 # Özelliklerin kaydedileceği CSV dosya isimleri
 CSV_DOSYA_ADI = "goruntu_ozellikleri.csv"          # Ham özellikler
 CSV_SCALED_DOSYA_ADI = "goruntu_ozellikleri_scaled.csv"  # Ölçeklendirilmiş özellikler
+EGITIM_CSV_DOSYA_ADI = "egitim.csv"
+DOGRULAMA_CSV_DOSYA_ADI = "dogrulama.csv"
+TEST_CSV_DOSYA_ADI = "test.csv"
+EGITIM_SCALED_CSV_DOSYA_ADI = "egitim_scaled.csv"
+DOGRULAMA_SCALED_CSV_DOSYA_ADI = "dogrulama_scaled.csv"
+TEST_SCALED_CSV_DOSYA_ADI = "test_scaled.csv"
+SCALER_DOSYA_ADI = "feature_scaler.pkl"
 
 # Ölçeklendirme (Scaling) metodu
 # "minmax": Tüm değerleri 0-1 aralığına sıkıştırır

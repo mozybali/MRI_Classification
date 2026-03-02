@@ -26,7 +26,6 @@ from typing import Union, List, Dict, Optional
 from multiprocessing import Pool, cpu_count
 from functools import partial
 from tqdm import tqdm
-from sklearn.preprocessing import MinMaxScaler, RobustScaler, StandardScaler, MaxAbsScaler
 
 # Görüntü işleme için
 sys.path.insert(0, str(Path(__file__).parent.parent / "goruntu_isleme"))
@@ -34,7 +33,7 @@ from goruntu_isleyici import GorselIsleyici
 from ayarlar import PROJE_KOK
 from goruntu_isleme.ayarlar import SCALING_METODU, CSV_DOSYA_ADI
 
-from ayarlar import MODELS_KLASORU
+from ayarlar import MODELS_KLASORU, SCALER_DOSYASI
 from scipy import ndimage
 from scipy.stats import skew, kurtosis
 
@@ -127,34 +126,29 @@ class ModelInference:
             print(f"   ⚠️  Metadata bulunamadı")
 
     def _hazirla_scaler(self):
-        """Eğitim verisinden ölçekleyiciyi hazırla."""
+        """Eğitimde kaydedilen ölçekleyiciyi yükle."""
         try:
+            if SCALER_DOSYASI.exists():
+                with open(SCALER_DOSYASI, 'rb') as f:
+                    scaler_bundle = pickle.load(f)
+                self.scaler = scaler_bundle.get("scaler")
+                self.scaler_columns = scaler_bundle.get("columns", [])
+                if not self.feature_names:
+                    self.feature_names = self.scaler_columns
+                print(f"   ✓ Ölçekleyici yüklendi ({scaler_bundle.get('method', 'bilinmiyor')})")
+                return
+
             raw_csv = PROJE_KOK / "goruntu_isleme" / "cikti" / CSV_DOSYA_ADI
             if not raw_csv.exists():
                 print(f"   ⚠️  Ölçekleyici hazırlanamadı (CSV yok): {raw_csv}")
                 return
             
             df = pd.read_csv(raw_csv)
-            kategorik = ['dosya_adi', 'sinif', 'etiket', 'tam_yol']
+            kategorik = ['dosya_adi', 'sinif', 'etiket', 'tam_yol', 'kaynak_id', 'kaynak_grup', 'augmentasyon_mu']
             self.scaler_columns = [c for c in df.columns if c not in kategorik]
-            
-            if SCALING_METODU == "minmax":
-                scaler = MinMaxScaler()
-            elif SCALING_METODU == "robust":
-                scaler = RobustScaler()
-            elif SCALING_METODU == "standard":
-                scaler = StandardScaler()
-            elif SCALING_METODU == "maxabs":
-                scaler = MaxAbsScaler()
-            else:
-                print(f"   ⚠️  Bilinmeyen SCALING_METODU: {SCALING_METODU}")
-                return
-            
-            scaler.fit(df[self.scaler_columns])
-            self.scaler = scaler
             if not self.feature_names:
                 self.feature_names = self.scaler_columns
-            print(f"   ✓ Ölçekleyici hazır ({SCALING_METODU})")
+            print(f"   ⚠️  Kaydedilmiş scaler bulunamadı; fallback olarak sütun listesi çıkarıldı")
         except Exception as e:
             print(f"   ⚠️  Ölçekleyici hazırlanamadı: {e}")
 

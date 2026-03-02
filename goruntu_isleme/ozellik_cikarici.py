@@ -5,10 +5,12 @@ ozellik_cikarici.py
 """
 
 import os
+import pickle
+import re
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from PIL import Image
 from tqdm import tqdm
 from scipy import ndimage
@@ -17,6 +19,11 @@ from multiprocessing import Pool, cpu_count
 from functools import partial
 
 from ayarlar import *
+
+KATEGORIK_SUTUNLAR = [
+    'dosya_adi', 'sinif', 'etiket', 'tam_yol',
+    'kaynak_id', 'kaynak_grup', 'augmentasyon_mu'
+]
 
 
 def _ozellik_cikar_wrapper(goruntu_yolu: str, sinif_adi: str) -> Optional[Dict]:
@@ -29,6 +36,9 @@ def _ozellik_cikar_wrapper(goruntu_yolu: str, sinif_adi: str) -> Optional[Dict]:
             ozellikler["sinif"] = sinif_adi
             ozellikler["etiket"] = SINIF_ETIKETI[sinif_adi]
             ozellikler["tam_yol"] = str(goruntu_yolu)
+            ozellikler["kaynak_id"] = cikarici.kaynak_id_belirle(Path(goruntu_yolu).name)
+            ozellikler["kaynak_grup"] = f"{sinif_adi}::{ozellikler['kaynak_id']}"
+            ozellikler["augmentasyon_mu"] = Path(goruntu_yolu).stem != ozellikler["kaynak_id"]
             return ozellikler
     except Exception:
         pass
@@ -41,6 +51,99 @@ class OzellikCikarici:
     def __init__(self):
         """Özellik çıkarıcıyı başlat."""
         self.n_jobs = max(1, cpu_count() - 1)  # Bir çekirdek sisteme bırak
+
+    @staticmethod
+    def kaynak_id_belirle(dosya_adi: str) -> str:
+        """Augment edilmiş dosyalardan kaynak görüntü kimliğini çıkar."""
+        stem = Path(str(dosya_adi)).stem
+        return re.sub(r"_aug\d+$", "", stem)
+
+    @classmethod
+    def kaynak_kolonlarini_hazirla(cls, df: pd.DataFrame) -> pd.DataFrame:
+        """Split ve ölçekleme için kaynak görüntü kolonlarını güvenli şekilde ekle."""
+        df = df.copy()
+
+        if 'kaynak_id' not in df.columns:
+            if 'dosya_adi' in df.columns:
+                df['kaynak_id'] = df['dosya_adi'].fillna("").map(cls.kaynak_id_belirle)
+            elif 'tam_yol' in df.columns:
+                df['kaynak_id'] = df['tam_yol'].fillna("").map(lambda yol: cls.kaynak_id_belirle(Path(str(yol)).name))
+            else:
+                df['kaynak_id'] = [f"satir_{i}" for i in range(len(df))]
+
+        if 'kaynak_grup' not in df.columns:
+            if 'sinif' in df.columns:
+                df['kaynak_grup'] = df['sinif'].astype(str) + "::" + df['kaynak_id'].astype(str)
+            else:
+                df['kaynak_grup'] = df['kaynak_id'].astype(str)
+
+        if 'augmentasyon_mu' not in df.columns:
+            if 'dosya_adi' in df.columns:
+                kok_adlari = df['dosya_adi'].fillna("").map(lambda ad: Path(str(ad)).stem)
+                df['augmentasyon_mu'] = kok_adlari != df['kaynak_id'].astype(str)
+            else:
+                df['augmentasyon_mu'] = False
+
+        return df
+
+    @staticmethod
+    def _sayisal_sutunlari_bul(df: pd.DataFrame) -> List[str]:
+        """Ölçeklenecek sayısal sütunları bul."""
+        return [col for col in df.columns if col not in KATEGORIK_SUTUNLAR]
+
+    @staticmethod
+    def _stratify_serisi_uygun_mu(seri: pd.Series) -> bool:
+        """Stratify için her sınıfta yeterli örnek var mı kontrol et."""
+        if seri.nunique() < 2:
+            return False
+        return bool((seri.value_counts() >= 2).all())
+
+    @staticmethod
+    def _scaler_olustur(metod: str):
+        """İstenen ölçekleyiciyi oluştur."""
+        if metod == "minmax":
+            return MinMaxScaler(), "MinMaxScaler: Degerleri [0, 1] araligina olceklendirir"
+        if metod == "robust":
+            return RobustScaler(), "RobustScaler: Medyan ve IQR kullanir (aykiri degerlere dayanikli)"
+        if metod == "standard":
+            return StandardScaler(), "StandardScaler: Z-score normalizasyonu (mean=0, std=1)"
+        if metod == "maxabs":
+            return MaxAbsScaler(), "MaxAbsScaler: Degerleri [-1, 1] araligina olceklendirir"
+        raise ValueError(f"Bilinmeyen scaling metodu: {metod}")
+
+    def _df_olceklendir(
+        self,
+        df: pd.DataFrame,
+        scaler,
+        fit: bool = False,
+    ) -> Tuple[pd.DataFrame, List[str]]:
+        """DataFrame üzerindeki sayısal sütunlara scaler uygula."""
+        df_scaled = df.copy()
+        sayisal_sutunlar = self._sayisal_sutunlari_bul(df_scaled)
+
+        if not sayisal_sutunlar:
+            return df_scaled, sayisal_sutunlar
+
+        if fit:
+            df_scaled[sayisal_sutunlar] = scaler.fit_transform(df_scaled[sayisal_sutunlar])
+        else:
+            df_scaled[sayisal_sutunlar] = scaler.transform(df_scaled[sayisal_sutunlar])
+
+        return df_scaled, sayisal_sutunlar
+
+    @staticmethod
+    def _scaler_kaydet(scaler, sayisal_sutunlar: List[str], metod: str, cikti_klasoru: Path):
+        """Inference tarafında kullanılmak üzere scaler'ı kaydet."""
+        scaler_yolu = cikti_klasoru / SCALER_DOSYA_ADI
+        with open(scaler_yolu, 'wb') as f:
+            pickle.dump(
+                {
+                    "scaler": scaler,
+                    "columns": sayisal_sutunlar,
+                    "method": metod,
+                },
+                f
+            )
     
     def tek_goruntu_ozellikleri(self, goruntu_yolu: str) -> Optional[Dict]:
         """
@@ -239,7 +342,7 @@ class OzellikCikarici:
             return pd.DataFrame()
         
         # DataFrame oluştur
-        df = pd.DataFrame(tum_ozellikler)
+        df = self.kaynak_kolonlarini_hazirla(pd.DataFrame(tum_ozellikler))
         
         # CSV'ye kaydet
         df.to_csv(cikti_csv, index=False, encoding='utf-8')
@@ -282,8 +385,8 @@ class OzellikCikarici:
         
         print(f"\n[BILGI] {total_nan} NaN deger bulundu")
         
-        kategorik_sutunlar = ['dosya_adi', 'sinif', 'etiket', 'tam_yol']
-        sayisal_sutunlar = [col for col in df.columns if col not in kategorik_sutunlar]
+        df = self.kaynak_kolonlarini_hazirla(df)
+        sayisal_sutunlar = self._sayisal_sutunlari_bul(df)
         
         if metod == 'drop':
             df_temiz = df.dropna()
@@ -392,8 +495,8 @@ class OzellikCikarici:
             print(f"\n   Simdilik devam ediliyor... (NaN'lar korunacak)")
         
         # Ölçeklendirilecek sütunları belirle (sayısal olanlar)
-        kategorik_sutunlar = ['dosya_adi', 'sinif', 'etiket', 'tam_yol']
-        sayisal_sutunlar = [col for col in df.columns if col not in kategorik_sutunlar]
+        df = self.kaynak_kolonlarini_hazirla(df)
+        sayisal_sutunlar = self._sayisal_sutunlari_bul(df)
         
         # Sabit sütunları tespit et (std = 0 olanlar)
         sabit_sutunlar = []
@@ -410,28 +513,18 @@ class OzellikCikarici:
             print(f"   Bu sutunlar model egitiminde kullanissiz olabilir.")
         
         # Scaling seçimi
-        if metod == "minmax":
-            scaler = MinMaxScaler()
-            print(f"\n[BILGI] MinMaxScaler: Degerleri [0, 1] araligina olceklendirir")
-        elif metod == "robust":
-            scaler = RobustScaler()
-            print(f"\n[BILGI] RobustScaler: Medyan ve IQR kullanir (aykiri degerlere dayanikli)")
-        elif metod == "standard":
-            scaler = StandardScaler()
-            print(f"\n[BILGI] StandardScaler: Z-score normalizasyonu (mean=0, std=1)")
-        elif metod == "maxabs":
-            scaler = MaxAbsScaler()
-            print(f"\n[BILGI] MaxAbsScaler: Degerleri [-1, 1] araligina olceklendirir")
-        else:
+        try:
+            scaler, bilgi = self._scaler_olustur(metod)
+            print(f"\n[BILGI] {bilgi}")
+        except ValueError:
             print(f"[HATA] Bilinmeyen scaling metodu: {metod}")
-            print(f"       Gecerli metodlar: minmax, robust, standard, maxabs")
+            print("       Gecerli metodlar: minmax, robust, standard, maxabs")
             return df
         
         # Ölçeklendirme uygula
         print(f"\n[ISLEM] Olceklendirme uygulanıyor...")
-        df_scaled = df.copy()
         try:
-            df_scaled[sayisal_sutunlar] = scaler.fit_transform(df[sayisal_sutunlar])
+            df_scaled, sayisal_sutunlar = self._df_olceklendir(df, scaler, fit=True)
         except Exception as e:
             print(f"\n[HATA] Olceklendirme basarisiz: {e}")
             return df
@@ -572,32 +665,77 @@ def veri_boluntule(csv_dosyasi: Optional[Path] = None,
         print(f"[HATA] CSV okunamadı: {e}")
         return
     
-    # Etiketleri al
-    y = df['etiket']
-    
-    # İlk bölme: eğitim + (doğrulama + test)
-    train_df, temp_df = train_test_split(
-        df, 
+    cikarici = OzellikCikarici()
+    df = cikarici.kaynak_kolonlarini_hazirla(df)
+
+    group_df = df[['kaynak_grup', 'etiket']].drop_duplicates().reset_index(drop=True)
+    stratify_groups = group_df['etiket'] if cikarici._stratify_serisi_uygun_mu(group_df['etiket']) else None
+
+    # Aynı kaynak görüntünün augmentasyonları farklı split'lere düşmesin.
+    train_groups, temp_groups = train_test_split(
+        group_df,
         test_size=(1 - EGITIM_ORANI),
-        stratify=y,
+        stratify=stratify_groups,
         random_state=RASTGELE_TOHUM
     )
-    
-    # İkinci bölme: doğrulama + test
+
     val_oran = DOGRULAMA_ORANI / (DOGRULAMA_ORANI + TEST_ORANI)
-    val_df, test_df = train_test_split(
-        temp_df,
+    temp_stratify = temp_groups['etiket'] if cikarici._stratify_serisi_uygun_mu(temp_groups['etiket']) else None
+    val_groups, test_groups = train_test_split(
+        temp_groups,
         test_size=(1 - val_oran),
-        stratify=temp_df['etiket'],
+        stratify=temp_stratify,
         random_state=RASTGELE_TOHUM
     )
-    
+
+    train_df = df[df['kaynak_grup'].isin(train_groups['kaynak_grup'])].copy()
+    val_df = df[df['kaynak_grup'].isin(val_groups['kaynak_grup'])].copy()
+    test_df = df[df['kaynak_grup'].isin(test_groups['kaynak_grup'])].copy()
+
     # Kaydet
-    train_df.to_csv(cikti_klasoru / "egitim.csv", index=False)
-    val_df.to_csv(cikti_klasoru / "dogrulama.csv", index=False)
-    test_df.to_csv(cikti_klasoru / "test.csv", index=False)
+    train_df.to_csv(cikti_klasoru / EGITIM_CSV_DOSYA_ADI, index=False)
+    val_df.to_csv(cikti_klasoru / DOGRULAMA_CSV_DOSYA_ADI, index=False)
+    test_df.to_csv(cikti_klasoru / TEST_CSV_DOSYA_ADI, index=False)
     
     print("\n[BASARILI] Veri seti bolundu:")
     print(f"  Eğitim: {len(train_df)} ({EGITIM_ORANI*100:.0f}%)")
     print(f"  Doğrulama: {len(val_df)} ({DOGRULAMA_ORANI*100:.0f}%)")
     print(f"  Test: {len(test_df)} ({TEST_ORANI*100:.0f}%)")
+
+    return train_df, val_df, test_df
+
+
+def veri_setini_bol_ve_olceklendir(
+    csv_dosyasi: Optional[Path] = None,
+    cikti_klasoru: Optional[Path] = None,
+    metod: str = SCALING_METODU
+):
+    """
+    Veri setini önce grup-bazlı böl, sonra scaler'ı sadece eğitim verisinde fit et.
+    """
+    if cikti_klasoru is None:
+        cikti_klasoru = CIKTI_KLASORU
+
+    cikarici = OzellikCikarici()
+    train_df, val_df, test_df = veri_boluntule(csv_dosyasi=csv_dosyasi, cikti_klasoru=cikti_klasoru)
+
+    scaler, _ = cikarici._scaler_olustur(metod)
+    train_scaled, sayisal_sutunlar = cikarici._df_olceklendir(train_df, scaler, fit=True)
+    val_scaled, _ = cikarici._df_olceklendir(val_df, scaler, fit=False)
+    test_scaled, _ = cikarici._df_olceklendir(test_df, scaler, fit=False)
+
+    train_scaled.to_csv(cikti_klasoru / EGITIM_SCALED_CSV_DOSYA_ADI, index=False, encoding='utf-8')
+    val_scaled.to_csv(cikti_klasoru / DOGRULAMA_SCALED_CSV_DOSYA_ADI, index=False, encoding='utf-8')
+    test_scaled.to_csv(cikti_klasoru / TEST_SCALED_CSV_DOSYA_ADI, index=False, encoding='utf-8')
+
+    tum_scaled = pd.concat([train_scaled, val_scaled, test_scaled], ignore_index=True)
+    tum_scaled.to_csv(cikti_klasoru / CSV_SCALED_DOSYA_ADI, index=False, encoding='utf-8')
+    cikarici._scaler_kaydet(scaler, sayisal_sutunlar, metod, cikti_klasoru)
+
+    print("\n[BASARILI] Leakage-free split + scaling tamamlandi:")
+    print(f"  Egitim scaled: {cikti_klasoru / EGITIM_SCALED_CSV_DOSYA_ADI}")
+    print(f"  Dogrulama scaled: {cikti_klasoru / DOGRULAMA_SCALED_CSV_DOSYA_ADI}")
+    print(f"  Test scaled: {cikti_klasoru / TEST_SCALED_CSV_DOSYA_ADI}")
+    print(f"  Scaler: {cikti_klasoru / SCALER_DOSYA_ADI}")
+
+    return train_scaled, val_scaled, test_scaled

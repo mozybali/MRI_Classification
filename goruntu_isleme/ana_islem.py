@@ -4,64 +4,40 @@
 """
 ana_islem.py
 ------------
-MRI görüntü işleme ana menü ve işlem yöneticisi.
-Tüm işlemleri tek bir yerden yönetir.
+MRI goruntu isleme ana menu ve islem yoneticisi.
 """
 
 import sys
 from pathlib import Path
 
-# Modül yolunu ekle
 sys.path.insert(0, str(Path(__file__).parent))
 
 from ayarlar import *
 from goruntu_isleyici import GorselIsleyici
-from ozellik_cikarici import OzellikCikarici, veri_boluntule
+from ozellik_cikarici import OzellikCikarici, veri_boluntule, veri_setini_bol_ve_olceklendir
 
 
 def ana_menu():
-    """
-    Ana menüyü göster.
-    
-    Kullanıcıya 7 farklı işlem seçeneği sunar:
-    1. Görüntü ön işleme (normalizasyon, histogram eşitleme, vb.)
-    2. Özellik çıkarma ve CSV oluşturma
-    3. CSV'deki NaN değerleri temizleme
-    4. CSV'ye ölçeklendirme uygulama
-    5. Veri seti bölme (eğitim/doğrulama/test)
-    6. İstatistik raporu gösterme
-    7. Tüm işlemleri otomatik yapma
-    """
-    print("\n" + "="*60)
-    print("MRI GÖRÜNTÜ İŞLEME SİSTEMİ")
-    print("="*60)
-    print("\n1. Görüntüleri ön işle (2D/3D)")
-    print("2. Özellik çıkar ve CSV oluştur")
-    print("3. CSV'deki NaN değerleri temizle")
-    print("4. CSV'ye ölçeklendirme uygula")
-    print("5. Veri setini böl (eğitim/doğrulama/test)")
-    print("6. İstatistik raporu göster")
-    print("7. TÜM İŞLEMLERİ OTOMATIK YAP")
-    print("0. Çıkış")
-    print("\n" + "="*60)
+    """Ana menuyu goster."""
+    print("\n" + "=" * 60)
+    print("MRI GORUNTU ISLEME SISTEMI")
+    print("=" * 60)
+    print("\n1. Goruntuleri on isle (2D/3D)")
+    print("2. Ozellik cikar ve CSV olustur")
+    print("3. CSV'deki NaN degerleri temizle")
+    print("4. Veri setini bol + egitim setine gore olceklendir")
+    print("5. Istatistik raporu goster")
+    print("6. Veri setini bol (ham CSV)")
+    print("7. TUM ISLEMLERI OTOMATIK YAP")
+    print("0. Cikis")
+    print("\n" + "=" * 60)
 
 
 def goruntu_on_isleme():
-    """
-    Görüntüleri ön işle.
-    
-    Bu fonksiyon, ham MRI görüntülerini alır ve şu işlemleri uygular:
-    - Yoğunluk normalizasyonu (kontrast iyileştirme)
-    - Histogram eşitleme (CLAHE)
-    - Yeniden boyutlandırma (standart boyuta getirme)
-    - Veri artırma (augmentation)
-    
-    |şlem sonunda, standartlaştırılmış görüntüler çıktı klasörüne kaydedilir.
-    """
-    print("\n[1] GÖRÜNTÜ ÖN İŞLEME")
+    """Ham goruntuleri on isle."""
+    print("\n[1] GORUNTU ON ISLEME")
     print("-" * 60)
 
-    # 2D/3D secim
     mod = input("\nIsleme modu (2d/3d, Enter=2d): ").strip().lower()
     if mod == "3d":
         try:
@@ -102,242 +78,149 @@ def goruntu_on_isleme():
         return
 
     isleyici = GorselIsleyici()
-    
-    # Kullanıcıdan girdi al
-    giris = input(f"\nGirdi klasörü (varsayılan: {VERI_SETI_KLASORU}): ").strip()
-    if giris:
-        giris_klasoru = Path(giris)
-    else:
-        giris_klasoru = VERI_SETI_KLASORU
-    
-    cikis = input(f"Çıktı klasörü (varsayılan: {CIKTI_KLASORU}): ").strip()
-    if cikis:
-        cikti_klasoru = Path(cikis)
-    else:
-        cikti_klasoru = CIKTI_KLASORU
-    
-    # İşlemi başlat
+
+    giris = input(f"\nGirdi klasoru (varsayilan: {VERI_SETI_KLASORU}): ").strip()
+    giris_klasoru = Path(giris) if giris else VERI_SETI_KLASORU
+
+    cikis = input(f"Cikti klasoru (varsayilan: {CIKTI_KLASORU}): ").strip()
+    cikti_klasoru = Path(cikis) if cikis else CIKTI_KLASORU
+
     istatistikler = isleyici.tum_gorselleri_isle(cikti_klasoru)
-    
+
     if istatistikler:
-        print("\n✓ Görüntü işleme tamamlandı!")
+        print("\n[BASARILI] Goruntu isleme tamamlandi.")
     else:
-        print("\n✗ Görüntü işleme başarısız!")
+        print("\n[HATA] Goruntu isleme basarisiz.")
 
 
 def ozellik_cikar():
-    """
-    Özellik çıkar ve CSV oluştur.
-    
-    Bu fonksiyon, işlenmiş görüntülerden makine öğrenmesi için
-    sayısal özellikler çıkarır ve bir CSV dosyasına kaydeder.
-    
-    Çıkarılan özellikler:
-    - Boyut bilgileri (genişlik, yükseklik)
-    - Yoğunluk istatistikleri (ortalama, std, min, max, percentile'ler)
-    - Doku özellikleri (entropi, kontrast, homojenlik)
-    
-    Bu CSV, model eğitiminde kullanılır.
-    """
-    print("\n[2] ÖZELLİK ÇIKARMA VE CSV OLUŞTURMA")
+    """Islenmis goruntulerden ozellik cikar."""
+    print("\n[2] OZELLIK CIKARMA VE CSV OLUSTURMA")
     print("-" * 60)
-    
+
     cikarici = OzellikCikarici()
-    
-    # Kullanıcıdan girdi al
-    giris = input(f"\nİşlenmiş görüntüler klasörü (varsayılan: {CIKTI_KLASORU}): ").strip()
-    if giris:
-        giris_klasoru = Path(giris)
-    else:
-        giris_klasoru = CIKTI_KLASORU
-    
-    # Özellik çıkar
+    giris = input(f"\nIslenmis goruntuler klasoru (varsayilan: {CIKTI_KLASORU}): ").strip()
+    giris_klasoru = Path(giris) if giris else CIKTI_KLASORU
+
     df = cikarici.csv_olustur(giris_klasoru)
-    
     if not df.empty:
-        print("\n✓ Özellik çıkarma tamamlandı!")
+        print("\n[BASARILI] Ozellik cikarimi tamamlandi.")
     else:
-        print("\n✗ Özellik çıkarma başarısız!")
+        print("\n[HATA] Ozellik cikarimi basarisiz.")
 
 
 def nan_temizle():
-    """
-    CSV'deki NaN değerleri temizle.
-    
-    NaN (Not a Number) değerleri, eksik veya geçersiz veriyi temsil eder.
-    Machine learning modelleri NaN değerlerle çalışamaz, bu yüzden temizlenmeli.
-    
-    Temizleme metodları:
-    - drop: NaN içeren satırları çıkar (veri kaybı olur ama en güvenli)
-    - mean: NaN'ları sütun ortalamasıyla doldur
-    - median: NaN'ları sütun medyanıyla doldur (aykırı değerlere dayanıklı)
-    - zero: NaN'ları 0 ile doldur (bazen mantıklı olabilir)
-    """
-    print("\n[3] NaN DEĞERLERİ TEMİZLEME")
+    """CSV'deki NaN degerleri temizle."""
+    print("\n[3] NaN DEGERLERI TEMIZLEME")
     print("-" * 60)
-    
+
     cikarici = OzellikCikarici()
-    
-    print("\nMevcut temizleme metodları:")
-    print("  1. drop   - NaN içeren satırları çıkar (önerilen)")
-    print("  2. mean   - NaN'ları sütun ortalamasıyla doldur")
-    print("  3. median - NaN'ları sütun medyanıyla doldur")
-    print("  4. zero   - NaN'ları 0 ile doldur")
-    
-    metod = input("\nMetod seçin (drop/mean/median/zero, Enter=drop): ").strip().lower()
-    
+
+    print("\nMevcut temizleme metodlari:")
+    print("  1. drop   - NaN iceren satirlari cikar")
+    print("  2. mean   - NaN'lari sutun ortalamasi ile doldur")
+    print("  3. median - NaN'lari sutun medyani ile doldur")
+    print("  4. zero   - NaN'lari 0 ile doldur")
+
+    metod = input("\nMetod secin (drop/mean/median/zero, Enter=drop): ").strip().lower()
     if metod not in ['drop', 'mean', 'median', 'zero', '']:
-        print("[HATA] Geçersiz metod!")
+        print("[HATA] Gecersiz metod.")
         return
-    
     if not metod:
         metod = 'drop'
-    
+
     df = cikarici.nan_temizle(metod=metod)
-    
     if not df.empty:
-        print("\n✓ NaN temizleme tamamlandı!")
+        print("\n[BASARILI] NaN temizleme tamamlandi.")
     else:
-        print("\n✗ NaN temizleme başarısız!")
+        print("\n[HATA] NaN temizleme basarisiz.")
 
 
 def scaling_uygula():
-    """
-    CSV'ye ölçeklendirme uygula.
-    
-    Makine öğrenmesi modelleri, farklı ölçeklerdeki özelliklerle
-    iyi çalışamaz. Bu fonksiyon, tüm özellikleri aynı ölçeğe getirir.
-    
-    Ölçeklendirme metodları:
-    - MinMax: Tüm değerleri [0, 1] arasına sıkıştırır
-    - Robust: Aykırı değerlere karşı daha dayanıklıdır (medyan + IQR)
-    - Standard: Z-score normalizasyonu (mean=0, std=1)
-    - MaxAbs: Değerleri [-1, 1] aralığına ölçeklendirir
-    """
-    print("\n[4] ÖLÇEKLENDİRME UYGULAMA")
+    """Leakage-free split ve scaling uygula."""
+    print("\n[4] VERI BOLME + OLCEKLENDIRME")
     print("-" * 60)
-    
-    cikarici = OzellikCikarici()
-    
-    print(f"\nMevcut metod: {SCALING_METODU}")
-    print("\nMevcut ölçeklendirme metodları:")
-    print("  1. minmax   - [0, 1] aralığına ölçeklendirir")
-    print("  2. robust   - Medyan ve IQR (aykırı değerlere dayanıklı)")
-    print("  3. standard - Z-score normalizasyonu (mean=0, std=1)")
-    print("  4. maxabs   - [-1, 1] aralığına ölçeklendirir")
-    
-    metod = input("\nMetod seçin (minmax/robust/standard/maxabs, Enter=varsayılan): ").strip().lower()
-    
+    print("\nScaler once egitim setine fit edilir, sonra dogrulama ve teste uygulanir.")
+    print(f"Mevcut metod: {SCALING_METODU}")
+    print("\nMetodlar:")
+    print("  1. minmax")
+    print("  2. robust")
+    print("  3. standard")
+    print("  4. maxabs")
+
+    metod = input("\nMetod secin (minmax/robust/standard/maxabs, Enter=varsayilan): ").strip().lower()
     if metod not in ['minmax', 'robust', 'standard', 'maxabs', '']:
-        print("[HATA] Geçersiz metod!")
+        print("[HATA] Gecersiz metod.")
         return
-    
     if not metod:
         metod = SCALING_METODU
-    
-    df = cikarici.scaling_uygula(metod=metod)
-    
-    if not df.empty:
-        print("\n✓ Ölçeklendirme tamamlandı!")
+
+    splitler = veri_setini_bol_ve_olceklendir(metod=metod)
+    if splitler and all(not df.empty for df in splitler):
+        print("\n[BASARILI] Veri bolme ve olceklendirme tamamlandi.")
     else:
-        print("\n✗ Ölçeklendirme başarısız!")
-
-
-def veri_bol():
-    """
-    Veri setini böl.
-    
-    Veri setini üç parçaya böler:
-    1. Eğitim seti (%70): Model parametrelerini öğrenmek için
-    2. Doğrulama seti (%15): Hiperparametre ayarlama için
-    3. Test seti (%15): Son performans değerlendirmesi için
-    
-    Sınıf dengesi korunur (stratified split).
-    Her sınıftan aynı oranda veri her sete dağıtılır.
-    """
-    print("\n[5] VERİ SETİ BÖLME")
-    print("-" * 60)
-    print(f"\nOranlar: Eğitim={EGITIM_ORANI}, Doğrulama={DOGRULAMA_ORANI}, Test={TEST_ORANI}")
-    
-    veri_boluntule()
+        print("\n[HATA] Veri bolme ve olceklendirme basarisiz.")
 
 
 def istatistik_goster():
-    """İstatistik raporu göster."""
-    print("\n[6] İSTATİSTİK RAPORU")
+    """Istatistik raporu goster."""
+    print("\n[5] ISTATISTIK RAPORU")
     print("-" * 60)
-    
     cikarici = OzellikCikarici()
     cikarici.istatistik_raporu()
+
+
+def veri_bol():
+    """Ham CSV uzerinden veri setini bol."""
+    print("\n[6] VERI SETI BOLME")
+    print("-" * 60)
+    print(f"\nOranlar: Egitim={EGITIM_ORANI}, Dogrulama={DOGRULAMA_ORANI}, Test={TEST_ORANI}")
+    veri_boluntule()
 
 
 def tum_islemleri_yap():
-    """
-    Tüm işlemleri otomatik yap.
-    
-    Bu fonksiyon, tüm işleme adımlarını sırasıyla otomatik olarak yapar:
-    1. Ham görüntüleri işle (normalizasyon, boyutlandırma, artırma)
-    2. İşlenmiş görüntülerden özellik çıkar
-    3. Özelliklere ölçeklendirme uygula (MinMax/Robust)
-    4. Veri setini eğitim/doğrulama/test olarak böl
-    5. İstatistik raporu oluştur
-    
-    Kullanıcı müdahalesi gerektirmez, baştan sona otomatik çalışır.
-    Yeni başlayanlar veya hızlı işleme için ideal.
-    """
-    print("\n[7] TÜM İŞLEMLER OTOMATİK")
+    """Tum islemleri otomatik ve guvenli sirada yap."""
+    print("\n[7] TUM ISLEMLER OTOMATIK")
     print("-" * 60)
-    print("\nŞu işlemler sırayla yapılacak:")
-    print("  1. Görüntü ön işleme")
-    print("  2. Özellik çıkarma")
-    print("  3. Ölçeklendirme")
-    print("  4. Veri bölme")
-    print("  5. İstatistik raporu")
-    
+    print("\nSu islemler sirayla yapilacak:")
+    print("  1. Goruntu on isleme")
+    print("  2. Ozellik cikarma")
+    print("  3. Veri bolme + egitim setine gore olceklendirme")
+    print("  4. Istatistik raporu")
+
     onay = input("\nDevam etmek istiyor musunuz? (e/h): ").strip().lower()
     if onay != 'e':
-        print("İşlem iptal edildi.")
+        print("Islem iptal edildi.")
         return
-    
-    # 1. Görüntü işleme
-    print("\n\n" + "="*60)
-    print("ADIM 1/5: GÖRÜNTÜ ÖN İŞLEME")
-    print("="*60)
+
+    print("\n\n" + "=" * 60)
+    print("ADIM 1/4: GORUNTU ON ISLEME")
+    print("=" * 60)
     isleyici = GorselIsleyici()
     isleyici.tum_gorselleri_isle(CIKTI_KLASORU)
-    
-    # 2. Özellik çıkarma
-    print("\n\n" + "="*60)
-    print("ADIM 2/5: ÖZELLİK ÇIKARMA")
-    print("="*60)
+
+    print("\n\n" + "=" * 60)
+    print("ADIM 2/4: OZELLIK CIKARMA")
+    print("=" * 60)
     cikarici = OzellikCikarici()
     df = cikarici.csv_olustur(CIKTI_KLASORU)
-    
     if df.empty:
-        print("\n✗ Özellik çıkarma başarısız! İşlem durduruluyor.")
+        print("\n[HATA] Ozellik cikarimi basarisiz. Islem durduruluyor.")
         return
-    
-    # 3. Ölçeklendirme
-    print("\n\n" + "="*60)
-    print("ADIM 3/5: ÖLÇEKLENDİRME")
-    print("="*60)
-    cikarici.scaling_uygula()
-    
-    # 4. Veri bölme
-    print("\n\n" + "="*60)
-    print("ADIM 4/5: VERİ BÖLME")
-    print("="*60)
-    veri_boluntule()
-    
-    # 5. İstatistik raporu
-    print("\n\n" + "="*60)
-    print("ADIM 5/5: İSTATİSTİK RAPORU")
-    print("="*60)
+
+    print("\n\n" + "=" * 60)
+    print("ADIM 3/4: VERI BOLME + OLCEKLENDIRME")
+    print("=" * 60)
+    veri_setini_bol_ve_olceklendir()
+
+    print("\n\n" + "=" * 60)
+    print("ADIM 4/4: ISTATISTIK RAPORU")
+    print("=" * 60)
     cikarici.istatistik_raporu()
-    
-    print("\n\n" + "="*60)
-    print("✓ TÜM İŞLEMLER BAŞARIYLA TAMAMLANDI!")
-    print("="*60)
+
+    print("\n\n" + "=" * 60)
+    print("[BASARILI] Tum islemler tamamlandi.")
+    print("=" * 60)
 
 
 def main():
@@ -345,12 +228,12 @@ def main():
     while True:
         try:
             ana_menu()
-            secim = input("\nSeçiminiz: ").strip()
-            
+            secim = input("\nSeciminiz: ").strip()
+
             if secim == '0':
-                print("\nÇıkılıyor...")
+                print("\nCikiliyor...")
                 break
-            elif secim == '1':
+            if secim == '1':
                 goruntu_on_isleme()
             elif secim == '2':
                 ozellik_cikar()
@@ -359,24 +242,24 @@ def main():
             elif secim == '4':
                 scaling_uygula()
             elif secim == '5':
-                veri_bol()
-            elif secim == '6':
                 istatistik_goster()
+            elif secim == '6':
+                veri_bol()
             elif secim == '7':
                 tum_islemleri_yap()
             else:
-                print("\n[HATA] Geçersiz seçim! Lütfen 0-7 arası bir sayı girin.")
-            
-            input("\nDevam etmek için Enter'a basın...")
-            
+                print("\n[HATA] Gecersiz secim. Lutfen 0-7 arasi bir sayi girin.")
+
+            input("\nDevam etmek icin Enter'a basin...")
+
         except KeyboardInterrupt:
-            print("\n\nProgram kullanıcı tarafından durduruldu.")
+            print("\n\nProgram kullanici tarafindan durduruldu.")
             break
         except Exception as e:
             print(f"\n[HATA] Beklenmeyen hata: {e}")
             import traceback
             traceback.print_exc()
-            input("\nDevam etmek için Enter'a basın...")
+            input("\nDevam etmek icin Enter'a basin...")
 
 
 if __name__ == "__main__":
