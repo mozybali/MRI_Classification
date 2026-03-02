@@ -143,6 +143,34 @@ class TestModelEgitici:
         # Toplam eşit olmalı
         total = len(X_train) + len(X_val) + len(X_test)
         assert total == 80
+
+    def test_veri_yukle_meta_sayisal_kolonlari_dislar(self, temp_output_dir):
+        """Boyut ve dosya boyutu gibi meta kolonlar model girdisine alınmamalı."""
+        np.random.seed(42)
+        df = pd.DataFrame({
+            'boyut_bayt': np.random.randint(5000, 6000, 40),
+            'genislik': [256] * 40,
+            'yukseklik': [256] * 40,
+            'en_boy_orani': [1.0] * 40,
+            'piksel_sayisi': [65536] * 40,
+            'feature1': np.random.rand(40),
+            'feature2': np.random.rand(40),
+            'sinif': [f'Class{i%4}' for i in range(40)],
+            'etiket': [i % 4 for i in range(40)],
+        })
+
+        csv_path = temp_output_dir / "data_with_meta.csv"
+        df.to_csv(csv_path, index=False)
+
+        egitici = ModelEgitici(model_tipi="xgboost", smote_aktif=False)
+        X_train, X_val, X_test, _, _, _ = egitici.veri_yukle(csv_yolu=csv_path)
+
+        for split_df in [X_train, X_val, X_test]:
+            assert 'boyut_bayt' not in split_df.columns
+            assert 'genislik' not in split_df.columns
+            assert 'yukseklik' not in split_df.columns
+            assert 'en_boy_orani' not in split_df.columns
+            assert 'piksel_sayisi' not in split_df.columns
     
     def test_egit_basic(self, temp_output_dir):
         """

@@ -1,61 +1,65 @@
-# Model Eğitim Modülü
+# Model Egitim Modulu
 
-Ön işlenmiş MRI görüntülerinden çıkarılan özelliklerle XGBoost, LightGBM veya Linear SVM modelleri eğitir; metrikleri raporlar ve eğitilmiş modellerle tek/batch tahmin yapar.
+On islenmis MRI goruntulerinden cikarilan ozelliklerle XGBoost, LightGBM veya Linear SVM modelleri egitir; raporlar uretir ve egitilmis modellerle tahmin yapar.
 
 ## Gereksinimler
 
-Ana dizindeki `requirements.txt` tüm bağımlılıkları içerir. Eğitim için `goruntu_isleme/cikti/goruntu_ozellikleri_scaled.csv` dosyasının hazır olması gerekir.
+Ana dizindeki `requirements.txt` tum bagimliliklari icerir. Egitim icin su dosyalarin hazir olmasi onerilir:
 
-## Kullanım
+- `goruntu_isleme/cikti/egitim_scaled.csv`
+- `goruntu_isleme/cikti/dogrulama_scaled.csv`
+- `goruntu_isleme/cikti/test_scaled.csv`
 
-### Eğitim
+## Kullanim
+
+### Egitim
+
 ```bash
-# Otomatik mod (varsayılan ayarlarla)
 python train.py --auto
-
-# İnteraktif mod
 python train.py
-
-# Model seçerek otomatik mod
-python train.py --auto --model xgboost   # veya lightgbm, svm
+python train.py --auto --model xgboost
 ```
-Eğitim çıktıları `model/ciktilar/` altına kaydedilir (`modeller/`, `raporlar/`, `gorseller/`).
 
 ### Tahmin
-```bash
-# Tek görüntü
-python inference.py --model model/ciktilar/modeller/xgboost_YYYYMMDD_HHMMSS.pkl --image /path/to/image.jpg
 
-# Klasör içi batch
+```bash
+python inference.py --model model/ciktilar/modeller/xgboost_YYYYMMDD_HHMMSS.pkl --image /path/to/image.jpg
 python inference.py --model model/ciktilar/modeller/xgboost_YYYYMMDD_HHMMSS.pkl --batch /path/to/folder/
 ```
-Tahmin sırasında görüntü ön işlemesi ve özellik çıkarımı otomatik yapılır; sonuçlar ekrana yazılır ve CSV olarak kaydedilebilir.
 
-### Model karşılaştırma
+### Model karsilastirma
+
 ```bash
 python model_comparison.py
 ```
-`modeller/` klasöründeki kayıtlı modellerin performanslarını yan yana raporlar.
 
-## Özellikler
+## Teknik Notlar
 
-- SMOTE ile dengesiz sınıfları dengeleme, sınıf ağırlıklandırma.  
-- İsteğe bağlı özellik seçimi (SelectKBest) ve grid search.  
-- Stratified train/val/test bölme ve 5 katlı cross-validation.  
-- Değerlendirme metrikleri: accuracy, precision, recall, F1, ROC-AUC, Cohen’s kappa.  
-- Rapor ve görseller: confusion matrix, ROC ve precision-recall eğrileri, model destekliyorsa feature importance grafiği.  
-- Model + metadata kaydı (`.pkl` + `.json`) ve zaman damgalı dosya adları.
+- Olcekleme train setine gore yapilir; validation ve test ayni scaler ile donusturulur.
+- `boyut_bayt`, `genislik`, `yukseklik`, `en_boy_orani`, `piksel_sayisi` gibi meta sayisal kolonlar model girdisinden cikarilir.
+- Split mantigi kaynak gruplarini kullanir; ayni goruntunun turevleri farkli setlere dagilmamaya calisir.
 
-## Yapılandırma
+## Ozellikler
 
-`ayarlar.py` üzerinden:
-- Veri yolları ve split oranları (`EGITIM_ORANI`, `DOGRULAMA_ORANI`, `TEST_ORANI`)
-- Model hiperparametreleri (`GB_AYARLARI`, `LIGHTGBM_AYARLARI`, `SVM_AYARLARI`)
-- Grid search parametreleri (`GB_GRID_PARAMS`, `SVM_GRID_PARAMS`)
-- Çıktı klasörleri ve log ayarları
+- SMOTE ile dengesiz siniflari dengeleme
+- Sinif agirliklandirma
+- Istege bagli ozellik secimi
+- Grid/random search
+- 5 katli cross-validation
+- Accuracy, precision, recall, F1, ROC-AUC, Cohen's kappa
+- Confusion matrix, ROC, precision-recall ve feature importance gorselleri
+- Model ve metadata kaydi
+
+## Yapilandirma
+
+`ayarlar.py` uzerinden:
+- veri yollari ve split dosyalari
+- model hiperparametreleri
+- grid search parametreleri
+- log ve cikti klasorleri
 
 ## Sorun Giderme
 
-- **CSV bulunamadı**: `goruntu_isleme/ana_islem.py` ile 7. seçeneği çalıştırıp özellik CSV'lerini oluşturun.  
-- **Paket eksik uyarıları**: Ana dizinde `pip install -r requirements.txt`.  
-- **LightGBM/XGBoost yok**: Eksik paketleri ayrıca kurabilirsiniz (`pip install xgboost lightgbm`).
+- Split CSV'ler yoksa `goruntu_isleme/ana_islem.py` icinden `7` numarali akisi calistirin.
+- Paket eksigi varsa ana dizinde `pip install -r requirements.txt`.
+- LightGBM veya XGBoost kurulu degilse ilgili paketi ayrica kurun.

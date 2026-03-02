@@ -155,6 +155,8 @@ class ModelEgitici:
             )
         
         kategorik = ['dosya_adi', 'sinif', 'tam_yol', 'kaynak_id', 'kaynak_grup', 'augmentasyon_mu']
+        haric_sutunlar = [c for c in MODELE_DAHIL_EDILMEYEN_SAYISAL_SUTUNLAR if c]
+        drop_kolonlari = [c for c in kategorik + haric_sutunlar if c]
 
         if csv_yolu == VERI_CSV and EGITIM_CSV.exists() and DOGRULAMA_CSV.exists() and TEST_CSV.exists():
             print("   ✓ Hazır split dosyaları bulundu, doğrudan kullanılıyor")
@@ -164,9 +166,9 @@ class ModelEgitici:
 
             print(f"   ✓ Eğitim: {len(train_df)}, Doğrulama: {len(val_df)}, Test: {len(test_df)}")
 
-            X_train = train_df.drop(columns=[c for c in kategorik if c in train_df.columns] + ['etiket'])
-            X_val = val_df.drop(columns=[c for c in kategorik if c in val_df.columns] + ['etiket'])
-            X_test = test_df.drop(columns=[c for c in kategorik if c in test_df.columns] + ['etiket'])
+            X_train = train_df.drop(columns=[c for c in drop_kolonlari if c in train_df.columns] + ['etiket'])
+            X_val = val_df.drop(columns=[c for c in drop_kolonlari if c in val_df.columns] + ['etiket'])
+            X_test = test_df.drop(columns=[c for c in drop_kolonlari if c in test_df.columns] + ['etiket'])
             y_train = train_df['etiket']
             y_val = val_df['etiket']
             y_test = test_df['etiket']
@@ -176,7 +178,7 @@ class ModelEgitici:
             print(f"   ✓ {len(df)} kayıt yüklendi")
             print(f"   ✓ {df['sinif'].nunique()} sınıf var: {df['sinif'].unique().tolist()}")
 
-            X = df.drop(columns=[c for c in kategorik if c in df.columns] + ['etiket'])
+            X = df.drop(columns=[c for c in drop_kolonlari if c in df.columns] + ['etiket'])
             y = df['etiket']
 
             # Geriye dönük fallback: tek CSV'den böl.

@@ -20,6 +20,9 @@ EGITIM_CSV = PROJE_KOK / "goruntu_isleme" / "cikti" / "egitim_scaled.csv"
 DOGRULAMA_CSV = PROJE_KOK / "goruntu_isleme" / "cikti" / "dogrulama_scaled.csv"
 TEST_CSV = PROJE_KOK / "goruntu_isleme" / "cikti" / "test_scaled.csv"
 SCALER_DOSYASI = PROJE_KOK / "goruntu_isleme" / "cikti" / "feature_scaler.pkl"
+MODELE_DAHIL_EDILMEYEN_SAYISAL_SUTUNLAR = [
+    'boyut_bayt', 'genislik', 'yukseklik', 'en_boy_orani', 'piksel_sayisi'
+]
 
 # Model çıktıları için ana klasör
 CIKTI_KLASORU = PROJE_KOK / "model" / "ciktilar"

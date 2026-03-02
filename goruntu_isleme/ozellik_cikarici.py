@@ -24,6 +24,9 @@ KATEGORIK_SUTUNLAR = [
     'dosya_adi', 'sinif', 'etiket', 'tam_yol',
     'kaynak_id', 'kaynak_grup', 'augmentasyon_mu'
 ]
+MODELE_DAHIL_EDILMEYEN_SAYISAL_SUTUNLAR = [
+    'boyut_bayt', 'genislik', 'yukseklik', 'en_boy_orani', 'piksel_sayisi'
+]
 
 
 def _ozellik_cikar_wrapper(goruntu_yolu: str, sinif_adi: str) -> Optional[Dict]:
@@ -56,7 +59,9 @@ class OzellikCikarici:
     def kaynak_id_belirle(dosya_adi: str) -> str:
         """Augment edilmiş dosyalardan kaynak görüntü kimliğini çıkar."""
         stem = Path(str(dosya_adi)).stem
-        return re.sub(r"_aug\d+$", "", stem)
+        stem = re.sub(r"_aug\d+$", "", stem, flags=re.IGNORECASE)
+        stem = re.sub(r"\s*\(\d+\)$", "", stem)
+        return stem
 
     @classmethod
     def kaynak_kolonlarini_hazirla(cls, df: pd.DataFrame) -> pd.DataFrame:
@@ -88,8 +93,9 @@ class OzellikCikarici:
 
     @staticmethod
     def _sayisal_sutunlari_bul(df: pd.DataFrame) -> List[str]:
-        """Ölçeklenecek sayısal sütunları bul."""
-        return [col for col in df.columns if col not in KATEGORIK_SUTUNLAR]
+        """Ölçeklenecek ve modele girecek sayısal sütunları bul."""
+        haric_sutunlar = set(KATEGORIK_SUTUNLAR + MODELE_DAHIL_EDILMEYEN_SAYISAL_SUTUNLAR)
+        return [col for col in df.columns if col not in haric_sutunlar]
 
     @staticmethod
     def _stratify_serisi_uygun_mu(seri: pd.Series) -> bool:

@@ -71,15 +71,15 @@ GAUSSIAN_BLUR_SIGMA = 0.5    # Bulanıklaştırma şiddeti
 MASKE_KENAR_PAYI = 5
 
 # Skull stripping (kafatası çıkarma)
-SKULL_STRIPPING_AKTIF = True
+SKULL_STRIPPING_AKTIF = False
 SKULL_STRIPPING_METHOD = "advanced"  # "simple" veya "advanced" (morfolojik işlemlerle)
 
 # Bias field correction (MRI yoğunluk düzensizliği düzeltme)
-BIAS_FIELD_CORRECTION_AKTIF = True
+BIAS_FIELD_CORRECTION_AKTIF = False
 BIAS_FIELD_METHOD = "n4itk"  # "n4itk" (profesyonel) veya "simple" (hızlı)
 
 # Registration/Hizalama
-REGISTRATION_AKTIF = True
+REGISTRATION_AKTIF = False
 REGISTRATION_METHOD = "simple"  # "simple" (center-of-mass), "affine" (gelişmiş), "rigid"
 
 # Morfolojik işlemler
@@ -89,7 +89,7 @@ MORFOLOJIK_KERNEL_BOYUTU = 3
 # ==================== VERİ ARTIRMA AYARLARI ====================
 # Veri artırma (Data Augmentation) - Yapay veri üretimi
 # Mevcut görüntülerden döndürme, aynalama vb. ile yeni varyasyonlar oluşturur
-VERI_ARTIRMA_AKTIF = True
+VERI_ARTIRMA_AKTIF = False
 ARTIRMA_CARPANI = 2  # Her orijinal görüntüden kaç artırılmış versiyon üretilecek
 
 # Sınıf bazlı dengesiz augmentation - Az örnekli sınıfları daha fazla artır

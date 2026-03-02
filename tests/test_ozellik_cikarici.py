@@ -29,6 +29,12 @@ class TestOzellikCikarici:
         """
         cikarici = OzellikCikarici()
         assert cikarici is not None
+
+    def test_kaynak_id_belirle_parantezli_kopyalari_gruplar(self):
+        """Veri setindeki '26 (19).jpg' tipindeki kopyalar aynı kaynağa bağlanmalı."""
+        assert OzellikCikarici.kaynak_id_belirle("26 (19).jpg") == "26"
+        assert OzellikCikarici.kaynak_id_belirle("26_aug2.png") == "26"
+        assert OzellikCikarici.kaynak_id_belirle("26 (19)_aug2.png") == "26"
     
     def test_csv_olustur(self, test_dataset_structure, temp_output_dir):
         """

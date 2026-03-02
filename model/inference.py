@@ -145,7 +145,8 @@ class ModelInference:
             
             df = pd.read_csv(raw_csv)
             kategorik = ['dosya_adi', 'sinif', 'etiket', 'tam_yol', 'kaynak_id', 'kaynak_grup', 'augmentasyon_mu']
-            self.scaler_columns = [c for c in df.columns if c not in kategorik]
+            haric_sutunlar = set(kategorik + MODELE_DAHIL_EDILMEYEN_SAYISAL_SUTUNLAR)
+            self.scaler_columns = [c for c in df.columns if c not in haric_sutunlar]
             if not self.feature_names:
                 self.feature_names = self.scaler_columns
             print(f"   ⚠️  Kaydedilmiş scaler bulunamadı; fallback olarak sütun listesi çıkarıldı")
