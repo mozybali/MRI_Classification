@@ -7,6 +7,7 @@ ozellik_cikarici.py
 import os
 import pickle
 import re
+import math
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -34,7 +35,7 @@ def _ozellik_cikar_wrapper(goruntu_yolu: str, sinif_adi: str) -> Optional[Dict]:
     try:
         cikarici = OzellikCikarici()
         ozellikler = cikarici.tek_goruntu_ozellikleri(str(goruntu_yolu))
-        
+
         if ozellikler:
             ozellikler["sinif"] = sinif_adi
             ozellikler["etiket"] = SINIF_ETIKETI[sinif_adi]
@@ -43,8 +44,8 @@ def _ozellik_cikar_wrapper(goruntu_yolu: str, sinif_adi: str) -> Optional[Dict]:
             ozellikler["kaynak_grup"] = f"{sinif_adi}::{ozellikler['kaynak_id']}"
             ozellikler["augmentasyon_mu"] = Path(goruntu_yolu).stem != ozellikler["kaynak_id"]
             return ozellikler
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[HATA] Ozellik cikarma basarisiz {goruntu_yolu}: {type(e).__name__}: {e}")
     return None
 
 
@@ -328,8 +329,11 @@ class OzellikCikarici:
                 print(f"[UYARI] Klasör bulunamadı: {sinif_klasoru}")
                 continue
             
-            # Klasördeki tüm görüntüleri bul (.png ve .jpg)
-            gorseller = list(sinif_klasoru.glob("*.png")) + list(sinif_klasoru.glob("*.jpg"))
+            # Klasördeki tüm görüntüleri bul (GORUNTU_UZANTILARI ile uyumlu)
+            gorseller = []
+            for uzanti in GORUNTU_UZANTILARI:
+                gorseller.extend(sinif_klasoru.glob(f"*{uzanti}"))
+            gorseller.sort(key=lambda p: p.name)
             
             # ⚡ Paralel özellik çıkarma
             with Pool(processes=self.n_jobs) as pool:
@@ -618,64 +622,61 @@ def veri_boluntule(csv_dosyasi: Optional[Path] = None,
                    cikti_klasoru: Optional[Path] = None):
     """
     Veri setini eğitim, doğrulama ve test setlerine böl.
-    
-    Makine öğrenmesinde 3 farklı veri setine ihtiyaç vardır:
-    
-    1. Eğitim Seti (Train Set): ~%70
-       - Model bu veriyle eğitilir
-       - Model, buradaki örneklerden öğrenir
-       - En büyük pay bu sette olmalı
-    
-    2. Doğrulama Seti (Validation Set): ~%15
-       - Model eğitimi sırasında performans kontrolü
-       - Hiperparametre optimizasyonu
-       - Overfitting tespiti (erken durdurma - early stopping)
-       - Model seçimi ve karşılaştırma
-    
-    3. Test Seti (Test Set): ~%15
-       - Model hiç görmemiş verilerle son değerlendirme
-       - Gerçek dünya performansının tahmini
-       - Sadece en son değerlendirme için kullanılır
-       - Yayınlanan metriklerin kaynağı
-    
-    Stratified Splitting:
-    - Sınıf dağılımı korunur (stratify=True)
-    - Her sette aynı sınıf oranları olur
-    - Örn: Eğitim setinde %30 NonDemented -> test setinde de ~%30
-    - Dengesiz veri setleri için kritik önem taşır!
-    
-    Çıktı dosyaları:
-    - ozellikler_egitim.csv
-    - ozellikler_dogrulama.csv
-    - ozellikler_test.csv
-    
-    Args:
-        csv_dosyasi: Tam veri seti CSV dosyası (None ise varsayılan)
-        cikti_klasoru: Bölünmüş verilerin kaydedileceği klasör (None ise varsayılan)
-    
-    Returns:
-        None (CSV dosyalarını kaydeder)
+
+    Raises:
+        ValueError: Oran toplamı 1.0 değilse veya yeterli örnek yoksa
     """
     from sklearn.model_selection import train_test_split
-    
+
+    # Oran doğrulaması
+    oran_toplam = EGITIM_ORANI + DOGRULAMA_ORANI + TEST_ORANI
+    if abs(oran_toplam - 1.0) > 1e-6:
+        raise ValueError(
+            f"Bolme oranlari toplami 1.0 olmali, ancak {oran_toplam:.4f} "
+            f"(egitim={EGITIM_ORANI}, dogrulama={DOGRULAMA_ORANI}, test={TEST_ORANI})"
+        )
+
     if csv_dosyasi is None:
         csv_dosyasi = CIKTI_KLASORU / CSV_DOSYA_ADI
-    
+
     if cikti_klasoru is None:
         cikti_klasoru = CIKTI_KLASORU
-    
+
     # CSV'yi oku
     try:
         df = pd.read_csv(csv_dosyasi)
     except Exception as e:
         print(f"[HATA] CSV okunamadı: {e}")
-        return
-    
+        return None
+
     cikarici = OzellikCikarici()
     df = cikarici.kaynak_kolonlarini_hazirla(df)
 
     group_df = df[['kaynak_grup', 'etiket']].drop_duplicates().reset_index(drop=True)
+
+    # Split yapısına göre minimum örnek doğrulaması
+    toplam_grup = len(group_df)
+    temp_oran = 1 - EGITIM_ORANI
+    val_oran = DOGRULAMA_ORANI / (DOGRULAMA_ORANI + TEST_ORANI)
+
+    temp_grup_sayisi = math.ceil(toplam_grup * temp_oran)
+    train_grup_sayisi = toplam_grup - temp_grup_sayisi
+    test_grup_sayisi = math.ceil(temp_grup_sayisi * (1 - val_oran))
+    val_grup_sayisi = temp_grup_sayisi - test_grup_sayisi
+
+    if train_grup_sayisi < 1 or val_grup_sayisi < 1 or test_grup_sayisi < 1:
+        min_split_groups = 4  # varsayılan oranlarda güvenli alt sınır
+        raise ValueError(
+            f"Veri setinde yeterli benzersiz kaynak grup yok "
+            f"(bulunan: {toplam_grup}, gereken minimum: {min_split_groups}). "
+            f"Daha fazla veri ekleyin veya bolme oranlarini ayarlayin."
+        )
+
     stratify_groups = group_df['etiket'] if cikarici._stratify_serisi_uygun_mu(group_df['etiket']) else None
+    if stratify_groups is not None:
+        sinif_sayisi = int(group_df['etiket'].nunique())
+        if train_grup_sayisi < sinif_sayisi or temp_grup_sayisi < sinif_sayisi:
+            stratify_groups = None
 
     # Aynı kaynak görüntünün augmentasyonları farklı split'lere düşmesin.
     train_groups, temp_groups = train_test_split(
@@ -685,8 +686,11 @@ def veri_boluntule(csv_dosyasi: Optional[Path] = None,
         random_state=RASTGELE_TOHUM
     )
 
-    val_oran = DOGRULAMA_ORANI / (DOGRULAMA_ORANI + TEST_ORANI)
     temp_stratify = temp_groups['etiket'] if cikarici._stratify_serisi_uygun_mu(temp_groups['etiket']) else None
+    if temp_stratify is not None:
+        temp_sinif_sayisi = int(temp_groups['etiket'].nunique())
+        if val_grup_sayisi < temp_sinif_sayisi or test_grup_sayisi < temp_sinif_sayisi:
+            temp_stratify = None
     val_groups, test_groups = train_test_split(
         temp_groups,
         test_size=(1 - val_oran),
@@ -702,7 +706,7 @@ def veri_boluntule(csv_dosyasi: Optional[Path] = None,
     train_df.to_csv(cikti_klasoru / EGITIM_CSV_DOSYA_ADI, index=False)
     val_df.to_csv(cikti_klasoru / DOGRULAMA_CSV_DOSYA_ADI, index=False)
     test_df.to_csv(cikti_klasoru / TEST_CSV_DOSYA_ADI, index=False)
-    
+
     print("\n[BASARILI] Veri seti bolundu:")
     print(f"  Eğitim: {len(train_df)} ({EGITIM_ORANI*100:.0f}%)")
     print(f"  Doğrulama: {len(val_df)} ({DOGRULAMA_ORANI*100:.0f}%)")
@@ -723,7 +727,18 @@ def veri_setini_bol_ve_olceklendir(
         cikti_klasoru = CIKTI_KLASORU
 
     cikarici = OzellikCikarici()
-    train_df, val_df, test_df = veri_boluntule(csv_dosyasi=csv_dosyasi, cikti_klasoru=cikti_klasoru)
+
+    try:
+        boluntuleme_sonucu = veri_boluntule(csv_dosyasi=csv_dosyasi, cikti_klasoru=cikti_klasoru)
+    except ValueError as e:
+        print(f"[HATA] Veri boluntuleme basarisiz: {e}")
+        return None
+
+    if boluntuleme_sonucu is None:
+        print("[HATA] Veri boluntuleme basarisiz oldu, olceklendirme yapilamiyor.")
+        return None
+
+    train_df, val_df, test_df = boluntuleme_sonucu
 
     scaler, _ = cikarici._scaler_olustur(metod)
     train_scaled, sayisal_sutunlar = cikarici._df_olceklendir(train_df, scaler, fit=True)

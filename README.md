@@ -29,6 +29,12 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+Windows'ta tek adimda venv baslatmak icin:
+
+```bash
+.\start_venv.bat
+```
+
 Goruntu isleme tarafini hizli kontrol etmek icin:
 
 ```bash

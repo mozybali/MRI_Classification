@@ -43,11 +43,20 @@ from ayarlar import *
 
 
 # Multiprocessing için global fonksiyon (pickle edilebilir olmalı)
+_worker_isleyici = None
+
+def _islem_worker_init():
+    """Worker başına tek GorselIsleyici instance oluştur."""
+    global _worker_isleyici
+    _worker_isleyici = GorselIsleyici()
+
 def _islem_wrapper(args):
     """Tek bir görüntüyü işlemek için wrapper fonksiyon."""
+    global _worker_isleyici
+    if _worker_isleyici is None:
+        _worker_isleyici = GorselIsleyici()
     dosya_info, cikti_klasoru, artirma_carpanlari = args
-    isleyici = GorselIsleyici()
-    return isleyici._tek_goruntu_isle(dosya_info, cikti_klasoru, artirma_carpanlari)
+    return _worker_isleyici._tek_goruntu_isle(dosya_info, cikti_klasoru, artirma_carpanlari)
 
 
 class GorselIsleyici:
@@ -261,7 +270,9 @@ class GorselIsleyici:
             return clahe.apply(goruntu)
         # Değilse scikit-image kullan
         elif SKIMAGE_AVAILABLE:
-            return exposure.equalize_adapthist(goruntu, clip_limit=clip_limit / 100.0)
+            result = exposure.equalize_adapthist(goruntu, clip_limit=clip_limit / 100.0)
+            # equalize_adapthist float64 [0,1] döner; uint8'e normalize et
+            return (result * 255.0).clip(0, 255).astype(np.uint8)
         # Hiçbiri yoksa orijinal görüntüyü dön
         else:
             return goruntu
@@ -1005,16 +1016,16 @@ class GorselIsleyici:
     
     # ==================== TOPLU İŞLEM FONKSİYONLARI ====================
     
-    def _tek_goruntu_isle(self, dosya_info: Dict, cikti_klasoru: Path, 
+    def _tek_goruntu_isle(self, dosya_info: Dict, cikti_klasoru: Path,
                           artirma_carpanlari: Dict[str, int]) -> Optional[Dict]:
         """
         ⚡ Tek bir görüntüyü işle (paralel işlem için).
-        
+
         Args:
             dosya_info: Dosya bilgileri sözlüğü
             cikti_klasoru: Çıktı klasörü
             artirma_carpanlari: Sınıf bazlı augmentation çarpanları
-            
+
         Returns:
             İstatistikler sözlüğü veya None
         """
@@ -1022,30 +1033,31 @@ class GorselIsleyici:
             # Çıktı klasörü oluştur
             sinif_cikti = cikti_klasoru / dosya_info["sinif"]
             self.klasor_olustur(sinif_cikti)
-            
+
             # Görüntüyü işle (kalite kontrol içinde yapılır)
             goruntu = self.goruntu_isle(dosya_info["yol"])
-            
+
             sonuc = {
                 'basarili': 0,
                 'basarisiz': 0,
+                'kalite_hatasi': 0,
                 'istatistikler': {sinif: 0 for sinif in SINIF_KLASORLERI}
             }
-            
+
             if goruntu is not None:
                 # Orijinal görüntüyü kaydet
                 dosya_adi = Path(dosya_info["yol"]).stem
                 cikti_yolu = sinif_cikti / f"{dosya_adi}.png"
                 self.goruntu_kaydet(goruntu, str(cikti_yolu))
-                
+
                 sonuc['basarili'] = 1
                 sonuc['istatistikler'][dosya_info["sinif"]] = 1
-                
+
                 # Sınıf bazlı veri artırma
                 if VERI_ARTIRMA_AKTIF:
                     sinif = dosya_info["sinif"]
                     carpan = artirma_carpanlari.get(sinif, ARTIRMA_CARPANI)
-                    
+
                     for i in range(carpan):
                         artirmis_goruntu = self.veri_artir(goruntu)
                         artirmis_yol = sinif_cikti / f"{dosya_adi}_aug{i+1}.png"
@@ -1053,13 +1065,18 @@ class GorselIsleyici:
                         sonuc['istatistikler'][dosya_info["sinif"]] += 1
             else:
                 sonuc['basarisiz'] = 1
-                
+                sonuc['kalite_hatasi'] = self.kalite_istatistikleri.get('kalite_hatasi', 0)
+                # Worker'daki sayacı sıfırla (sonraki görüntü için)
+                self.kalite_istatistikleri['kalite_hatasi'] = 0
+
             return sonuc
-            
+
         except Exception as e:
+            print(f"[HATA] Goruntu islenemedi {dosya_info.get('yol', '?')}: {type(e).__name__}: {e}")
             return {
                 'basarili': 0,
                 'basarisiz': 1,
+                'kalite_hatasi': 0,
                 'istatistikler': {sinif: 0 for sinif in SINIF_KLASORLERI}
             }
     
@@ -1111,7 +1128,8 @@ class GorselIsleyici:
         
         return artirma_carpanlari
     
-    def tum_gorselleri_isle(self, cikti_klasoru: Path = CIKTI_KLASORU) -> Dict:
+    def tum_gorselleri_isle(self, cikti_klasoru: Path = CIKTI_KLASORU,
+                            giris_klasoru: Path = None) -> Dict:
         """
         Tüm MRI görüntülerini toplu olarak işle ve kaydet.
         
@@ -1146,7 +1164,9 @@ class GorselIsleyici:
             Dict: İstatistikler (toplam, başarılı, atlanan, kalite hatası sayıları)
         """
         self.klasor_olustur(cikti_klasoru)
-        dosyalar = self.gorselleri_listele()
+        if giris_klasoru is None:
+            giris_klasoru = VERI_SETI_KLASORU
+        dosyalar = self.gorselleri_listele(giris_klasoru)
         
         if not dosyalar:
             print("[HATA] Hiç görüntü bulunamadı!")
@@ -1166,39 +1186,55 @@ class GorselIsleyici:
         
         basarili = 0
         basarisiz = 0
+        kalite_hatasi_toplam = 0
         istatistikler = {sinif: 0 for sinif in SINIF_KLASORLERI}
-        
-        # ⚡ PERFORMANS İYİLEŞTİRMESİ: Paralel işleme ile hızlandırma
-        print(f"⚡ Paralel işleme aktif: {self.n_jobs} çekirdek kullanılıyor")
-        
+
         # Her görüntü için argümanları hazırla
         islem_args = [(dosya_info, cikti_klasoru, artirma_carpanlari) for dosya_info in dosyalar]
-        
-        # Paralel işleme ile görüntüleri işle
-        with Pool(processes=self.n_jobs) as pool:
-            sonuclar = list(tqdm(
-                pool.imap(_islem_wrapper, islem_args),
-                total=len(dosyalar),
-                desc="Görüntüler işleniyor (paralel)"
-            ))
-        
+
+        # REGISTRATION_AKTIF + affine/rigid modunda template tutarlılığı
+        # gerektiğinden sequential çalıştır; aksi halde paralel.
+        paralel_kullan = True
+        if REGISTRATION_AKTIF and SITK_AVAILABLE and REGISTRATION_METHOD in ("affine", "rigid"):
+            paralel_kullan = False
+            print("[BILGI] Affine/rigid registration aktif - sequential modda calisiyor (template tutarliligi icin)")
+
+        if paralel_kullan and self.n_jobs > 1:
+            # ⚡ PERFORMANS İYİLEŞTİRMESİ: Paralel işleme ile hızlandırma
+            print(f"⚡ Paralel işleme aktif: {self.n_jobs} çekirdek kullanılıyor")
+
+            with Pool(processes=self.n_jobs, initializer=_islem_worker_init) as pool:
+                sonuclar = list(tqdm(
+                    pool.imap(_islem_wrapper, islem_args),
+                    total=len(dosyalar),
+                    desc="Görüntüler işleniyor (paralel)"
+                ))
+        else:
+            # Sequential işleme
+            sonuclar = []
+            for args in tqdm(islem_args, desc="Görüntüler işleniyor"):
+                sonuclar.append(self._tek_goruntu_isle(*args))
+
         # Sonuçları topla
         for sonuc in sonuclar:
             if sonuc is not None:
                 basarili += sonuc['basarili']
                 basarisiz += sonuc['basarisiz']
+                kalite_hatasi_toplam += sonuc.get('kalite_hatasi', 0)
                 for sinif, sayi in sonuc['istatistikler'].items():
                     istatistikler[sinif] += sayi
-                self.kalite_istatistikleri['basarili'] += sonuc['basarili']
-        
+
+        self.kalite_istatistikleri['basarili'] = basarili
+        self.kalite_istatistikleri['kalite_hatasi'] = kalite_hatasi_toplam
+
         # Sonuçları yazdır
         print(f"\n{'='*60}")
-        print(f"✓ Başarılı: {basarili}")
-        print(f"✗ Başarısız: {basarisiz}")
-        print(f"⚠ Kalite hatası: {self.kalite_istatistikleri['kalite_hatasi']}")
-        print(f"\n📊 Sınıf bazlı istatistikler (augmentation sonrası):")
+        print(f"Basarili: {basarili}")
+        print(f"Basarisiz: {basarisiz}")
+        print(f"Kalite hatasi: {kalite_hatasi_toplam}")
+        print(f"\nSinif bazli istatistikler (augmentation sonrasi):")
         for sinif, sayi in istatistikler.items():
-            print(f"   {sinif}: {sayi} görüntü")
+            print(f"   {sinif}: {sayi} goruntu")
         print(f"{'='*60}\n")
         
         return istatistikler

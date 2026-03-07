@@ -58,7 +58,7 @@ def test_veri_seti():
     print("VERİ SETİ KONTROLÜ")
     print("="*70)
     
-    veri_klasoru = Path("../Veri_Seti")
+    veri_klasoru = Path(__file__).resolve().parent.parent / "Veri_Seti"
     if not veri_klasoru.exists():
         print(f"✗ Veri seti bulunamadı: {veri_klasoru.absolute()}")
         return False
@@ -69,7 +69,7 @@ def test_veri_seti():
     for sinif in siniflar:
         sinif_klasoru = veri_klasoru / sinif
         if sinif_klasoru.exists():
-            dosyalar = list(sinif_klasoru.glob("*.jpg")) + list(sinif_klasoru.glob("*.png"))
+            dosyalar = list(sinif_klasoru.glob("*.jpg")) + list(sinif_klasoru.glob("*.jpeg")) + list(sinif_klasoru.glob("*.png"))
             sayi = len(dosyalar)
             toplam += sayi
             print(f"✓ {sinif:20s}: {sayi:5d} görüntü")

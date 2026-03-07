@@ -85,7 +85,7 @@ def goruntu_on_isleme():
     cikis = input(f"Cikti klasoru (varsayilan: {CIKTI_KLASORU}): ").strip()
     cikti_klasoru = Path(cikis) if cikis else CIKTI_KLASORU
 
-    istatistikler = isleyici.tum_gorselleri_isle(cikti_klasoru)
+    istatistikler = isleyici.tum_gorselleri_isle(cikti_klasoru, giris_klasoru=giris_klasoru)
 
     if istatistikler:
         print("\n[BASARILI] Goruntu isleme tamamlandi.")
@@ -211,7 +211,10 @@ def tum_islemleri_yap():
     print("\n\n" + "=" * 60)
     print("ADIM 3/4: VERI BOLME + OLCEKLENDIRME")
     print("=" * 60)
-    veri_setini_bol_ve_olceklendir()
+    sonuc = veri_setini_bol_ve_olceklendir()
+    if sonuc is None:
+        print("\n[HATA] Veri bolme ve olceklendirme basarisiz. Islem durduruluyor.")
+        return
 
     print("\n\n" + "=" * 60)
     print("ADIM 4/4: ISTATISTIK RAPORU")
