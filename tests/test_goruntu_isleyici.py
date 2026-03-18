@@ -7,6 +7,7 @@ Görüntü yükleme, normalizasyon, histogram eşitleme gibi temel işlemleri do
 """
 
 import sys
+import importlib
 import pytest
 import numpy as np
 from pathlib import Path
@@ -249,3 +250,41 @@ class TestGorselIsleyiciEdgeCases:
         assert normalized.shape == constant_img.shape
         assert not np.isnan(normalized).any()
         assert normalized.dtype == np.uint8
+
+
+class TestGorselIsleyiciRegressions:
+    """Regresyon testleri."""
+
+    def test_ozel_giris_klasoru_global_veri_setine_dusmez(self, tmp_path, monkeypatch):
+        """Ozel giris klasoru cozulurken repo varsayilanina sessizce dusulmemeli."""
+        isleyici = GorselIsleyici()
+
+        ozel_giris = tmp_path / "ozel_giris"
+        ozel_giris.mkdir()
+
+        varsayilan_aug = tmp_path / "varsayilan" / "AugmentedAlzheimerDataset" / "NonDemented"
+        varsayilan_aug.mkdir(parents=True)
+        Image.fromarray(
+            np.random.randint(80, 180, (64, 64), dtype=np.uint8), mode='L'
+        ).save(varsayilan_aug / "sample.jpg")
+
+        monkeypatch.setattr(gi, "AUGMENTED_VERI_SETI_KLASORU", varsayilan_aug.parent)
+        monkeypatch.setattr(gi, "ORIGINAL_VERI_SETI_KLASORU", tmp_path / "varsayilan" / "OriginalDataset")
+
+        assert isleyici._giris_klasoru_cozumle(ozel_giris) == ozel_giris
+
+    def test_instance_rngleri_bagimsizdir(self, monkeypatch):
+        """Her isleyici instance'i augmentation icin ayri RNG kullanmali."""
+        monkeypatch.setattr(gi, "GAUSSIAN_NOISE_AKTIF", True)
+
+        isleyici_a = GorselIsleyici()
+        isleyici_b = GorselIsleyici()
+        img = np.full((32, 32), 128, dtype=np.uint8)
+
+        assert isleyici_a._random.random() != isleyici_b._random.random()
+        assert not np.array_equal(isleyici_a.gaussian_noise(img), isleyici_b.gaussian_noise(img))
+
+    def test_modul_paket_olarak_import_edilebilir(self):
+        """goruntu_isleme.goruntu_isleyici paket import'u ile yuklenebilmeli."""
+        modul = importlib.import_module("goruntu_isleme.goruntu_isleyici")
+        assert hasattr(modul, "GorselIsleyici")

@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import sys
 from pathlib import Path
 from typing import Dict, Optional, Union
 from PIL import Image
@@ -17,8 +18,30 @@ from sklearn.decomposition import PCA
 from multiprocessing import Pool, cpu_count
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_VERI_KLASORU = PROJECT_ROOT / "Veri_Seti"
+VERI_SETI_KLASORU = PROJECT_ROOT / "Veri_Seti"
+AUGMENTED_VERI_KLASORU = VERI_SETI_KLASORU / "AugmentedAlzheimerDataset"
+ORIGINAL_VERI_KLASORU = VERI_SETI_KLASORU / "OriginalDataset"
+DEFAULT_VERI_KLASORU = (
+    AUGMENTED_VERI_KLASORU if AUGMENTED_VERI_KLASORU.exists() else VERI_SETI_KLASORU
+)
 DEFAULT_CIKTI_KLASORU = Path(__file__).resolve().parent / "eda_ciktilar"
+
+
+def _guvenli_print(*args, sep: str = " ", end: str = "\n") -> None:
+    """Konsol encoding'i Unicode desteklemese bile yazdırmayı sürdür."""
+    metin = sep.join(str(arg) for arg in args)
+    try:
+        print(metin, end=end)
+    except UnicodeEncodeError:
+        stdout = sys.stdout
+        encoding = getattr(stdout, "encoding", None) or "utf-8"
+        tampon = getattr(stdout, "buffer", None)
+        guvenli_metin = (metin + end).encode(encoding, errors="replace")
+        if tampon is not None:
+            tampon.write(guvenli_metin)
+            tampon.flush()
+        else:
+            print(guvenli_metin.decode(encoding, errors="replace"), end="")
 
 
 def _istatistik_hesapla_wrapper(satir_dict: Dict) -> Optional[Dict]:
@@ -47,8 +70,10 @@ def _istatistik_hesapla_wrapper(satir_dict: Dict) -> Optional[Dict]:
                 "int_p99": float(np.percentile(arr, 99))
             }
             return istat
-    except Exception:
-        return None
+    except Exception as e:
+        return {
+            "__hata__": f"{satir_dict.get('filepath', '?')} ({type(e).__name__}: {e})"
+        }
 
 
 class EDAAnaLiz:
@@ -94,15 +119,45 @@ class EDAAnaLiz:
         self.n_jobs = max(1, cpu_count() - 1)  # ⚡ Paralel işleme için
     
     def _veri_klasorunu_dogrula(self):
-        """Veri klasörü var mı ve beklenen alt klasörlerden en az biri mevcut mu kontrol et."""
+        """Veri klasörü var mı ve beklenen yapıda mı kontrol et."""
         if not self.veri_klasoru.exists():
             raise FileNotFoundError(f"Veri klasörü bulunamadı: {self.veri_klasoru}")
-        
-        alt_klasor_var = any((self.veri_klasoru / klasor).exists() for klasor in self.sinif_klasorleri)
-        if not alt_klasor_var:
-            raise FileNotFoundError(
-                f"Veri klasörü beklenen sınıf klasörlerini içermiyor: {self.veri_klasoru}"
-            )
+        self.veri_klasoru = self._veri_klasoru_cozumle(self.veri_klasoru)
+
+    @staticmethod
+    def _sinif_klasorleri_var_mi(veri_klasoru: Path, sinif_klasorleri) -> bool:
+        """Verilen klasörde sınıf klasörlerinden en az biri var mı?"""
+        return any((veri_klasoru / klasor).exists() for klasor in sinif_klasorleri)
+
+    def _veri_klasoru_cozumle(self, giris_klasoru: Path) -> Path:
+        """
+        Veri klasörünü veri yapısına göre otomatik çöz.
+
+        Desteklenen yapılar:
+        1) Veri_Seti/<SinifAdi>/
+        2) Veri_Seti/AugmentedAlzheimerDataset/<SinifAdi>/
+        3) Veri_Seti/OriginalDataset/<SinifAdi>/
+        """
+        if self._sinif_klasorleri_var_mi(giris_klasoru, self.sinif_klasorleri):
+            return giris_klasoru
+
+        adaylar = [
+            giris_klasoru / "AugmentedAlzheimerDataset",
+            giris_klasoru / "OriginalDataset",
+            AUGMENTED_VERI_KLASORU,
+            ORIGINAL_VERI_KLASORU,
+        ]
+        for aday in adaylar:
+            if aday.exists() and self._sinif_klasorleri_var_mi(aday, self.sinif_klasorleri):
+                _guvenli_print(f"[BILGI] Veri klasoru otomatik cozuldu: {aday}")
+                return aday
+
+        raise FileNotFoundError(
+            "Veri klasörü beklenen sınıf klasörlerini içermiyor. "
+            f"Verilen yol: {giris_klasoru}. "
+            "Beklenen yapılar: Veri_Seti/<SinifAdi> veya "
+            "Veri_Seti/AugmentedAlzheimerDataset/<SinifAdi>."
+        )
 
     def veri_yukle(self) -> pd.DataFrame:
         """
@@ -123,7 +178,7 @@ class EDAAnaLiz:
             sinif_klasoru = self.veri_klasoru / sinif_adi
             
             if not sinif_klasoru.exists():
-                print(f"[UYARI] Klasör bulunamadı: {sinif_klasoru}")
+                _guvenli_print(f"[UYARI] Klasör bulunamadı: {sinif_klasoru}")
                 continue
             
             for dosya in sinif_klasoru.glob("*"):
@@ -158,25 +213,43 @@ class EDAAnaLiz:
         if df.empty:
             raise ValueError("İstatistik hesaplamak için en az bir satır gerekli.")
 
-        print(f"⚡ İstatistikler hesaplanıyor (paralel: {self.n_jobs} çekirdek)...")
-        
+        _guvenli_print(f"⚡ İstatistikler hesaplanıyor (paralel: {self.n_jobs} çekirdek)...")
+
         # DataFrame'i dict listesine çevir (multiprocessing için)
         satir_listesi = df.to_dict('records')
-        
-        # ⚡ Paralel istatistik hesaplama
-        with Pool(processes=self.n_jobs) as pool:
-            istatistikler = list(tqdm(
-                pool.imap(_istatistik_hesapla_wrapper, satir_listesi),
-                total=len(satir_listesi),
-                desc="İstatistikler hesaplanıyor (paralel)"
-            ))
-        
-        # None olmayan sonuçları al
-        istatistikler = [i for i in istatistikler if i is not None]
+
+        if self.n_jobs > 1:
+            with Pool(processes=self.n_jobs) as pool:
+                sonuclar = list(tqdm(
+                    pool.imap(_istatistik_hesapla_wrapper, satir_listesi),
+                    total=len(satir_listesi),
+                    desc="İstatistikler hesaplanıyor (paralel)"
+                ))
+        else:
+            sonuclar = []
+            for satir in tqdm(satir_listesi, total=len(satir_listesi), desc="İstatistikler hesaplanıyor"):
+                sonuclar.append(_istatistik_hesapla_wrapper(satir))
+
+        istatistikler = []
+        hatalar = []
+        for sonuc in sonuclar:
+            if sonuc is None:
+                continue
+            if "__hata__" in sonuc:
+                hatalar.append(sonuc["__hata__"])
+            else:
+                istatistikler.append(sonuc)
+
         if not istatistikler:
             raise ValueError("Hiçbir görüntüden istatistik hesaplanamadı. Dosyalar okunabilir mi kontrol edin.")
         if len(istatistikler) != len(df):
-            print(f"[UYARI] {len(df) - len(istatistikler)} görüntüden istatistik alınamadı; dosyalar atlandı.")
+            _guvenli_print(f"[UYARI] {len(df) - len(istatistikler)} görüntüden istatistik alınamadı; dosyalar atlandı.")
+        if hatalar:
+            _guvenli_print("[UYARI] İstatistik hesaplanamayan dosyalar (ilk 5):")
+            for hata in hatalar[:5]:
+                _guvenli_print(f"   - {hata}")
+            if len(hatalar) > 5:
+                _guvenli_print(f"   ... ve {len(hatalar) - 5} dosya daha")
         
         istat_df = pd.DataFrame(istatistikler)
         return df.merge(istat_df, on="id", how="left")
@@ -192,7 +265,7 @@ class EDAAnaLiz:
         yol = self.cikti_klasoru / dosya_adi
         fig.savefig(yol, dpi=200, bbox_inches='tight')  # Yüksek çözünürlük, kırpılmadan kaydet
         plt.close(fig)  # Belleği temizle (memory leak önlemek için önemli!)
-        print(f"✓ Kaydedildi: {yol}")
+        _guvenli_print(f"✓ Kaydedildi: {yol}")
     
     def sinif_dagilimi_ciz(self, df: pd.DataFrame):
         """Sınıf dağılımı grafiği çiz.
@@ -295,7 +368,14 @@ class EDAAnaLiz:
         ]
         
         mevcut_kolonlar = [k for k in numerik_kolonlar if k in df.columns]
+        if len(mevcut_kolonlar) < 2:
+            _guvenli_print("[UYARI] Korelasyon analizi atlandı: en az iki sayısal özellik gerekiyor.")
+            return
+
         korelasyon = df[mevcut_kolonlar].corr()
+        if korelasyon.empty or korelasyon.isna().all().all():
+            _guvenli_print("[UYARI] Korelasyon analizi atlandı: korelasyon matrisi hesaplanamadı.")
+            return
         
         fig, ax = plt.subplots(figsize=(10, 8))
         sns.heatmap(korelasyon, annot=True, fmt=".2f", cmap="coolwarm",
@@ -325,7 +405,7 @@ class EDAAnaLiz:
             "int_p1", "int_p99"
         ]
         if len(df) < 2:
-            print("PCA atlandı: En az iki örnek gerekiyor.")
+            _guvenli_print("PCA atlandı: En az iki örnek gerekiyor.")
             return
         
         df_sample = df.sample(min(n_ornekler, len(df)), random_state=self.tohum)
@@ -375,48 +455,48 @@ class EDAAnaLiz:
             f.write("="*70 + "\n\n")
             f.write(df.describe().to_string())
             
-        print(f"✓ Özet rapor kaydedildi: {rapor_yolu}")
+        _guvenli_print(f"✓ Özet rapor kaydedildi: {rapor_yolu}")
     
     def tam_analiz_yap(self):
         """Tüm EDA analizini çalıştır."""
-        print("\n" + "="*70)
-        print("MRI VERİ SETİ KEŞİFSEL VERİ ANALİZİ (EDA)")
-        print("="*70 + "\n")
+        _guvenli_print("\n" + "="*70)
+        _guvenli_print("MRI VERİ SETİ KEŞİFSEL VERİ ANALİZİ (EDA)")
+        _guvenli_print("="*70 + "\n")
         
         # Veri yükle
-        print(f"1. Veri yükleniyor... ({self.veri_klasoru})")
+        _guvenli_print(f"1. Veri yükleniyor... ({self.veri_klasoru})")
         df = self.veri_yukle()
-        print(f"   ✓ {len(df)} görüntü yüklendi\n")
+        _guvenli_print(f"   ✓ {len(df)} görüntü yüklendi\n")
         
         # İstatistikleri hesapla
-        print("2. Görüntü istatistikleri hesaplanıyor...")
+        _guvenli_print("2. Görüntü istatistikleri hesaplanıyor...")
         df = self.goruntu_istatistikleri_hesapla(df)
-        print(f"   ✓ İstatistikler hesaplandı\n")
+        _guvenli_print(f"   ✓ İstatistikler hesaplandı\n")
         
         # Özet rapor
-        print("3. Özet rapor oluşturuluyor...")
+        _guvenli_print("3. Özet rapor oluşturuluyor...")
         self.ozet_istatistik_raporu(df)
         
         # Grafikler
-        print("\n4. Grafikler oluşturuluyor...")
-        print("   - Sınıf dağılımı...")
+        _guvenli_print("\n4. Grafikler oluşturuluyor...")
+        _guvenli_print("   - Sınıf dağılımı...")
         self.sinif_dagilimi_ciz(df)
         
-        print("   - Boyut analizi...")
+        _guvenli_print("   - Boyut analizi...")
         self.boyut_analizi_ciz(df)
         
-        print("   - Yoğunluk analizi...")
+        _guvenli_print("   - Yoğunluk analizi...")
         self.yogunluk_analizi_ciz(df)
         
-        print("   - Korelasyon analizi...")
+        _guvenli_print("   - Korelasyon analizi...")
         self.korelasyon_analizi_ciz(df)
         
-        print("   - PCA analizi...")
+        _guvenli_print("   - PCA analizi...")
         self.pca_analizi_ciz(df)
         
-        print("\n" + "="*70)
-        print("✓ TÜM ANALİZ TAMAMLANDI!")
-        print(f"✓ Çıktılar kaydedildi: {self.cikti_klasoru}")
-        print("="*70 + "\n")
+        _guvenli_print("\n" + "="*70)
+        _guvenli_print("✓ TÜM ANALİZ TAMAMLANDI!")
+        _guvenli_print(f"✓ Çıktılar kaydedildi: {self.cikti_klasoru}")
+        _guvenli_print("="*70 + "\n")
         
         return df

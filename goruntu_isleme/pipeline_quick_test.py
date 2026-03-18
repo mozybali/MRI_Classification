@@ -1,147 +1,175 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
-pipeline_quick_test.py
-----------------------
-Hızlı pipeline testi - dependency kontrolü ve temel işlevsellik doğrulaması
-"""
+"""Hizli pipeline testi."""
 
 import sys
 from pathlib import Path
 
+if __package__ in {None, ""}:
+    PROJECT_ROOT = Path(__file__).resolve().parents[1]
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
+
+
 def test_imports():
-    """Gerekli paketlerin yüklü olup olmadığını kontrol et."""
-    print("\n" + "="*70)
-    print("PAKET KONTROLÜ")
-    print("="*70)
-    
+    """Gerekli paketlerin yuklu olup olmadigini kontrol et."""
+    print("\n" + "=" * 70)
+    print("PAKET KONTROLU")
+    print("=" * 70)
+
     required_packages = {
-        'numpy': 'numpy',
-        'pandas': 'pandas',
-        'PIL': 'Pillow',
-        'cv2': 'opencv-python',
-        'scipy': 'scipy',
-        'skimage': 'scikit-image',
-        'sklearn': 'scikit-learn',
-        'tqdm': 'tqdm',
+        "numpy": "numpy",
+        "pandas": "pandas",
+        "PIL": "Pillow",
+        "cv2": "opencv-python",
+        "scipy": "scipy",
+        "skimage": "scikit-image",
+        "sklearn": "scikit-learn",
+        "tqdm": "tqdm",
     }
-    
+
     optional_packages = {
-        'SimpleITK': 'SimpleITK',
+        "SimpleITK": "SimpleITK",
     }
-    
+
     all_ok = True
-    
+
     for module, package in required_packages.items():
         try:
             __import__(module)
-            print(f"✓ {package:20s} - Yüklü")
+            print(f"[OK] {package:20s} - Yuklu")
         except ImportError:
-            print(f"✗ {package:20s} - EKSİK (pip install {package})")
+            print(f"[HATA] {package:20s} - Eksik (pip install {package})")
             all_ok = False
-    
+
     print("\nOpsiyonel Paketler:")
     for module, package in optional_packages.items():
         try:
             __import__(module)
-            print(f"✓ {package:20s} - Yüklü")
+            print(f"[OK] {package:20s} - Yuklu")
         except ImportError:
-            print(f"⚠ {package:20s} - Yok (bazı özellikler kullanılamaz)")
-    
+            print(f"[UYARI] {package:20s} - Yok (bazi ozellikler kullanilamaz)")
+
     return all_ok
 
 
 def test_veri_seti():
-    """Veri setinin varlığını kontrol et."""
-    print("\n" + "="*70)
-    print("VERİ SETİ KONTROLÜ")
-    print("="*70)
-    
+    """Veri setinin varligini kontrol et."""
+    print("\n" + "=" * 70)
+    print("VERI SETI KONTROLU")
+    print("=" * 70)
+
     veri_klasoru = Path(__file__).resolve().parent.parent / "Veri_Seti"
     if not veri_klasoru.exists():
-        print(f"✗ Veri seti bulunamadı: {veri_klasoru.absolute()}")
+        print(f"[HATA] Veri seti bulunamadi: {veri_klasoru.absolute()}")
         return False
-    
+
     siniflar = ["NonDemented", "VeryMildDemented", "MildDemented", "ModerateDemented"]
+    aday_kokler = [
+        veri_klasoru / "AugmentedAlzheimerDataset",
+        veri_klasoru / "OriginalDataset",
+        veri_klasoru,
+    ]
+
+    bulunan = 0
     toplam = 0
-    
-    for sinif in siniflar:
-        sinif_klasoru = veri_klasoru / sinif
-        if sinif_klasoru.exists():
-            dosyalar = list(sinif_klasoru.glob("*.jpg")) + list(sinif_klasoru.glob("*.jpeg")) + list(sinif_klasoru.glob("*.png"))
-            sayi = len(dosyalar)
-            toplam += sayi
-            print(f"✓ {sinif:20s}: {sayi:5d} görüntü")
-        else:
-            print(f"✗ {sinif:20s}: Klasör bulunamadı")
-    
-    print(f"\nToplam: {toplam} görüntü")
+    for kok in aday_kokler:
+        if not kok.exists():
+            continue
+
+        sinif_var = any((kok / sinif).exists() for sinif in siniflar)
+        if not sinif_var:
+            continue
+
+        bulunan += 1
+        print(f"\nKaynak klasor: {kok}")
+        kaynak_toplam = 0
+        for sinif in siniflar:
+            sinif_klasoru = kok / sinif
+            if sinif_klasoru.exists():
+                dosyalar = []
+                for uzanti in (".jpg", ".jpeg", ".png"):
+                    dosyalar.extend(sinif_klasoru.glob(f"*{uzanti}"))
+                sayi = len(dosyalar)
+                kaynak_toplam += sayi
+                print(f"[OK] {sinif:20s}: {sayi:5d} goruntu")
+            else:
+                print(f"[HATA] {sinif:20s}: Klasor bulunamadi")
+        print(f"  Alt toplam: {kaynak_toplam}")
+        toplam += kaynak_toplam
+
+    if bulunan == 0:
+        print("[HATA] Bilinen veri yapilarinda sinif klasoru bulunamadi.")
+        print("  Beklenen: Veri_Seti/<Sinif> veya Veri_Seti/AugmentedAlzheimerDataset/<Sinif>")
+        return False
+
+    print(f"\nToplam: {toplam} goruntu")
     return toplam > 0
 
 
 def test_modul():
-    """Modül import'unu test et."""
-    print("\n" + "="*70)
-    print("MODÜL KONTROLÜ")
-    print("="*70)
-    
+    """Modul import'unu test et."""
+    print("\n" + "=" * 70)
+    print("MODUL KONTROLU")
+    print("=" * 70)
+
     try:
-        sys.path.insert(0, str(Path(__file__).parent))
-        import ayarlar
-        print("✓ ayarlar.py yüklendi")
-        
-        from goruntu_isleyici import GorselIsleyici
-        print("✓ goruntu_isleyici.py yüklendi")
-        
-        from ozellik_cikarici import OzellikCikarici
-        print("✓ ozellik_cikarici.py yüklendi")
-        
-        # Temel nesne oluşturma
+        from goruntu_isleme import ayarlar
+        from goruntu_isleme.goruntu_isleyici import GorselIsleyici
+        from goruntu_isleme.ozellik_cikarici import OzellikCikarici
+
+        print("[OK] ayarlar.py yuklendi")
+        print("[OK] goruntu_isleyici.py yuklendi")
+        print("[OK] ozellik_cikarici.py yuklendi")
+
         isleyici = GorselIsleyici()
-        print("✓ GorselIsleyici nesnesi oluşturuldu")
-        
+        print("[OK] GorselIsleyici nesnesi olusturuldu")
+
         cikarici = OzellikCikarici()
-        print("✓ OzellikCikarici nesnesi oluşturuldu")
-        
+        print("[OK] OzellikCikarici nesnesi olusturuldu")
+
+        # Referansi canli tutarak import zincirini dogruladigimizi belirtiyoruz.
+        _ = ayarlar, isleyici, cikarici
         return True
-    except Exception as e:
-        print(f"✗ Modül yükleme hatası: {e}")
+    except Exception as exc:
+        print(f"[HATA] Modul yukleme hatasi: {exc}")
         import traceback
+
         traceback.print_exc()
         return False
 
 
 def main():
     """Ana test fonksiyonu."""
-    print("\n" + "="*70)
-    print("MRI GÖRÜNTÜ İŞLEME - HIZLI TEST")
-    print("="*70)
-    
+    print("\n" + "=" * 70)
+    print("MRI GORUNTU ISLEME - HIZLI TEST")
+    print("=" * 70)
+
     results = {
-        "Paket Kontrolü": test_imports(),
-        "Veri Seti Kontrolü": test_veri_seti(),
-        "Modül Kontrolü": test_modul(),
+        "Paket Kontrolu": test_imports(),
+        "Veri Seti Kontrolu": test_veri_seti(),
+        "Modul Kontrolu": test_modul(),
     }
-    
-    print("\n" + "="*70)
-    print("TEST SONUÇLARI")
-    print("="*70)
-    
+
+    print("\n" + "=" * 70)
+    print("TEST SONUCLARI")
+    print("=" * 70)
+
     for test_adi, sonuc in results.items():
-        durum = "✓ BAŞARILI" if sonuc else "✗ BAŞARISIZ"
+        durum = "[OK] BASARILI" if sonuc else "[HATA] BASARISIZ"
         print(f"{test_adi:25s}: {durum}")
-    
+
     if all(results.values()):
-        print("\n✓ Tüm testler başarılı! Pipeline hazır.")
-        print("\nBir sonraki adım:")
-        print("  python3 ana_islem.py")
+        print("\n[OK] Tum testler basarili. Pipeline hazir.")
+        print("\nBir sonraki adim:")
+        print("  python -m goruntu_isleme.ana_islem")
         return 0
-    else:
-        print("\n✗ Bazı testler başarısız. Lütfen eksikleri giderin.")
-        print("\nEksik paketleri yüklemek için:")
-        print("  pip install -r requirements.txt")
-        return 1
+
+    print("\n[HATA] Bazi testler basarisiz. Lutfen eksikleri giderin.")
+    print("\nEksik paketleri yuklemek icin:")
+    print("  pip install -r requirements.txt")
+    return 1
 
 
 if __name__ == "__main__":

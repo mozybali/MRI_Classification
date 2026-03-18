@@ -19,7 +19,10 @@ from sklearn.preprocessing import MinMaxScaler, RobustScaler, StandardScaler, Ma
 from multiprocessing import Pool, cpu_count
 from functools import partial
 
-from ayarlar import *
+try:
+    from .ayarlar import *
+except ImportError:
+    from ayarlar import *
 
 KATEGORIK_SUTUNLAR = [
     'dosya_adi', 'sinif', 'etiket', 'tam_yol',
@@ -315,6 +318,8 @@ class OzellikCikarici:
         # Varsayılan CSV yolunu belirle
         if cikti_csv is None:
             cikti_csv = CIKTI_KLASORU / CSV_DOSYA_ADI
+        cikti_csv = Path(cikti_csv)
+        cikti_csv.parent.mkdir(parents=True, exist_ok=True)
         
         tum_ozellikler = []  # Tüm görüntülerin özelliklerini saklayacak liste
         
@@ -641,6 +646,8 @@ def veri_boluntule(csv_dosyasi: Optional[Path] = None,
 
     if cikti_klasoru is None:
         cikti_klasoru = CIKTI_KLASORU
+    cikti_klasoru = Path(cikti_klasoru)
+    cikti_klasoru.mkdir(parents=True, exist_ok=True)
 
     # CSV'yi oku
     try:
@@ -725,6 +732,8 @@ def veri_setini_bol_ve_olceklendir(
     """
     if cikti_klasoru is None:
         cikti_klasoru = CIKTI_KLASORU
+    cikti_klasoru = Path(cikti_klasoru)
+    cikti_klasoru.mkdir(parents=True, exist_ok=True)
 
     cikarici = OzellikCikarici()
 

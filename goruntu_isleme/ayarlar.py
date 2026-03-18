@@ -13,6 +13,19 @@ PROJE_KOK = Path(__file__).parent.parent
 # Ham (orijinal) MRI görüntülerinin bulunduğu klasör
 VERI_SETI_KLASORU = PROJE_KOK / "Veri_Seti"
 
+# Dataset alt klasörleri (repo yapısına uyumlu)
+AUGMENTED_VERI_SETI_KLASORU = VERI_SETI_KLASORU / "AugmentedAlzheimerDataset"
+ORIGINAL_VERI_SETI_KLASORU = VERI_SETI_KLASORU / "OriginalDataset"
+
+# Ön işleme için varsayılan giriş:
+# - Augmented klasörü varsa onu kullan
+# - Yoksa geri uyumluluk için kök Veri_Seti klasörüne düş
+ON_ISLEME_VARSAYILAN_GIRIS_KLASORU = (
+    AUGMENTED_VERI_SETI_KLASORU
+    if AUGMENTED_VERI_SETI_KLASORU.exists()
+    else VERI_SETI_KLASORU
+)
+
 # İşlenmiş görüntülerin ve CSV dosyalarının kaydedileceği klasör
 CIKTI_KLASORU = PROJE_KOK / "goruntu_isleme" / "cikti"
 

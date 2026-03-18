@@ -1,84 +1,38 @@
-# ==================== MRI Classification Project ====================
-# Ana bağımlılık dosyası - Tüm projeyi çalıştırmak için gerekli paketler
-# 
+﻿# ==================== MRI Classification Project ====================
+# Ana baÄŸÄ±mlÄ±lÄ±k dosyasÄ± - TÃ¼m projeyi Ã§alÄ±ÅŸtÄ±rmak iÃ§in gerekli paketler
+#
 # Kurulum:
 #   pip install -r requirements.txt
 #
-# Not: Bu dosya tüm modüller için gerekli tüm paketleri içerir.
-#      Sadece EDA analizi için: eda_analiz/requirements.txt
-#
-# NOT: Development araçları (pytest, coverage, etc.) da bu dosyada dahildir.
+# Not: Bu dosya proje modÃ¼lleri iÃ§in gerekli temel paketleri iÃ§erir.
 # =====================================================================
 
-# -------------------- Temel Python Kütüphaneleri --------------------
-# NumPy 2.3.x, opencv-python 4.12.0 ile çakıştığı için <2.3 pinlendi.
+# -------------------- Temel Python KÃ¼tÃ¼phaneleri --------------------
 numpy>=1.21.0,<2.3
 pandas>=1.3.0
 scipy>=1.7.0
 
-# -------------------- Görüntü İşleme --------------------
+# -------------------- GÃ¶rÃ¼ntÃ¼ Ä°ÅŸleme --------------------
 Pillow>=9.0.0
 opencv-python>=4.5.0
 scikit-image>=0.19.0
 SimpleITK>=2.0.0
 
-# -------------------- Makine Öğrenmesi --------------------
-# Not: imbalanced-learn 0.14.x, scikit-learn 1.4.x ikilisi ile uyumlu çalışıyor.
-scikit-learn==1.4.2
-xgboost>=1.5.0
-lightgbm>=3.3.0
-imbalanced-learn==0.14.0
-scikit-optimize>=0.9.0,<0.10.0  # BayesSearchCV için
+# -------------------- Derin Ã–ÄŸrenme (PyTorch) --------------------
+torch>=2.0.0
+torchvision>=0.15.0
 
-# -------------------- Veri Görselleştirme --------------------
+# -------------------- ML YardÄ±mcÄ±larÄ± --------------------
+scikit-learn==1.4.2
+
+# -------------------- Veri GÃ¶rselleÅŸtirme --------------------
 matplotlib>=3.4.0
 seaborn>=0.11.0
 
-# -------------------- Yardımcı Kütüphaneler --------------------
+# -------------------- YardÄ±mcÄ± KÃ¼tÃ¼phaneler --------------------
 tqdm>=4.62.0
 
-# =====================================================================
-# ==================== Development Dependencies ====================
-# Test araçları ve geliştirme için gerekli paketler
-# =====================================================================
+# -------------------- Test AraÃ§larÄ± --------------------
+pytest>=7.0
+pytest-cov>=4.0
 
-# -------------------- Test Framework --------------------
-pytest>=7.4.0
-pytest-cov>=4.1.0
-pytest-xdist>=3.3.0          # Parallel test execution
-pytest-timeout>=2.1.0         # Test timeouts
-pytest-mock>=3.11.0          # Mocking support
-
-# -------------------- Code Quality --------------------
-black>=23.0.0                # Code formatter
-flake8>=6.0.0                # Linter
-pylint>=2.17.0               # Advanced linter
-mypy>=1.4.0                  # Type checker
-isort>=5.12.0                # Import sorter
-
-# -------------------- Coverage Tools --------------------
-coverage>=7.2.0              # Coverage measurement
-coverage-badge>=1.1.0        # Generate coverage badge
-
-# -------------------- Documentation --------------------
-sphinx>=7.0.0                # Documentation generator
-sphinx-rtd-theme>=1.2.0      # ReadTheDocs theme
-
-# -------------------- Development Utilities --------------------
-ipython>=8.14.0              # Enhanced Python shell
-jupyter>=1.0.0               # Jupyter notebooks
-notebook>=6.5.0              # Jupyter notebook interface
-
-# -------------------- Debugging Tools --------------------
-ipdb>=0.13.13                # IPython debugger
-pdbpp>=0.10.3                # Enhanced pdb
-
-# -------------------- Performance Profiling --------------------
-memory-profiler>=0.61.0      # Memory profiling
-line-profiler>=4.0.0         # Line-by-line profiling
-
-# -------------------- Pre-commit Hooks --------------------
-pre-commit>=3.3.0            # Git pre-commit hooks
-
-# -------------------- Additional Test Utilities --------------------
-faker>=18.11.0               # Generate fake data for tests

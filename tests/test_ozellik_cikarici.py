@@ -7,6 +7,7 @@ Görüntülerden özellik çıkarma, CSV oluşturma ve ölçeklendirme işlemler
 """
 
 import sys
+import importlib
 import pytest
 import numpy as np
 import pandas as pd
@@ -15,6 +16,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "goruntu_isleme"))
 
+import ozellik_cikarici as oc_mod
 from ozellik_cikarici import OzellikCikarici, veri_boluntule, veri_setini_bol_ve_olceklendir
 
 
@@ -312,3 +314,59 @@ class TestEdgeCases:
                 kaynak_splitleri.setdefault(kaynak, set()).add(idx)
 
         assert all(len(split_setleri) == 1 for split_setleri in kaynak_splitleri.values())
+
+
+class TestOzellikCikariciRegressions:
+    """Regresyon testleri."""
+
+    def test_csv_olustur_cikti_klasorunu_olusturur(self, test_dataset_structure, tmp_path, monkeypatch):
+        """csv_olustur, hedef klasor yoksa once olusturabilmeli."""
+        class DummyPool:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def imap(self, func, iterable):
+                for item in iterable:
+                    yield func(item)
+
+        monkeypatch.setattr(oc_mod, "Pool", DummyPool)
+
+        cikarici = OzellikCikarici()
+        cikti_csv = tmp_path / "olmayan" / "alt" / "ozellikler.csv"
+
+        df = cikarici.csv_olustur(test_dataset_structure, cikti_csv=cikti_csv)
+
+        assert not df.empty
+        assert cikti_csv.exists()
+
+    def test_veri_boluntule_cikti_klasorunu_olusturur(self, temp_output_dir):
+        """veri_boluntule, hedef klasor yoksa kayit oncesi olusturabilmeli."""
+        data = {
+            'dosya_adi': ['img1.png', 'img1_aug1.png', 'img2.png', 'img2_aug1.png', 'img3.png', 'img3_aug1.png', 'img4.png', 'img4_aug1.png'],
+            'feature1': np.random.rand(8),
+            'sinif': ['A', 'A', 'B', 'B', 'C', 'C', 'D', 'D'],
+            'etiket': [0, 0, 1, 1, 2, 2, 3, 3],
+        }
+        csv_path = temp_output_dir / "grouped_for_output.csv"
+        pd.DataFrame(data).to_csv(csv_path, index=False)
+
+        cikti_klasoru = temp_output_dir / "olmayan" / "splitler"
+        train_df, val_df, test_df = veri_boluntule(csv_dosyasi=csv_path, cikti_klasoru=cikti_klasoru)
+
+        assert not train_df.empty
+        assert not val_df.empty
+        assert not test_df.empty
+        assert (cikti_klasoru / "egitim.csv").exists()
+        assert (cikti_klasoru / "dogrulama.csv").exists()
+        assert (cikti_klasoru / "test.csv").exists()
+
+    def test_modul_paket_olarak_import_edilebilir(self):
+        """goruntu_isleme.ozellik_cikarici paket import'u ile yuklenebilmeli."""
+        modul = importlib.import_module("goruntu_isleme.ozellik_cikarici")
+        assert hasattr(modul, "OzellikCikarici")

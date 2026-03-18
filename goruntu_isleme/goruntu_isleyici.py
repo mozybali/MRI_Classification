@@ -13,8 +13,9 @@ from PIL import Image
 import random
 from scipy import ndimage
 from tqdm import tqdm
-from multiprocessing import Pool, cpu_count
+from multiprocessing import Pool, cpu_count, current_process
 from functools import lru_cache
+from itertools import count
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -39,11 +40,15 @@ except ImportError:
     SITK_AVAILABLE = False
     print("[UYARI] SimpleITK yüklü değil. N4ITK bias correction ve gelişmiş registration kullanılamayacak.")
 
-from ayarlar import *
+try:
+    from .ayarlar import *
+except ImportError:
+    from ayarlar import *
 
 
 # Multiprocessing için global fonksiyon (pickle edilebilir olmalı)
 _worker_isleyici = None
+_isleyici_sayaci = count()
 
 def _islem_worker_init():
     """Worker başına tek GorselIsleyici instance oluştur."""
@@ -64,7 +69,8 @@ class GorselIsleyici:
     
     def __init__(self):
         """İşleyiciyi başlat."""
-        self.tohum_ayarla()
+        self.temel_tohum = RASTGELE_TOHUM
+        self._random, self._np_random = self._rng_olustur(self.temel_tohum)
         self.template_image = None  # Registration için şablon görüntü
         self.kalite_istatistikleri = {
             "toplam": 0,
@@ -74,11 +80,30 @@ class GorselIsleyici:
         self.n_jobs = max(1, cpu_count() - 1)  # Bir çekirdek sisteme bırak
         
     @staticmethod
+    def _worker_kimligi() -> int:
+        """Worker bazli sabit bir kimlik dondur."""
+        kimlik = getattr(current_process(), "_identity", ())
+        return int(kimlik[0]) if kimlik else 0
+
+    @classmethod
+    def _benzersiz_tohum_uret(cls, temel_tohum: int) -> int:
+        """Her instance icin ayri ama tekrar edilebilir bir tohum uret."""
+        worker_kimligi = cls._worker_kimligi()
+        instance_idx = next(_isleyici_sayaci)
+        return int(temel_tohum + worker_kimligi * 10000 + instance_idx)
+
+    @classmethod
+    def _rng_olustur(cls, temel_tohum: int):
+        """Instance icin ayrik Python ve NumPy RNG nesneleri olustur."""
+        seed = cls._benzersiz_tohum_uret(temel_tohum)
+        return random.Random(seed), np.random.default_rng(seed)
+
+    @staticmethod
     def tohum_ayarla(tohum: int = RASTGELE_TOHUM):
         """Rastgelelik tohumu ayarla."""
         random.seed(tohum)
         np.random.seed(tohum)
-    
+
     @staticmethod
     @lru_cache(maxsize=128)  # ⚡ Caching: Aynı yol için tekrar hesaplama önlenir
     def _cached_path_check(yol_str: str) -> bool:
@@ -89,6 +114,38 @@ class GorselIsleyici:
     def klasor_olustur(yol: Path):
         """Klasör yoksa oluştur."""
         yol.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _sinif_klasorleri_var_mi(klasor_yolu: Path) -> bool:
+        """Verilen klasörde en az bir bilinen sınıf klasörü var mı?"""
+        return any((klasor_yolu / sinif).exists() for sinif in SINIF_KLASORLERI)
+
+    def _giris_klasoru_cozumle(self, klasor_yolu: Path) -> Path:
+        """
+        Girdi klasörünü veri yapısına göre otomatik çöz.
+
+        Desteklenen yapılar:
+        1) Veri_Seti/<SinifAdi>/
+        2) Veri_Seti/AugmentedAlzheimerDataset/<SinifAdi>/
+        3) Veri_Seti/OriginalDataset/<SinifAdi>/
+        """
+        klasor_yolu = Path(klasor_yolu)
+
+        # Klasör doğrudan sınıf klasörlerini içeriyorsa olduğu gibi kullan.
+        if self._sinif_klasorleri_var_mi(klasor_yolu):
+            return klasor_yolu
+
+        # Kök klasör verildiğinde önce klasör altındaki bilinen alt yapıları dene.
+        adaylar = [
+            klasor_yolu / "AugmentedAlzheimerDataset",
+            klasor_yolu / "OriginalDataset",
+        ]
+        for aday in adaylar:
+            if aday.exists() and self._sinif_klasorleri_var_mi(aday):
+                print(f"[BILGI] Girdi klasoru otomatik cozuldu: {aday}")
+                return aday
+
+        return klasor_yolu
     
     def gorselleri_listele(self, klasor_yolu: Path = VERI_SETI_KLASORU) -> List[Dict]:
         """
@@ -101,6 +158,7 @@ class GorselIsleyici:
             List[Dict]: [{"yol": dosya_yolu, "sinif": sınıf_adı, "etiket": etiket}, ...]
         """
         dosyalar = []  # Tüm görüntü bilgilerini saklayacak liste
+        klasor_yolu = self._giris_klasoru_cozumle(klasor_yolu)
         
         # Her sınıf klasörünü sırayla tara
         for sinif_adi in SINIF_KLASORLERI:
@@ -397,7 +455,7 @@ class GorselIsleyici:
         try:
             from skimage.filters import threshold_otsu
             from skimage.morphology import (
-                binary_opening, binary_closing, binary_erosion, 
+                binary_opening, binary_closing, binary_erosion,
                 binary_dilation, disk, remove_small_objects, remove_small_holes
             )
             from skimage.measure import label
@@ -446,14 +504,14 @@ class GorselIsleyici:
     def bias_field_correction(self, goruntu: np.ndarray) -> np.ndarray:
         """
         N4ITK bias field correction uygula.
-        
+
         MRI görüntülerinde, manyetik alan düzensizlikleri nedeniyle
         görüntünün farklı bölgelerinde yoğunluk sapmaları olabilir.
         Bu fonksiyon bu sapmaları düzeltir ve daha homojen bir görüntü sağlar.
-        
+
         Args:
             goruntu: Girdi görüntüsü (numpy array)
-            
+
         Returns:
             Bias düzeltmesi yapılmış görüntü
         """
@@ -824,28 +882,25 @@ class GorselIsleyici:
         """Dikey ayna (flip)."""
         return np.flipud(goruntu)
     
-    @staticmethod
-    def rastgele_dondur(goruntu: np.ndarray) -> np.ndarray:
+    def rastgele_dondur(self, goruntu: np.ndarray) -> np.ndarray:
         """Küçük açılı rotasyon uygula."""
         if not ROTASYON_AKTIF:
             return goruntu
-        aci = random.uniform(-ROTASYON_MAKS_ACI, ROTASYON_MAKS_ACI)
+        aci = self._random.uniform(-ROTASYON_MAKS_ACI, ROTASYON_MAKS_ACI)
         if abs(aci) < 1e-3:
             return goruntu
         donmus = ndimage.rotate(goruntu, angle=aci, reshape=False, order=1, mode='nearest')
         return np.clip(donmus, 0, 255).astype(np.uint8)
     
-    @staticmethod
-    def parlaklik_kontrast_degistir(goruntu: np.ndarray) -> np.ndarray:
+    def parlaklik_kontrast_degistir(self, goruntu: np.ndarray) -> np.ndarray:
         """Parlaklık ve kontrast rastgele değiştir."""
-        b = random.uniform(*PARLAKLIK_ARALIK)
-        c = random.uniform(*KONTRAST_ARALIK)
+        b = self._random.uniform(*PARLAKLIK_ARALIK)
+        c = self._random.uniform(*KONTRAST_ARALIK)
         
         degismis = goruntu.astype(np.float32) * c + b
         return np.clip(degismis, 0, 255).astype(np.uint8)
     
-    @staticmethod
-    def elastic_deformation(goruntu: np.ndarray, alpha: float = ELASTIC_ALPHA, 
+    def elastic_deformation(self, goruntu: np.ndarray, alpha: float = ELASTIC_ALPHA, 
                            sigma: float = ELASTIC_SIGMA) -> np.ndarray:
         """
         Elastik deformasyon uygula.
@@ -868,10 +923,10 @@ class GorselIsleyici:
         
         # Rastgele displacement field oluştur
         dx = ndimage.gaussian_filter(
-            (np.random.rand(*shape) * 2 - 1), sigma, mode="constant", cval=0
+            (self._np_random.random(shape) * 2 - 1), sigma, mode="constant", cval=0
         ) * alpha
         dy = ndimage.gaussian_filter(
-            (np.random.rand(*shape) * 2 - 1), sigma, mode="constant", cval=0
+            (self._np_random.random(shape) * 2 - 1), sigma, mode="constant", cval=0
         ) * alpha
         
         # Mesh grid oluştur
@@ -882,8 +937,7 @@ class GorselIsleyici:
         distorted = ndimage.map_coordinates(goruntu, indices, order=1, mode='reflect')
         return distorted.reshape(shape).astype(np.uint8)
     
-    @staticmethod
-    def random_crop_resize(goruntu: np.ndarray, crop_ratio: float = RANDOM_CROP_RATIO) -> np.ndarray:
+    def random_crop_resize(self, goruntu: np.ndarray, crop_ratio: float = RANDOM_CROP_RATIO) -> np.ndarray:
         """
         Rastgele kırp ve orijinal boyuta geri getir.
         
@@ -901,8 +955,8 @@ class GorselIsleyici:
         new_h, new_w = int(h * crop_ratio), int(w * crop_ratio)
         
         # Rastgele başlangıç noktası seç
-        top = random.randint(0, h - new_h)
-        left = random.randint(0, w - new_w)
+        top = self._random.randint(0, h - new_h)
+        left = self._random.randint(0, w - new_w)
         
         # Kırp
         cropped = goruntu[top:top+new_h, left:left+new_w]
@@ -917,8 +971,7 @@ class GorselIsleyici:
         
         return resized
     
-    @staticmethod
-    def gaussian_noise(goruntu: np.ndarray, mean: float = GAUSSIAN_NOISE_MEAN,
+    def gaussian_noise(self, goruntu: np.ndarray, mean: float = GAUSSIAN_NOISE_MEAN,
                       sigma: float = GAUSSIAN_NOISE_SIGMA) -> np.ndarray:
         """
         Gaussian gürültü ekle.
@@ -936,12 +989,11 @@ class GorselIsleyici:
         if not GAUSSIAN_NOISE_AKTIF:
             return goruntu
         
-        noise = np.random.normal(mean, sigma, goruntu.shape)
+        noise = self._np_random.normal(mean, sigma, goruntu.shape)
         noisy = goruntu.astype(np.float32) + noise
         return np.clip(noisy, 0, 255).astype(np.uint8)
     
-    @staticmethod
-    def intensity_shift(goruntu: np.ndarray, limit: float = INTENSITY_SHIFT_LIMIT) -> np.ndarray:
+    def intensity_shift(self, goruntu: np.ndarray, limit: float = INTENSITY_SHIFT_LIMIT) -> np.ndarray:
         """
         Yoğunluk kayması uygula.
         
@@ -957,7 +1009,7 @@ class GorselIsleyici:
         if not INTENSITY_SHIFT_AKTIF:
             return goruntu
         
-        shift_factor = random.uniform(1 - limit, 1 + limit)
+        shift_factor = self._random.uniform(1 - limit, 1 + limit)
         shifted = goruntu.astype(np.float32) * shift_factor
         return np.clip(shifted, 0, 255).astype(np.uint8)
     
@@ -986,7 +1038,7 @@ class GorselIsleyici:
         
         # BASIT AUGMENTATION
         # Beyin MR'larında ayna dönüşümleri anatomik yanlılık üretebilir.
-        if YATAY_AYNA_AKTIF and random.random() < YATAY_AYNA_OLASILIK:
+        if YATAY_AYNA_AKTIF and self._random.random() < YATAY_AYNA_OLASILIK:
             g = self.yatay_ayna(g)
 
         # Küçük açılı rotasyon
@@ -997,19 +1049,19 @@ class GorselIsleyici:
         
         # GELİŞMİŞ MEDİKAL AUGMENTATION
         # %40 ihtimalle elastik deformasyon
-        if random.random() < 0.4:
+        if self._random.random() < 0.4:
             g = self.elastic_deformation(g)
         
         # %30 ihtimalle rastgele kırp ve yeniden boyutlandır
-        if random.random() < 0.3:
+        if self._random.random() < 0.3:
             g = self.random_crop_resize(g)
         
         # %25 ihtimalle gaussian gürültü ekle
-        if random.random() < 0.25:
+        if self._random.random() < 0.25:
             g = self.gaussian_noise(g)
         
         # %30 ihtimalle yoğunluk kayması
-        if random.random() < 0.3:
+        if self._random.random() < 0.3:
             g = self.intensity_shift(g)
         
         return g

@@ -4,341 +4,282 @@
 """
 train.py
 --------
-MRI sınıflandırma modeli eğitim scripti.
-Kullanıcı dostu, interaktif model eğitim arayüzü.
+MRI siniflandirma derin ogrenme egitim scripti.
 
-Kullanım:
-    python3 train.py                    # İnteraktif mod
-    python3 train.py --model xgboost    # Hızlı başlatma
-    python3 train.py --auto             # Tüm işlemleri otomatik yap
+Kullanim:
+    python model/train.py --model resnet --epochs 50 --batch-size 32
+    python model/train.py --model unet --epochs 50 --batch-size 16
 """
 
-import sys
-from pathlib import Path
 import argparse
-import pandas as pd
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
 
-# Modül yolunu ekle
-sys.path.insert(0, str(Path(__file__).parent))
+import torch
 
-from ayarlar import *
-from model_egitici import ModelEgitici
+if __package__ in {None, ""}:
+    PROJECT_ROOT = Path(__file__).resolve().parents[1]
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
 
-
-def banner():
-    """Hoş geldin banner'ı göster."""
-    print("\n" + "="*70)
-    print(" "*15 + "MRI SINIFLANDIRMA MODEL EĞİTİMİ")
-    print("="*70)
-    print("\nDemans Seviyesi Sınıflandırması")
-    print("  • NonDemented (0)")
-    print("  • VeryMildDemented (1)")
-    print("  • MildDemented (2)")
-    print("  • ModerateDemented (3)")
-    print()
-
-
-def kontrol_veri_seti():
-    """CSV dosyasının varlığını kontrol et."""
-    if not VERI_CSV.exists():
-        print(f"\n❌ HATA: Veri dosyası bulunamadı!")
-        print(f"Aranan: {VERI_CSV}")
-        print(f"\n⚠️  Önce görüntü işleme adımlarını tamamlayın:")
-        print(f"   1. cd ../goruntu_isleme")
-        print(f"   2. python3 ana_islem.py")
-        print(f"   3. Menüden '6' seçerek tüm işlemleri yapın\n")
-        return False
-    
-    print(f"✓ Veri dosyası bulundu: {VERI_CSV}")
-    return True
-
-
-def model_sec():
-    """
-    Kullanıcıdan model tipini al.
-    
-    3 farklı model seçeneği sunar:
-    1. XGBoost - Yüksek performans, gradient boosting (önerilen)
-    2. LightGBM - Hızlı eğitim, büyük veri setleri için
-    3. Linear SVM - Basit, hızlı ama düşük doğruluk
-    
-    Returns:
-        str: Model tipi ('xgboost', 'lightgbm', 'svm')
-    """
-    print("\n" + "-"*70)
-    print("MODEL SEÇİMİ")
-    print("-"*70)
-    print("\n1. XGBoost (Önerilen)")
-    print("   • Yüksek doğruluk")
-    print("   • Gradient boosting tabanlı")
-    print("   • Orta hız")
-    print()
-    print("2. LightGBM")
-    print("   • Çok hızlı eğitim")
-    print("   • Büyük veri setleri için ideal")
-    print("   • XGBoost'a yakın performans")
-    print()
-    print("3. Linear SVM")
-    print("   • Çok hızlı")
-    print("   • Basit model")
-    print("   • Düşük doğruluk")
-    print()
-    
-    while True:
-        secim = input("Seçiminiz (1-3, varsayılan=1): ").strip()
-        
-        if secim == "" or secim == "1":
-            return "xgboost"
-        elif secim == "2":
-            return "lightgbm"
-        elif secim == "3":
-            return "svm"
-        else:
-            print("❌ Geçersiz seçim! 1, 2 veya 3 girin.")
-
-
-def smote_sec():
-    """
-    SMOTE kullanımını sor.
-    
-    SMOTE (Synthetic Minority Over-sampling Technique):
-    - Az olan sınıflar için yapay örnekler üretir
-    - Sınıf dengesizliğini giderir
-    - Model performansını artırır
-    
-    Veri setimizde:
-    - NonDemented: ~9600 (çok)
-    - ModerateDemented: ~6464 (az) <- SMOTE bu sınıfı dengeler
-    
-    Returns:
-        bool: SMOTE kullanılsın mı?
-    """
-    print("\n" + "-"*70)
-    print("VERİ DENGELEME (SMOTE)")
-    print("-"*70)
-    print("\nSınıf dengesizliği var:")
-    print("  • NonDemented: ~9600 örnek")
-    print("  • MildDemented: ~8960 örnek")
-    print("  • VeryMildDemented: ~8960 örnek")
-    print("  • ModerateDemented: ~6464 örnek (en az)")
-    print()
-    print("SMOTE (Synthetic Minority Over-sampling):")
-    print("  ✓ Azınlık sınıflar için sentetik örnekler üretir")
-    print("  ✓ Model dengesizliğini azaltır")
-    print("  ✗ Eğitim süresini artırır")
-    print()
-    
-    secim = input("SMOTE kullanılsın mı? (E/h, varsayılan=E): ").strip().lower()
-    return secim != "h" and secim != "n" and secim != "no"
-
-
-def feature_selection_sec():
-    """Feature selection kullanımını sor."""
-    print("\n" + "-"*70)
-    print("ÖZELLİK SEÇİMİ (Feature Selection)")
-    print("-"*70)
-    print("\nEn önemli özellikleri seçerek:")
-    print("  ✓ Model basitleşir")
-    print("  ✓ Overfitting azalır")
-    print("  ✓ Eğitim hızlanır")
-    print("  ✗ Biraz doğruluk kaybı olabilir")
-    print()
-    
-    secim = input("Feature selection kullanılsın mı? (e/H, varsayılan=H): ").strip().lower()
-    return secim == "e" or secim == "yes"
-
-
-def grid_search_sec():
-    """Grid/Bayes search kullanımını sor ve iterasyon sayısını al."""
-    print("\n" + "-"*70)
-    print("HİPERPARAMETRE OPTİMİZASYONU (Grid/Random/Bayes Search)")
-    print("-"*70)
-    print("\nOtomatik parametre ayarlama:")
-    print("  ✓ En iyi parametreleri bulur")
-    print("  ✓ Model performansını artırır")
-    print("  ✗ ÇOK uzun sürer (saatler)")
-    print()
-    print("⚠️  Önerilmez (ilk eğitimde varsayılan parametreler yeterli)")
-    print()
-    
-    secim = input("Grid/Random/Bayes search kullanılsın mı? (e/H, varsayılan=H): ").strip().lower()
-    aktif = secim == "e" or secim == "yes"
-    
-    method = "random"
-    n_iter = 30
-    if aktif:
-        method_secim = input("Arama metodu [r=Randomized, b=Bayes] (varsayılan=r): ").strip().lower()
-        if method_secim in ("b", "bayes"):
-            method = "bayes"
-        try:
-            n_iter_input = input("Iterasyon sayısı (varsayılan=30): ").strip()
-            if n_iter_input:
-                n_iter = max(1, int(n_iter_input))
-        except ValueError:
-            print("Geçersiz değer, varsayılan 30 kullanılıyor.")
-            n_iter = 30
-    return aktif, method, n_iter
-
-
-def egitim_yap(model_tipi, smote_aktif, feature_selection_aktif, grid_search_aktif, search_method="random", n_iter=30):
-    """Model eğitimini başlat."""
-    search_method = (search_method or "random").strip().lower()
-    print("\n" + "="*70)
-    print("MODEL EĞİTİMİ BAŞLIYOR")
-    print("="*70)
-    print(f"\nAyarlar:")
-    print(f"  • Model: {model_tipi.upper()}")
-    print(f"  • SMOTE: {'Evet' if smote_aktif else 'Hayır'}")
-    print(f"  • Feature Selection: {'Evet' if feature_selection_aktif else 'Hayır'}")
-    print(f"  • Grid Search: {'Evet' if grid_search_aktif else 'Hayır'}")
-    if grid_search_aktif:
-        arama_metodu = "Bayes" if search_method == "bayes" else "Randomized"
-        print(f"  • Arama Metodu: {arama_metodu}")
-        print(f"  • Iterasyon: {n_iter}")
-    print()
-    
-    input("Devam etmek için ENTER'a basın (Çıkmak için Ctrl+C)...")
-    
-    try:
-        # Model eğitici oluştur
-        egitici = ModelEgitici(
-            model_tipi=model_tipi,
-            smote_aktif=smote_aktif,
-            feature_selection_aktif=feature_selection_aktif
-        )
-        
-        # Veri yükle
-        X_train, X_val, X_test, y_train, y_val, y_test = egitici.veri_yukle()
-        
-        # Feature selection
-        if feature_selection_aktif:
-            X_train = egitici.feature_selection(X_train, y_train, k=15)
-            # Validation ve test setlerine de uygula
-            if egitici.selected_features:
-                X_val = X_val[egitici.selected_features]
-                X_test = X_test[egitici.selected_features]
-        
-        # Not: Eğer feature selection yapılmadıysa bile,
-        # feature isimlerinin korunduğundan emin olalım
-        if not isinstance(X_train, pd.DataFrame):
-            X_train = pd.DataFrame(X_train, columns=egitici.feature_names)
-        if not isinstance(X_val, pd.DataFrame):
-            X_val = pd.DataFrame(X_val, columns=egitici.selected_features or egitici.feature_names)
-        if not isinstance(X_test, pd.DataFrame):
-            X_test = pd.DataFrame(X_test, columns=egitici.selected_features or egitici.feature_names)
-        
-        # Model oluştur
-        egitici.model_olustur()
-        
-        # Grid search veya normal eğitim
-        if grid_search_aktif:
-            print("\n⚠️  Grid search başlıyor... Bu uzun sürebilir!")
-            egitici.grid_search(X_train, y_train, n_iter=n_iter, search_method=search_method)
-        else:
-            egitici.egit(X_train, y_train, X_val, y_val)
-        
-        # Değerlendirme - metrikleri kaydet
-        egitici.metrikler = egitici.degerlendir(X_test, y_test, set_adi="Test")
-        
-        # Çapraz doğrulama
-        egitici.cross_validate(X_train, y_train)
-        
-        # Model kaydet
-        model_yolu = egitici.model_kaydet()
-        
-        # Rapor oluştur
-        egitici.rapor_olustur()
-        
-        # Grafikler
-        egitici.grafik_ciz(X_test, y_test)
-        
-        print("\n" + "="*70)
-        print("✓ EĞİTİM TAMAMLANDI!")
-        print("="*70)
-        print(f"\nModel kaydedildi: {model_yolu}")
-        print(f"Raporlar: {egitici.raporlar_klasoru}")
-        print(f"Grafikler: {egitici.gorseller_klasoru}")
-        print(f"Tüm çıktı klasörü: {egitici.cikti_klasoru}")
-        print()
-        
-        return True
-        
-    except KeyboardInterrupt:
-        print("\n\n⚠️  Eğitim kullanıcı tarafından iptal edildi.")
-        return False
-    except Exception as e:
-        print(f"\n\n❌ HATA: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-
-def otomatik_mod(model_tipi="xgboost"):
-    """Otomatik mod - tüm işlemleri varsayılan ayarlarla yap."""
-    print("\n🚀 OTOMATİK MOD")
-    print("Varsayılan ayarlarla eğitim başlatılıyor...")
-    return egitim_yap(
-        model_tipi=model_tipi,
-        smote_aktif=True,
-        feature_selection_aktif=False,
-        grid_search_aktif=False
+    from model.ayarlar import (
+        MODELS_KLASORU,
+        RAPORLAR_KLASORU,
+        GORSELLER_KLASORU,
+        TRAINVAL_VERI_DIZINI,
+        TEST_VERI_DIZINI,
+        RASTGELE_TOHUM,
     )
+    from model.dl.dataset import create_dataloaders, SINIF_ISIMLERI
+    from model.dl.engine import train_one_epoch, evaluate, EarlyStopping
+    from model.dl.losses import FocalLoss, compute_class_weights
+    from model.dl.models.resnet_classifier import ResNetClassifier
+    from model.dl.models.unet_classifier import UNetClassifier
+    from model.dl.utils import set_seed, get_device, plot_confusion_matrix, plot_training_curves
+else:
+    from .ayarlar import (
+        MODELS_KLASORU,
+        RAPORLAR_KLASORU,
+        GORSELLER_KLASORU,
+        TRAINVAL_VERI_DIZINI,
+        TEST_VERI_DIZINI,
+        RASTGELE_TOHUM,
+    )
+    from .dl.dataset import create_dataloaders, SINIF_ISIMLERI
+    from .dl.engine import train_one_epoch, evaluate, EarlyStopping
+    from .dl.losses import FocalLoss, compute_class_weights
+    from .dl.models.resnet_classifier import ResNetClassifier
+    from .dl.models.unet_classifier import UNetClassifier
+    from .dl.utils import set_seed, get_device, plot_confusion_matrix, plot_training_curves
 
 
-def interaktif_mod():
-    """İnteraktif mod - kullanıcıya sor."""
-    banner()
-    
-    # Veri kontrolü
-    if not kontrol_veri_seti():
-        return False
-    
-    # Kullanıcı seçimleri
-    model_tipi = model_sec()
-    smote_aktif = smote_sec()
-    feature_selection_aktif = feature_selection_sec()
-    grid_search_aktif, search_method, n_iter = grid_search_sec()
-    
-    # Eğitim
-    return egitim_yap(model_tipi, smote_aktif, feature_selection_aktif, grid_search_aktif, search_method, n_iter)
+def build_model(
+    name: str,
+    num_classes: int,
+    device: torch.device,
+    pretrained: bool = False,
+) -> torch.nn.Module:
+    """Model adina gore model nesnesi olustur."""
+    if name == "resnet":
+        model = ResNetClassifier(num_classes=num_classes, pretrained=pretrained)
+    elif name == "unet":
+        model = UNetClassifier(num_classes=num_classes)
+    else:
+        raise ValueError(f"Bilinmeyen model: {name}")
+    return model.to(device)
 
 
 def main():
-    """Ana fonksiyon."""
     parser = argparse.ArgumentParser(
-        description="MRI sınıflandırma modeli eğitimi",
+        description="MRI siniflandirma - derin ogrenme egitimi",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Örnekler:
-  python3 train.py                      # İnteraktif mod
-  python3 train.py --auto               # Otomatik eğitim (XGBoost)
-  python3 train.py --model lightgbm     # LightGBM ile hızlı başlat
-  python3 train.py --auto --model svm   # SVM ile otomatik eğitim
-        """
+Ornekler:
+  python model/train.py --model resnet --epochs 50 --batch-size 32
+  python model/train.py --model unet --epochs 50 --batch-size 16
+  python model/train.py --model resnet --loss focal --lr 3e-4
+  python model/train.py --model resnet --pretrained
+  python model/train.py --model resnet --trainval-dir Veri_Seti/AugmentedAlzheimerDataset --test-dir Veri_Seti/OriginalDataset
+  python model/train.py --model unet --val-ratio 0.2
+        """,
     )
-    
+    parser.add_argument("--model", choices=["resnet", "unet"], default="resnet",
+                        help="Model tipi (varsayilan: resnet)")
+    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--lr", type=float, default=1e-4, help="Ogrenme hizi")
+    parser.add_argument("--patience", type=int, default=10, help="Early stopping sabir degeri")
+    parser.add_argument("--image-size", type=int, default=224)
+    parser.add_argument("--trainval-dir", type=str, default=None,
+                        help="Train+Val icin augmented veri dizini")
+    parser.add_argument("--test-dir", type=str, default=None,
+                        help="Test icin original veri dizini")
+    parser.add_argument("--val-ratio", type=float, default=0.15,
+                        help="Validation orani (varsayilan: 0.15)")
+    parser.add_argument("--loss", choices=["ce", "focal"], default="ce",
+                        help="Kayip fonksiyonu: ce=CrossEntropy, focal=FocalLoss")
+    parser.add_argument("--seed", type=int, default=RASTGELE_TOHUM)
+    parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument(
-        "--auto",
+        "--pretrained",
         action="store_true",
-        help="Otomatik mod (varsayılan ayarlarla eğit)"
+        help="Sadece ResNet icin: ImageNet pretrained agirliklarini kullan",
     )
-    
-    parser.add_argument(
-        "--model",
-        choices=["xgboost", "lightgbm", "svm"],
-        default="xgboost",
-        help="Model tipi (varsayılan: xgboost)"
-    )
-    
     args = parser.parse_args()
-    
-    # Mod seçimi
-    if args.auto:
-        basarili = otomatik_mod(args.model)
+
+    if args.epochs < 1:
+        print("[HATA] --epochs en az 1 olmali.")
+        return 1
+
+    set_seed(args.seed)
+    device = get_device()
+
+    trainval_dir = Path(args.trainval_dir) if args.trainval_dir else TRAINVAL_VERI_DIZINI
+    test_dir = Path(args.test_dir) if args.test_dir else TEST_VERI_DIZINI
+    if not trainval_dir.exists():
+        print(f"[HATA] TrainVal veri dizini bulunamadi: {trainval_dir}")
+        return 1
+    if not test_dir.exists():
+        print(f"[HATA] Test veri dizini bulunamadi: {test_dir}")
+        return 1
+
+    for d in [MODELS_KLASORU, RAPORLAR_KLASORU, GORSELLER_KLASORU]:
+        d.mkdir(parents=True, exist_ok=True)
+
+    print(f"\n[INFO] Veri yukleniyor:")
+    print(f"  TrainVal dizini : {trainval_dir}")
+    print(f"  Test dizini     : {test_dir}")
+    print(f"  Val orani       : {args.val_ratio}")
+    train_loader, val_loader, test_loader, info = create_dataloaders(
+        trainval_dir=trainval_dir,
+        test_dir=test_dir,
+        batch_size=args.batch_size,
+        image_size=args.image_size,
+        val_ratio=args.val_ratio,
+        seed=args.seed,
+        num_workers=args.num_workers,
+    )
+    print(f"\n  Train: {info['train_size']}, Val: {info['val_size']}, Test: {info['test_size']}")
+    print(
+        f"  Grup: Train={info['train_groups']}, "
+        f"Val={info['val_groups']}"
+    )
+
+    num_classes = info["num_classes"]
+    model = build_model(args.model, num_classes, device, pretrained=args.pretrained)
+    param_count = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"\n[INFO] Model: {args.model.upper()}")
+    print(f"  Egitilebilir parametre: {param_count:,}")
+
+    class_weights = compute_class_weights(info["train_labels"], num_classes).to(device)
+    if args.loss == "focal":
+        criterion = FocalLoss(alpha=class_weights, gamma=2.0)
     else:
-        basarili = interaktif_mod()
-    
-    return 0 if basarili else 1
+        criterion = torch.nn.CrossEntropyLoss(weight=class_weights)
+    print(f"  Loss: {args.loss.upper()} (class weights aktif)")
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.5, patience=5,
+    )
+    early_stopping = EarlyStopping(patience=args.patience)
+
+    best_val_loss = float("inf")
+    best_checkpoint_path = MODELS_KLASORU / f"best_{args.model}.pt"
+    train_losses, val_losses = [], []
+    train_accs, val_accs = [], []
+
+    print(f"\n{'='*70}")
+    print(f"EGITIM BASLIYOR - {args.epochs} epoch, batch={args.batch_size}, lr={args.lr}")
+    print(f"{'='*70}\n")
+
+    epoch = 0
+    for epoch in range(1, args.epochs + 1):
+        train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, device)
+        val_metrics = evaluate(model, val_loader, criterion, device)
+
+        train_losses.append(train_metrics["loss"])
+        val_losses.append(val_metrics["loss"])
+        train_accs.append(train_metrics["accuracy"])
+        val_accs.append(val_metrics["accuracy"])
+
+        lr_current = optimizer.param_groups[0]["lr"]
+        print(
+            f"Epoch {epoch:3d}/{args.epochs} | "
+            f"Train Loss: {train_metrics['loss']:.4f} Acc: {train_metrics['accuracy']:.4f} | "
+            f"Val Loss: {val_metrics['loss']:.4f} Acc: {val_metrics['accuracy']:.4f} "
+            f"F1: {val_metrics['f1']:.4f} | LR: {lr_current:.2e}"
+        )
+
+        scheduler.step(val_metrics["loss"])
+
+        if val_metrics["loss"] < best_val_loss:
+            best_val_loss = val_metrics["loss"]
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "val_loss": best_val_loss,
+                    "model_name": args.model,
+                    "pretrained": args.pretrained,
+                    "num_classes": num_classes,
+                    "image_size": args.image_size,
+                    "class_names": SINIF_ISIMLERI,
+                },
+                best_checkpoint_path,
+            )
+            print(f"  [OK] Best checkpoint kaydedildi (val_loss: {best_val_loss:.4f})")
+
+        if early_stopping(val_metrics["loss"]):
+            print(f"\n[INFO] Early stopping: {args.patience} epoch boyunca iyilesme olmadi.")
+            break
+
+    print(f"\n{'='*70}")
+    print("TEST DEGERLENDIRMESI")
+    print(f"{'='*70}\n")
+
+    checkpoint = torch.load(best_checkpoint_path, map_location=device, weights_only=False)
+    model.load_state_dict(checkpoint["model_state_dict"])
+
+    test_metrics = evaluate(model, test_loader, criterion, device)
+    print(f"  Accuracy : {test_metrics['accuracy']:.4f}")
+    print(f"  Precision: {test_metrics['precision']:.4f}")
+    print(f"  Recall   : {test_metrics['recall']:.4f}")
+    print(f"  F1 (macro): {test_metrics['f1']:.4f}")
+
+    plot_confusion_matrix(
+        test_metrics["labels"],
+        test_metrics["preds"],
+        SINIF_ISIMLERI,
+        GORSELLER_KLASORU / f"confusion_matrix_{args.model}.png",
+    )
+
+    plot_training_curves(
+        train_losses,
+        val_losses,
+        train_accs,
+        val_accs,
+        GORSELLER_KLASORU / f"training_curves_{args.model}.png",
+    )
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    report = {
+        "model": args.model,
+        "timestamp": timestamp,
+        "epochs_trained": epoch,
+        "pretrained": args.pretrained,
+        "best_val_loss": round(best_val_loss, 6),
+        "test_metrics": {
+            "accuracy": round(test_metrics["accuracy"], 4),
+            "precision": round(test_metrics["precision"], 4),
+            "recall": round(test_metrics["recall"], 4),
+            "f1_macro": round(test_metrics["f1"], 4),
+        },
+        "data_split": {
+            "strategy": "augmented_trainval_original_test",
+            "trainval_dir": str(trainval_dir),
+            "test_dir": str(test_dir),
+            "val_ratio": args.val_ratio,
+            "train_size": info["train_size"],
+            "val_size": info["val_size"],
+            "test_size": info["test_size"],
+        },
+        "args": vars(args),
+    }
+    report_path = RAPORLAR_KLASORU / f"rapor_{args.model}_{timestamp}.json"
+    with open(report_path, "w", encoding="utf-8") as f:
+        json.dump(report, f, indent=2, ensure_ascii=False)
+
+    print(f"\n[OK] Rapor kaydedildi: {report_path}")
+    print(f"[OK] Model kaydedildi: {best_checkpoint_path}")
+    print(f"\n{'='*70}")
+    print("EGITIM TAMAMLANDI")
+    print(f"{'='*70}\n")
+
+    return 0
 
 
 if __name__ == "__main__":

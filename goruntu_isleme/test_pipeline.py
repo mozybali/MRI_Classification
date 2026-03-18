@@ -178,18 +178,34 @@ if __name__ == "__main__":
     else:
         # Varsayılan: Veri setinden ilk görüntüyü al
         print("\nVeri setinden test görüntüsü aranıyor...")
-        
-        for sinif in SINIF_KLASORLERI:
-            sinif_klasoru = VERI_SETI_KLASORU / sinif
-            if sinif_klasoru.exists():
-                dosyalar = list(sinif_klasoru.glob("*.jpg")) + list(sinif_klasoru.glob("*.png"))
+
+        aday_kokler = [
+            ON_ISLEME_VARSAYILAN_GIRIS_KLASORU,
+            VERI_SETI_KLASORU / "AugmentedAlzheimerDataset",
+            VERI_SETI_KLASORU / "OriginalDataset",
+            VERI_SETI_KLASORU,
+        ]
+        bulunan = None
+        for kok in aday_kokler:
+            for sinif in SINIF_KLASORLERI:
+                sinif_klasoru = kok / sinif
+                if not sinif_klasoru.exists():
+                    continue
+                dosyalar = []
+                for uzanti in (".jpg", ".jpeg", ".png"):
+                    dosyalar.extend(sorted(sinif_klasoru.glob(f"*{uzanti}")))
                 if dosyalar:
-                    test_goruntu = str(dosyalar[0])
+                    bulunan = dosyalar[0]
                     break
-        else:
+            if bulunan is not None:
+                break
+
+        if bulunan is None:
             print("\n❌ HATA: Veri setinde görüntü bulunamadı!")
+            print("Beklenen yapı: Veri_Seti/<Sinif> veya Veri_Seti/AugmentedAlzheimerDataset/<Sinif>")
             print("Kullanım: python test_pipeline.py [goruntu_yolu]")
             sys.exit(1)
+        test_goruntu = str(bulunan)
     
     # Test çalıştır
     pipeline_test(test_goruntu)

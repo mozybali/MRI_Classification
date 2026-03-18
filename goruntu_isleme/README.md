@@ -11,7 +11,9 @@ pip install -r ../requirements.txt
 Veri yapisi:
 
 ```text
-../Veri_Seti/<SinifAdi>/
+../Veri_Seti/AugmentedAlzheimerDataset/<SinifAdi>/
+../Veri_Seti/OriginalDataset/<SinifAdi>/
+# (Geri uyumluluk) ../Veri_Seti/<SinifAdi>/
 ```
 
 Siniflar:
@@ -35,6 +37,9 @@ python ana_islem.py
 - `5 Istatistik raporu`: CSV ozetlerini gosterir.
 - `6 Veri bolme`: Ham CSV'yi split eder.
 - `7 Otomatik`: `1 -> 2 -> 4 -> 5` adimlarini guvenli sirada calistirir.
+
+Not: On isleme varsayilan olarak `AugmentedAlzheimerDataset` klasorunu kullanir.
+Kok `Veri_Seti` verilirse uygun alt klasor otomatik secilir.
 
 ## Varsayilanlar
 

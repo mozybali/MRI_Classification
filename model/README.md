@@ -1,65 +1,93 @@
 # Model Egitim Modulu
 
-On islenmis MRI goruntulerinden cikarilan ozelliklerle XGBoost, LightGBM veya Linear SVM modelleri egitir; raporlar uretir ve egitilmis modellerle tahmin yapar.
+MRI beyin goruntulerinden demans seviyesini siniflandirmak icin PyTorch tabanli derin ogrenme modulleri.
+
+## Desteklenen Modeller
+
+| Model | Aciklama |
+|-------|----------|
+| **ResNet** | Pretrained ResNet18 + classification head |
+| **U-Net** | U-Net encoder + GAP + FC classification head (segmentasyon mask'i gerektirmez) |
 
 ## Gereksinimler
 
-Ana dizindeki `requirements.txt` tum bagimliliklari icerir. Egitim icin su dosyalarin hazir olmasi onerilir:
-
-- `goruntu_isleme/cikti/egitim_scaled.csv`
-- `goruntu_isleme/cikti/dogrulama_scaled.csv`
-- `goruntu_isleme/cikti/test_scaled.csv`
+Ana dizindeki `requirements.txt` tum bagimliliklari icerir (`torch`, `torchvision`, `scikit-learn` vb.).
 
 ## Kullanim
 
 ### Egitim
 
-```bash
-python train.py --auto
-python train.py
-python train.py --auto --model xgboost
-```
-
-### Tahmin
+Proje iki ayri veri kaynagi kullanir:
+- **Augmented** (`Veri_Seti/AugmentedAlzheimerDataset`): train + validation
+- **Original** (`Veri_Seti/OriginalDataset`): test
 
 ```bash
-python inference.py --model model/ciktilar/modeller/xgboost_YYYYMMDD_HHMMSS.pkl --image /path/to/image.jpg
-python inference.py --model model/ciktilar/modeller/xgboost_YYYYMMDD_HHMMSS.pkl --batch /path/to/folder/
+# ResNet ile egitim (varsayilan dizinler)
+python train.py --model resnet --epochs 50 --batch-size 32
+
+# U-Net ile egitim
+python train.py --model unet --epochs 50 --batch-size 16
+
+# Focal loss kullan
+python train.py --model resnet --loss focal --lr 3e-4
+
+# Opsiyonel: ImageNet pretrained agirliklari
+python train.py --model resnet --pretrained
+
+# Ozel veri dizinleri
+python train.py --model resnet --trainval-dir ../Veri_Seti/AugmentedAlzheimerDataset --test-dir ../Veri_Seti/OriginalDataset
+python train.py --model unet --val-ratio 0.2
 ```
 
-### Model karsilastirma
+### Tahmin (Inference)
 
 ```bash
-python model_comparison.py
+# Tek goruntu
+python inference.py --model-path ciktilar/modeller/best_resnet.pt --image /path/to/image.jpg
+
+# Batch tahmin
+python inference.py --model-path ciktilar/modeller/best_unet.pt --batch /path/to/folder/
 ```
 
-## Teknik Notlar
+## Dosya Yapisi
 
-- Olcekleme train setine gore yapilir; validation ve test ayni scaler ile donusturulur.
-- `boyut_bayt`, `genislik`, `yukseklik`, `en_boy_orani`, `piksel_sayisi` gibi meta sayisal kolonlar model girdisinden cikarilir.
-- Split mantigi kaynak gruplarini kullanir; ayni goruntunun turevleri farkli setlere dagilmamaya calisir.
+```text
+model/
+|-- train.py               # Egitim giris noktasi (CLI)
+|-- inference.py            # Tahmin scripti (CLI)
+|-- ayarlar.py              # Merkezi konfigürasyon
+|-- dl/
+|   |-- dataset.py          # MRIDataset + DataLoader olusturma
+|   |-- engine.py           # train_one_epoch, evaluate, EarlyStopping
+|   |-- losses.py           # FocalLoss, compute_class_weights
+|   |-- utils.py            # set_seed, get_device, plot_confusion_matrix
+|   `-- models/
+|       |-- resnet_classifier.py  # ResNet18 wrapper
+|       `-- unet_classifier.py    # U-Net encoder + classification head
+`-- ciktilar/
+    |-- modeller/            # .pt checkpoint dosyalari
+    |-- raporlar/            # JSON performans raporlari
+    `-- gorseller/           # Confusion matrix, egitim egrileri
+```
 
 ## Ozellikler
 
-- SMOTE ile dengesiz siniflari dengeleme
-- Sinif agirliklandirma
-- Istege bagli ozellik secimi
-- Grid/random search
-- 5 katli cross-validation
-- Accuracy, precision, recall, F1, ROC-AUC, Cohen's kappa
-- Confusion matrix, ROC, precision-recall ve feature importance gorselleri
-- Model ve metadata kaydi
+- Early stopping (sabir degeri ayarlanabilir)
+- Best checkpoint kaydı (val_loss'a gore)
+- ReduceLROnPlateau learning rate scheduler
+- Class weights veya Focal Loss ile sinif dengesizligi yonetimi
+- Kaynak-grup leak-free split (augment turevleri ayni split'te tutulur)
+- Augmented veri → train/val, Original veri → test (veri karisimi yok)
+- Train: augmentation + normalize; Val/Test: sadece resize + normalize
+- Accuracy, precision, recall, F1 (macro) metrikleri
+- Confusion matrix ve egitim egrileri gorselleri
+- GPU otomatik algilama, yoksa CPU fallback
+- Deterministic seed (varsayilan: 42)
 
 ## Yapilandirma
 
 `ayarlar.py` uzerinden:
-- veri yollari ve split dosyalari
-- model hiperparametreleri
-- grid search parametreleri
-- log ve cikti klasorleri
-
-## Sorun Giderme
-
-- Split CSV'ler yoksa `goruntu_isleme/ana_islem.py` icinden `7` numarali akisi calistirin.
-- Paket eksigi varsa ana dizinde `pip install -r requirements.txt`.
-- LightGBM veya XGBoost kurulu degilse ilgili paketi ayrica kurun.
+- Train/Val veri dizini (Augmented)
+- Test veri dizini (Original)
+- Cikti klasorleri
+- Rastgele tohum degeri

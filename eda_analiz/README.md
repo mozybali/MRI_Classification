@@ -1,36 +1,38 @@
-# EDA Analiz Modülü
+# EDA Analiz Modulu
 
-MRI veri seti için keşifsel veri analizi (EDA) üretir; sınıf dağılımı, boyut ve yoğunluk istatistikleri, korelasyon ve PCA görsellerini otomatik kaydeder. İstatistik hesaplamaları çok çekirdekle hızlandırılır.
+MRI veri seti icin kesifsel veri analizi (EDA) uretir; sinif dagilimi, boyut ve yogunluk istatistikleri, korelasyon ve PCA gorsellerini otomatik kaydeder. Istatistik hesaplamalari cok cekirdekle hizlandirilir.
 
 ## Kurulum
 
-Yalnızca bu modül:
+Yalnizca bu modul:
 ```bash
-pip install -r requirements.txt
+pip install -r ..\\requirements.txt
 ```
-Tüm proje paketleri zaten kuruluysa bu adımı atlayabilirsiniz (`../requirements.txt` yeterli).
+Tum proje paketleri zaten kuruluysa bu adimi atlayabilirsiniz (`../requirements.txt` yeterli).
 
-## Kullanım
+## Kullanim
 
 ```bash
 python eda_calistir.py
 ```
-Komut sırasında veri klasörü (varsayılan: depo içindeki `Veri_Seti`) ve çıktı klasörü
-(varsayılan: `eda_analiz/eda_ciktilar`) sorulur. Varsayılanları kabul etmek için Enter
-tuşuna basmanız yeterli; yollar otomatik olarak gerçek konumlara çözümlenir.
 
-## Üretilenler
+Komut sirasinda veri klasoru (varsayilan: `Veri_Seti/AugmentedAlzheimerDataset`) ve cikti klasoru (varsayilan: `eda_analiz/eda_ciktilar`) sorulur.
 
-- `0_ozet_istatistikler.txt`: Toplam örnek, sınıf dağılımı ve temel özet.
-- `1_sinif_dagilimi.png`: Sınıf dağılımı grafiği.
-- `2_boyut_analizi.png`: Genişlik/yükseklik/en-boy oranı dağılımları.
-- `3_yogunluk_analizi.png`: Yoğunluk histogramları.
-- `4_korelasyon_matrisi.png`: Özellik korelasyonları.
-- `5_pca_analizi.png`: PCA ilk iki bileşen görselleştirmesi.
-- `veri_seti_istatistikler.csv`: Görüntü bazlı temel istatistikler.
+- `Veri_Seti` koku verilirse uygun alt klasor otomatik secilir.
+- `Veri_Seti/OriginalDataset` verilirse sadece original veri analiz edilir.
 
-## Ne Zaman Çalıştırılmalı?
+## Uretilenler
 
-- Veri setinin içeriğini ve dengesini hızlıca görmek istediğinizde.  
-- Ön işleme/augmentasyon stratejisinden önce veri kalitesini kontrol ederken.  
-- Eğitim raporlarını desteklemek için özet görseller gerektiğinde.
+- `0_ozet_istatistikler.txt`: Toplam ornek, sinif dagilimi ve temel ozet.
+- `1_sinif_dagilimi.png`: Sinif dagilimi grafigi.
+- `2_boyut_analizi.png`: Genislik/yukseklik/en-boy orani dagilimlari.
+- `3_yogunluk_analizi.png`: Yogunluk histogramlari.
+- `4_korelasyon_matrisi.png`: Ozellik korelasyonlari.
+- `5_pca_analizi.png`: PCA ilk iki bilesen gorsellestirmesi.
+- `veri_seti_istatistikler.csv`: Goruntu bazli temel istatistikler.
+
+## Ne Zaman Calistirilmali?
+
+- Veri setinin icerigini ve dengesini hizlica gormek istediginizde.
+- On isleme/augmentasyon stratejisinden once veri kalitesini kontrol ederken.
+- Egitim raporlarini desteklemek icin ozet gorseller gerektiginde.
