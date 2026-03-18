@@ -1,0 +1,258 @@
+import pickle
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+from PIL import Image
+
+from eda_analiz import eda_calistir
+from goruntu_isleme import ana_islem
+from goruntu_isleme.ayarlar import SCALER_DOSYA_ADI
+from goruntu_isleme.ozellik_cikarici import OzellikCikarici, veri_setini_bol_ve_olceklendir
+
+
+def _grouped_features_df() -> pd.DataFrame:
+    rows = []
+    classes = ["NonDemented", "VeryMildDemented", "MildDemented", "ModerateDemented"]
+    for class_index, class_name in enumerate(classes):
+        for source_idx in range(4):
+            rows.append(
+                {
+                    "dosya_adi": f"{class_name}_{source_idx}.png",
+                    "feature1": class_index * 10 + source_idx,
+                    "feature2": class_index * 100 + source_idx,
+                    "sinif": class_name,
+                    "etiket": class_index,
+                    "tam_yol": f"/tmp/{class_name}_{source_idx}.png",
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def test_tek_goruntu_ozellikleri_beklenen_alanlari_uretir(tmp_path):
+    image_path = tmp_path / "gradient.png"
+    arr = np.tile(np.arange(16, dtype=np.uint8), (16, 1))
+    Image.fromarray(arr, mode="L").save(image_path)
+
+    sonuc = OzellikCikarici().tek_goruntu_ozellikleri(str(image_path))
+
+    assert sonuc is not None
+    assert sonuc["dosya_adi"] == "gradient.png"
+    assert sonuc["genislik"] == 16
+    assert sonuc["yukseklik"] == 16
+    assert sonuc["piksel_sayisi"] == 256
+    assert "entropi" in sonuc
+    assert "otsu_esik" in sonuc
+
+
+def test_kaynak_kolonlarini_hazirla_eksik_kolonlari_tamamlar():
+    df = pd.DataFrame(
+        {
+            "dosya_adi": ["26.png", "26_aug1.png"],
+            "sinif": ["NonDemented", "NonDemented"],
+        }
+    )
+
+    hazir = OzellikCikarici.kaynak_kolonlarini_hazirla(df)
+
+    assert hazir["kaynak_id"].tolist() == ["26", "26"]
+    assert hazir["kaynak_grup"].tolist() == ["NonDemented::26", "NonDemented::26"]
+    assert hazir["augmentasyon_mu"].tolist() == [False, True]
+
+
+def test_nan_temizle_mean_sayisal_nanlari_doldurur_ve_kaydeder(tmp_path):
+    csv_path = tmp_path / "features.csv"
+    pd.DataFrame(
+        {
+            "dosya_adi": ["a.png", "a_aug1.png", "b.png"],
+            "feature1": [1.0, np.nan, 4.0],
+            "feature2": [np.nan, 5.0, 8.0],
+            "sinif": ["NonDemented", "NonDemented", "MildDemented"],
+            "etiket": [0, 0, 2],
+        }
+    ).to_csv(csv_path, index=False)
+
+    temiz = OzellikCikarici().nan_temizle(csv_dosyasi=csv_path, metod="mean")
+    dosyadan = pd.read_csv(csv_path)
+
+    assert temiz["feature1"].isna().sum() == 0
+    assert temiz["feature2"].isna().sum() == 0
+    assert {"kaynak_id", "kaynak_grup", "augmentasyon_mu"}.issubset(temiz.columns)
+    pd.testing.assert_frame_equal(dosyadan, temiz, check_dtype=False)
+
+
+def test_veri_setini_bol_ve_olceklendir_scaler_ve_csvleri_kaydeder(tmp_path):
+    csv_path = tmp_path / "grouped.csv"
+    _grouped_features_df().to_csv(csv_path, index=False)
+
+    train_df, val_df, test_df = veri_setini_bol_ve_olceklendir(
+        csv_dosyasi=csv_path,
+        cikti_klasoru=tmp_path,
+        metod="minmax",
+    )
+
+    assert not train_df.empty
+    assert not val_df.empty
+    assert not test_df.empty
+    assert (tmp_path / "egitim_scaled.csv").exists()
+    assert (tmp_path / "dogrulama_scaled.csv").exists()
+    assert (tmp_path / "test_scaled.csv").exists()
+    assert (tmp_path / "goruntu_ozellikleri_scaled.csv").exists()
+    assert (tmp_path / SCALER_DOSYA_ADI).exists()
+
+    with open(tmp_path / SCALER_DOSYA_ADI, "rb") as file:
+        scaler_info = pickle.load(file)
+
+    assert scaler_info["method"] == "minmax"
+    assert scaler_info["columns"] == ["feature1", "feature2"]
+
+
+def test_parse_args_extract_action_yollarini_cozer(tmp_path):
+    args = ana_islem.parse_args(
+        [
+            "--action",
+            "extract",
+            "--input-dir",
+            str(tmp_path / "girdi"),
+            "--csv-path",
+            str(tmp_path / "out.csv"),
+        ]
+    )
+
+    assert args.action == "extract"
+    assert args.input_dir == tmp_path / "girdi"
+    assert args.csv_path == tmp_path / "out.csv"
+
+
+def test_run_action_preprocess_parametreleri_iletir(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_preprocess(**kwargs):
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(ana_islem, "goruntu_on_isleme", fake_preprocess)
+
+    args = ana_islem.parse_args(
+        [
+            "--action",
+            "preprocess",
+            "--input-dir",
+            str(tmp_path / "in"),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--mode",
+            "2d",
+        ]
+    )
+
+    result = ana_islem.run_action(args)
+
+    assert result == {"ok": True}
+    assert captured["giris_klasoru"] == tmp_path / "in"
+    assert captured["cikti_klasoru"] == tmp_path / "out"
+    assert captured["mode"] == "2d"
+
+
+def test_main_non_menu_sonucuna_gore_cikis_kodu_verir(monkeypatch):
+    monkeypatch.setattr(ana_islem, "run_action", lambda args: {"ok": True})
+    assert ana_islem.main(["--action", "report"]) == 0
+
+    monkeypatch.setattr(ana_islem, "run_action", lambda args: None)
+    assert ana_islem.main(["--action", "report"]) == 1
+
+
+def test_tum_islemleri_yap_skip_confirmation_ile_sirayi_calistirir(monkeypatch, tmp_path):
+    called = {"preprocess": 0, "csv": 0, "report": 0}
+
+    class DummyIsleyici:
+        def tum_gorselleri_isle(self, cikti_klasoru, giris_klasoru=None):
+            called["preprocess"] += 1
+            return {"NonDemented": 1}
+
+    class DummyCikarici:
+        def csv_olustur(self, cikti_klasoru):
+            called["csv"] += 1
+            return pd.DataFrame({"feature1": [1], "sinif": ["NonDemented"], "etiket": [0]})
+
+        def istatistik_raporu(self, csv_dosyasi=None):
+            called["report"] += 1
+
+    monkeypatch.setattr(ana_islem, "GorselIsleyici", DummyIsleyici)
+    monkeypatch.setattr(ana_islem, "OzellikCikarici", DummyCikarici)
+    monkeypatch.setattr(
+        ana_islem,
+        "veri_setini_bol_ve_olceklendir",
+        lambda cikti_klasoru=None, metod=None: (
+            pd.DataFrame({"x": [1]}),
+            pd.DataFrame({"x": [2]}),
+            pd.DataFrame({"x": [3]}),
+        ),
+    )
+
+    sonuc = ana_islem.tum_islemleri_yap(
+        giris_klasoru=tmp_path / "girdi",
+        cikti_klasoru=tmp_path / "cikti",
+        skip_confirmation=True,
+    )
+
+    assert sonuc is not None
+    assert called == {"preprocess": 1, "csv": 1, "report": 1}
+
+
+def test_eda_resolve_paths_defaults_noninteractive(monkeypatch, tmp_path):
+    monkeypatch.setattr(eda_calistir.sys.stdin, "isatty", lambda: False)
+
+    args = eda_calistir.parse_args([])
+    data_dir, output_dir = eda_calistir._resolve_paths(args)
+
+    assert isinstance(data_dir, Path)
+    assert isinstance(output_dir, Path)
+
+
+def test_eda_main_analizi_calistirip_csv_yazar(monkeypatch, tmp_path):
+    class DummyAnaliz:
+        def __init__(self, veri_klasoru, cikti_klasoru):
+            self.veri_klasoru = veri_klasoru
+            self.cikti_klasoru = cikti_klasoru
+            Path(cikti_klasoru).mkdir(parents=True, exist_ok=True)
+
+        def tam_analiz_yap(self):
+            return pd.DataFrame({"label": [0], "int_ort": [123.0]})
+
+    monkeypatch.setattr(eda_calistir, "EDAAnaLiz", DummyAnaliz)
+
+    result = eda_calistir.main(
+        [
+            "--data-dir",
+            str(tmp_path / "veri"),
+            "--output-dir",
+            str(tmp_path / "cikti"),
+        ]
+    )
+
+    assert result == 0
+    assert (tmp_path / "cikti" / "veri_seti_istatistikler.csv").exists()
+
+
+def test_eda_main_hata_durumunda_bir_doner(monkeypatch, tmp_path):
+    class FailingAnaliz:
+        def __init__(self, veri_klasoru, cikti_klasoru):
+            pass
+
+        def tam_analiz_yap(self):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(eda_calistir, "EDAAnaLiz", FailingAnaliz)
+
+    result = eda_calistir.main(
+        [
+            "--data-dir",
+            str(tmp_path / "veri"),
+            "--output-dir",
+            str(tmp_path / "cikti"),
+        ]
+    )
+
+    assert result == 1
