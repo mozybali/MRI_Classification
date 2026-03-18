@@ -43,3 +43,21 @@ mri-eda = "eda_analiz.eda_calistir:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["model*", "goruntu_isleme*", "eda_analiz*"]
+
+[tool.coverage.run]
+source = ["goruntu_isleme", "model", "eda_analiz"]
+omit = [
+  "*/tests/*",
+  "*/test_*.py",
+  "*/__pycache__/*",
+  "*/venv/*",
+  "*/.venv/*",
+]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
+
+[tool.coverage.html]
+directory = "htmlcov"
