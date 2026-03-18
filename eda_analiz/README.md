@@ -29,10 +29,17 @@ Arguman vererek etkilesimsiz calistirma:
 mri-eda --data-dir Veri_Seti/AugmentedAlzheimerDataset --output-dir eda_analiz/eda_ciktilar
 ```
 
+Tek cekirdege zorlamak veya paralel sayisini belirlemek icin:
+
+```bash
+mri-eda --data-dir Veri_Seti/AugmentedAlzheimerDataset --jobs 1
+```
+
 ## Varsayilanlar
 
 - Varsayilan veri klasoru: `Veri_Seti/AugmentedAlzheimerDataset`
 - Varsayilan cikti klasoru: `eda_analiz/eda_ciktilar`
+- `--jobs` verilmezse cekirdek sayisi otomatik secilir; paralel hesaplama kullanilamazsa arac tek cekirdege geri duser
 - `Veri_Seti` koku verilirse uygun alt klasor otomatik cozulur
 - `Veri_Seti/OriginalDataset` verilirse analiz sadece original veri uzerinde yapilir
 

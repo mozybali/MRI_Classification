@@ -49,6 +49,12 @@ def parse_args(argv=None):
         action="store_true",
         help="Eksik argumanlari soru-cevap ile tamamla.",
     )
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=None,
+        help="Istatistik hesaplamada kullanilacak cekirdek sayisi. Varsayilan: otomatik.",
+    )
     return parser.parse_args(argv)
 
 
@@ -92,6 +98,7 @@ def main(argv=None):
         analizci = EDAAnaLiz(
             veri_klasoru=veri_klasoru,
             cikti_klasoru=cikti_klasoru,
+            n_jobs=args.jobs,
         )
 
         df = analizci.tam_analiz_yap()

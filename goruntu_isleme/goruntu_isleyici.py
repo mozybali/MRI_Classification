@@ -1174,9 +1174,9 @@ class GorselIsleyici:
                 # Maksimum 5x sınırı koy (aşırı artırmayı önle)
                 artirma_carpanlari[sinif] = min(carpan, 5)
         
-        print("\n📊 Sınıf bazlı augmentation çarpanları:")
+        print("\n[BILGI] Sinif bazli augmentation carpanlari:")
         for sinif, carpan in artirma_carpanlari.items():
-            print(f"   {sinif}: {carpan}x (mevcut: {sinif_sayilari[sinif]} örnek)")
+            print(f"   {sinif}: {carpan}x (mevcut: {sinif_sayilari[sinif]} ornek)")
         
         return artirma_carpanlari
     
@@ -1253,7 +1253,7 @@ class GorselIsleyici:
 
         if paralel_kullan and self.n_jobs > 1:
             # ⚡ PERFORMANS İYİLEŞTİRMESİ: Paralel işleme ile hızlandırma
-            print(f"⚡ Paralel işleme aktif: {self.n_jobs} çekirdek kullanılıyor")
+            print(f"[BILGI] Paralel isleme aktif: {self.n_jobs} cekirdek kullaniliyor")
 
             with Pool(processes=self.n_jobs, initializer=_islem_worker_init) as pool:
                 sonuclar = list(tqdm(

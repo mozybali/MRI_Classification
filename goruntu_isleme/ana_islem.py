@@ -16,6 +16,7 @@ if __package__ in {None, ""}:
 
     from goruntu_isleme.ayarlar import (
         CIKTI_KLASORU,
+        CSV_DOSYA_ADI,
         DOGRULAMA_ORANI,
         EGITIM_ORANI,
         ON_ISLEME_VARSAYILAN_GIRIS_KLASORU,
@@ -32,6 +33,7 @@ if __package__ in {None, ""}:
 else:
     from .ayarlar import (
         CIKTI_KLASORU,
+        CSV_DOSYA_ADI,
         DOGRULAMA_ORANI,
         EGITIM_ORANI,
         ON_ISLEME_VARSAYILAN_GIRIS_KLASORU,
@@ -52,6 +54,8 @@ OPTIONAL_3D_MODULES = (
     "uc_boyutlu_isleme",
     "three_d_isleme",
 )
+NAN_METODLARI = {"drop", "mean", "median", "zero"}
+SCALING_METODLARI = {"minmax", "robust", "standard", "maxabs"}
 
 
 def _load_optional_3d_module():
@@ -91,9 +95,9 @@ def parse_args(argv=None):
     )
     parser.add_argument(
         "--method",
-        choices=["drop", "mean", "median", "zero", "minmax", "robust", "standard", "maxabs"],
+        type=str,
         default=None,
-        help="Temizleme veya scaling metodu",
+        help="Action'a bagli metod. clean-nan icin drop/mean/median/zero; scale/all icin minmax/robust/standard/maxabs",
     )
     parser.add_argument("--volume-path", type=Path, default=None, help="3D hacim dosyasi veya DICOM klasoru")
     parser.add_argument("--class-name", type=str, default=None, help="3D islem icin sinif adi")
@@ -103,7 +107,24 @@ def parse_args(argv=None):
         action="store_true",
         help="Toplu islemlerde etkilesimli onay isteme.",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.method is None:
+        return args
+    if args.action == "clean-nan":
+        if args.method not in NAN_METODLARI:
+            parser.error(
+                "--action clean-nan icin --method su degerlerden biri olmali: "
+                + ", ".join(sorted(NAN_METODLARI))
+            )
+    elif args.action in {"scale", "all"}:
+        if args.method not in SCALING_METODLARI:
+            parser.error(
+                "--action scale/all icin --method su degerlerden biri olmali: "
+                + ", ".join(sorted(SCALING_METODLARI))
+            )
+    else:
+        parser.error("--method yalnizca clean-nan, scale veya all action'lariyla kullanilabilir")
+    return args
 
 
 def ana_menu():
@@ -314,6 +335,7 @@ def tum_islemleri_yap(
 
     giris_klasoru = Path(giris_klasoru) if giris_klasoru else ON_ISLEME_VARSAYILAN_GIRIS_KLASORU
     cikti_klasoru = Path(cikti_klasoru) if cikti_klasoru else CIKTI_KLASORU
+    ozellik_csv = cikti_klasoru / CSV_DOSYA_ADI
 
     print("\n\n" + "=" * 60)
     print("ADIM 1/4: GORUNTU ON ISLEME")
@@ -325,7 +347,7 @@ def tum_islemleri_yap(
     print("ADIM 2/4: OZELLIK CIKARMA")
     print("=" * 60)
     cikarici = OzellikCikarici()
-    df = cikarici.csv_olustur(cikti_klasoru)
+    df = cikarici.csv_olustur(cikti_klasoru, cikti_csv=ozellik_csv)
     if df.empty:
         print("\n[HATA] Ozellik cikarimi basarisiz. Islem durduruluyor.")
         return None
@@ -333,7 +355,11 @@ def tum_islemleri_yap(
     print("\n\n" + "=" * 60)
     print("ADIM 3/4: VERI BOLME + OLCEKLENDIRME")
     print("=" * 60)
-    sonuc = veri_setini_bol_ve_olceklendir(cikti_klasoru=cikti_klasoru, metod=metod)
+    sonuc = veri_setini_bol_ve_olceklendir(
+        csv_dosyasi=ozellik_csv,
+        cikti_klasoru=cikti_klasoru,
+        metod=metod,
+    )
     if sonuc is None:
         print("\n[HATA] Veri bolme ve olceklendirme basarisiz. Islem durduruluyor.")
         return None
@@ -341,7 +367,7 @@ def tum_islemleri_yap(
     print("\n\n" + "=" * 60)
     print("ADIM 4/4: ISTATISTIK RAPORU")
     print("=" * 60)
-    cikarici.istatistik_raporu(csv_dosyasi=cikti_klasoru / "goruntu_ozellikleri.csv")
+    cikarici.istatistik_raporu(csv_dosyasi=ozellik_csv)
 
     print("\n\n" + "=" * 60)
     print("[BASARILI] Tum islemler tamamlandi.")

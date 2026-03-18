@@ -19,6 +19,7 @@ import pandas as pd
 import seaborn as sns
 from PIL import Image
 from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -88,6 +89,7 @@ class EDAAnaLiz:
         veri_klasoru: Union[str, Path] = DEFAULT_VERI_KLASORU,
         cikti_klasoru: Union[str, Path] = DEFAULT_CIKTI_KLASORU,
         rastgele_tohum: int = 42,
+        n_jobs: Optional[int] = None,
     ):
         """
         EDA analizörünü başlat.
@@ -100,6 +102,7 @@ class EDAAnaLiz:
             veri_klasoru: MRI görüntülerinin bulunduğu klasör
             cikti_klasoru: Grafiklerin kaydedileceği klasör
             rastgele_tohum: Tekrarlanabilirlik için rastgeleliği sabitleme tohumu
+            n_jobs: Paralel istatistik hesaplamada kullanılacak çekirdek sayısı
         """
         self.veri_klasoru = Path(veri_klasoru).expanduser().resolve()
         self.cikti_klasoru = Path(cikti_klasoru).expanduser().resolve()
@@ -122,7 +125,20 @@ class EDAAnaLiz:
         }
 
         np.random.seed(self.tohum)
-        self.n_jobs = max(1, cpu_count() - 1)
+        if n_jobs is None:
+            self.n_jobs = max(1, cpu_count() - 1)
+        else:
+            self.n_jobs = max(1, int(n_jobs))
+
+    def _mevcut_sinif_sirasi(self, df: pd.DataFrame) -> list[str]:
+        """DataFrame icinde bulunan siniflari sabit sirada dondur."""
+        mevcut_siniflar = set(df["label_name"].dropna().tolist())
+        return [sinif for sinif in self.sinif_klasorleri if sinif in mevcut_siniflar]
+
+    @staticmethod
+    def _dosya_siralama_anahtari(dosya: Path) -> str:
+        """Dosyalari platformdan bagimsiz ve deterministik sirala."""
+        return dosya.name.lower()
 
     def _veri_klasorunu_dogrula(self):
         """Veri klasörü var mı ve beklenen yapıda mı kontrol et."""
@@ -187,7 +203,7 @@ class EDAAnaLiz:
                 _guvenli_print(f"[UYARI] Klasör bulunamadı: {sinif_klasoru}")
                 continue
 
-            for dosya in sinif_klasoru.glob("*"):
+            for dosya in sorted(sinif_klasoru.iterdir(), key=self._dosya_siralama_anahtari):
                 if dosya.suffix.lower() in [".jpg", ".jpeg", ".png"]:
                     kayitlar.append(
                         {
@@ -227,17 +243,25 @@ class EDAAnaLiz:
 
         satir_listesi = df.to_dict("records")
 
+        sonuclar = []
         if self.n_jobs > 1:
-            with Pool(processes=self.n_jobs) as pool:
-                sonuclar = list(
-                    tqdm(
-                        pool.imap(_istatistik_hesapla_wrapper, satir_listesi),
-                        total=len(satir_listesi),
-                        desc="İstatistikler hesaplanıyor (paralel)",
+            try:
+                with Pool(processes=self.n_jobs) as pool:
+                    sonuclar = list(
+                        tqdm(
+                            pool.imap(_istatistik_hesapla_wrapper, satir_listesi),
+                            total=len(satir_listesi),
+                            desc="İstatistikler hesaplanıyor (paralel)",
+                        )
                     )
+            except Exception as exc:
+                _guvenli_print(
+                    "[UYARI] Paralel istatistik hesaplama kullanilamadi; "
+                    f"tek cekirdege dusuluyor ({type(exc).__name__}: {exc})."
                 )
-        else:
-            sonuclar = []
+                self.n_jobs = 1
+
+        if not sonuclar:
             for satir in tqdm(
                 satir_listesi,
                 total=len(satir_listesi),
@@ -294,7 +318,8 @@ class EDAAnaLiz:
         Dengesiz veri setlerini tespit etmek için önemlidir.
         """
         fig, ax = plt.subplots(figsize=(8, 5))
-        sns.countplot(data=df, x="label_name", ax=ax)
+        sinif_sirasi = self._mevcut_sinif_sirasi(df)
+        sns.countplot(data=df, x="label_name", order=sinif_sirasi, ax=ax)
         ax.set_xlabel("Sınıf")
         ax.set_ylabel("Görüntü Sayısı")
         ax.set_title("Sınıf Dağılımı")
@@ -322,7 +347,7 @@ class EDAAnaLiz:
         axes[1, 0].set_title("En-Boy Oranı Dağılımı")
         axes[1, 0].set_xlabel("En-Boy Oranı")
 
-        for sinif in df["label_name"].unique():
+        for sinif in self._mevcut_sinif_sirasi(df):
             alt_df = df[df["label_name"] == sinif]
             axes[1, 1].scatter(
                 alt_df["genislik"],
@@ -348,28 +373,31 @@ class EDAAnaLiz:
         Ortalama, standart sapma, aralık ve yayılım grafiklerini içerir.
         """
         fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+        sinif_sirasi = self._mevcut_sinif_sirasi(df)
+        plot_df = df.assign(
+            int_range=df["int_max"] - df["int_min"],
+            int_spread=df["int_p99"] - df["int_p1"],
+        )
 
-        sns.boxplot(data=df, x="label_name", y="int_ort", ax=axes[0, 0])
+        sns.boxplot(data=plot_df, x="label_name", y="int_ort", order=sinif_sirasi, ax=axes[0, 0])
         axes[0, 0].set_title("Ortalama Yoğunluk (Sınıflara Göre)")
         axes[0, 0].set_xlabel("Sınıf")
         axes[0, 0].set_ylabel("Ortalama Yoğunluk")
         plt.setp(axes[0, 0].xaxis.get_majorticklabels(), rotation=45)
 
-        sns.boxplot(data=df, x="label_name", y="int_std", ax=axes[0, 1])
+        sns.boxplot(data=plot_df, x="label_name", y="int_std", order=sinif_sirasi, ax=axes[0, 1])
         axes[0, 1].set_title("Yoğunluk Std. Sapması (Sınıflara Göre)")
         axes[0, 1].set_xlabel("Sınıf")
         axes[0, 1].set_ylabel("Std. Sapma")
         plt.setp(axes[0, 1].xaxis.get_majorticklabels(), rotation=45)
 
-        df["int_range"] = df["int_max"] - df["int_min"]
-        sns.boxplot(data=df, x="label_name", y="int_range", ax=axes[1, 0])
+        sns.boxplot(data=plot_df, x="label_name", y="int_range", order=sinif_sirasi, ax=axes[1, 0])
         axes[1, 0].set_title("Yoğunluk Aralığı (Max-Min)")
         axes[1, 0].set_xlabel("Sınıf")
         axes[1, 0].set_ylabel("Aralık")
         plt.setp(axes[1, 0].xaxis.get_majorticklabels(), rotation=45)
 
-        df["int_spread"] = df["int_p99"] - df["int_p1"]
-        sns.boxplot(data=df, x="label_name", y="int_spread", ax=axes[1, 1])
+        sns.boxplot(data=plot_df, x="label_name", y="int_spread", order=sinif_sirasi, ax=axes[1, 1])
         axes[1, 1].set_title("Yoğunluk Yayılımı (P99-P1)")
         axes[1, 1].set_xlabel("Sınıf")
         axes[1, 1].set_ylabel("Yayılım")
@@ -443,18 +471,32 @@ class EDAAnaLiz:
             "int_p99",
         ]
         if len(df) < 2:
-            _guvenli_print("PCA atlandı: En az iki örnek gerekiyor.")
+            _guvenli_print("[UYARI] PCA atlandı: En az iki örnek gerekiyor.")
             return
 
-        df_sample = df.sample(min(n_ornekler, len(df)), random_state=self.tohum)
-        X = df_sample[ozellikler].fillna(0).values
+        eksik_ozellikler = [kolon for kolon in ozellikler if kolon not in df.columns]
+        if eksik_ozellikler:
+            _guvenli_print(
+                "[UYARI] PCA atlandı: gerekli özellikler eksik "
+                f"({', '.join(eksik_ozellikler)})."
+            )
+            return
+
+        temiz_df = df.dropna(subset=ozellikler + ["label_name"])
+        if len(temiz_df) < 2:
+            _guvenli_print("[UYARI] PCA atlandı: yeterli sayida gecerli ornek yok.")
+            return
+
+        df_sample = temiz_df.sample(min(n_ornekler, len(temiz_df)), random_state=self.tohum)
+        X = df_sample[ozellikler].values
         y = df_sample["label_name"].values
+        X_scaled = StandardScaler().fit_transform(X)
 
         pca = PCA(n_components=2, random_state=self.tohum)
-        X_pca = pca.fit_transform(X)
+        X_pca = pca.fit_transform(X_scaled)
 
         fig, ax = plt.subplots(figsize=(10, 7))
-        for sinif in np.unique(y):
+        for sinif in self._mevcut_sinif_sirasi(df_sample):
             mask = y == sinif
             ax.scatter(X_pca[mask, 0], X_pca[mask, 1], label=sinif, alpha=0.6, s=50)
 
@@ -481,7 +523,13 @@ class EDAAnaLiz:
 
             f.write("Sınıf Dağılımı:\n")
             f.write("-" * 70 + "\n")
-            for sinif, sayi in df["label_name"].value_counts().items():
+            sinif_sayilari = df["label_name"].value_counts().reindex(
+                self.sinif_klasorleri,
+                fill_value=0,
+            )
+            for sinif, sayi in sinif_sayilari.items():
+                if sayi == 0:
+                    continue
                 oran = sayi / len(df) * 100
                 f.write(f"  {sinif:20s}: {sayi:5d} (%{oran:.1f})\n")
 

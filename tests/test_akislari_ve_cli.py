@@ -178,7 +178,7 @@ def test_tum_islemleri_yap_skip_confirmation_ile_sirayi_calistirir(monkeypatch, 
             return {"NonDemented": 1}
 
     class DummyCikarici:
-        def csv_olustur(self, cikti_klasoru):
+        def csv_olustur(self, cikti_klasoru, cikti_csv=None):
             called["csv"] += 1
             return pd.DataFrame({"feature1": [1], "sinif": ["NonDemented"], "etiket": [0]})
 
@@ -190,7 +190,7 @@ def test_tum_islemleri_yap_skip_confirmation_ile_sirayi_calistirir(monkeypatch, 
     monkeypatch.setattr(
         ana_islem,
         "veri_setini_bol_ve_olceklendir",
-        lambda cikti_klasoru=None, metod=None: (
+        lambda csv_dosyasi=None, cikti_klasoru=None, metod=None: (
             pd.DataFrame({"x": [1]}),
             pd.DataFrame({"x": [2]}),
             pd.DataFrame({"x": [3]}),
@@ -207,6 +207,50 @@ def test_tum_islemleri_yap_skip_confirmation_ile_sirayi_calistirir(monkeypatch, 
     assert called == {"preprocess": 1, "csv": 1, "report": 1}
 
 
+def test_tum_islemleri_yap_ozel_cikti_csv_yolunu_sabitleyerek_ilerler(monkeypatch, tmp_path):
+    captured = {}
+
+    class DummyIsleyici:
+        def tum_gorselleri_isle(self, cikti_klasoru, giris_klasoru=None):
+            captured["preprocess_output"] = cikti_klasoru
+            return {"NonDemented": 1}
+
+    class DummyCikarici:
+        def csv_olustur(self, cikti_klasoru, cikti_csv=None):
+            captured["feature_dir"] = cikti_klasoru
+            captured["feature_csv"] = cikti_csv
+            return pd.DataFrame({"feature1": [1], "sinif": ["NonDemented"], "etiket": [0]})
+
+        def istatistik_raporu(self, csv_dosyasi=None):
+            captured["report_csv"] = csv_dosyasi
+
+    def fake_split(csv_dosyasi=None, cikti_klasoru=None, metod=None):
+        captured["split_csv"] = csv_dosyasi
+        captured["split_output"] = cikti_klasoru
+        return pd.DataFrame({"x": [1]}), pd.DataFrame({"x": [2]}), pd.DataFrame({"x": [3]})
+
+    monkeypatch.setattr(ana_islem, "GorselIsleyici", DummyIsleyici)
+    monkeypatch.setattr(ana_islem, "OzellikCikarici", DummyCikarici)
+    monkeypatch.setattr(ana_islem, "veri_setini_bol_ve_olceklendir", fake_split)
+
+    cikti = tmp_path / "ozel_cikti"
+    ana_islem.tum_islemleri_yap(
+        giris_klasoru=tmp_path / "girdi",
+        cikti_klasoru=cikti,
+        skip_confirmation=True,
+    )
+
+    beklenen_csv = cikti / "goruntu_ozellikleri.csv"
+    assert captured["feature_csv"] == beklenen_csv
+    assert captured["split_csv"] == beklenen_csv
+    assert captured["report_csv"] == beklenen_csv
+
+
+def test_parse_args_gecersiz_scaling_methodunu_erken_reddeder():
+    with pytest.raises(SystemExit):
+        ana_islem.parse_args(["--action", "scale", "--method", "mean"])
+
+
 def test_eda_resolve_paths_defaults_noninteractive(monkeypatch, tmp_path):
     monkeypatch.setattr(eda_calistir.sys.stdin, "isatty", lambda: False)
 
@@ -217,11 +261,20 @@ def test_eda_resolve_paths_defaults_noninteractive(monkeypatch, tmp_path):
     assert isinstance(output_dir, Path)
 
 
+def test_eda_parse_args_jobs_degerini_cozer():
+    args = eda_calistir.parse_args(["--jobs", "3"])
+
+    assert args.jobs == 3
+
+
 def test_eda_main_analizi_calistirip_csv_yazar(monkeypatch, tmp_path):
+    captured = {}
+
     class DummyAnaliz:
-        def __init__(self, veri_klasoru, cikti_klasoru):
+        def __init__(self, veri_klasoru, cikti_klasoru, n_jobs=None):
             self.veri_klasoru = veri_klasoru
             self.cikti_klasoru = cikti_klasoru
+            captured["n_jobs"] = n_jobs
             Path(cikti_klasoru).mkdir(parents=True, exist_ok=True)
 
         def tam_analiz_yap(self):
@@ -235,16 +288,19 @@ def test_eda_main_analizi_calistirip_csv_yazar(monkeypatch, tmp_path):
             str(tmp_path / "veri"),
             "--output-dir",
             str(tmp_path / "cikti"),
+            "--jobs",
+            "2",
         ]
     )
 
     assert result == 0
+    assert captured["n_jobs"] == 2
     assert (tmp_path / "cikti" / "veri_seti_istatistikler.csv").exists()
 
 
 def test_eda_main_hata_durumunda_bir_doner(monkeypatch, tmp_path):
     class FailingAnaliz:
-        def __init__(self, veri_klasoru, cikti_klasoru):
+        def __init__(self, veri_klasoru, cikti_klasoru, n_jobs=None):
             pass
 
         def tam_analiz_yap(self):

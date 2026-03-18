@@ -84,6 +84,23 @@ class TestEDAAnaLiz:
         assert {"id", "filepath", "label", "label_name"}.issubset(df.columns)
         assert set(df["label_name"].unique()) == set(SINIFLAR)
 
+    def test_veri_yukle_dosyalari_deterministik_sirada_toplar(self, tmp_path):
+        veri_klasoru = tmp_path / "veri"
+        for sinif in SINIFLAR:
+            (veri_klasoru / sinif).mkdir(parents=True, exist_ok=True)
+
+        arr = np.full((16, 16), 100, dtype=np.uint8)
+        Image.fromarray(arr, mode="L").save(veri_klasoru / "NonDemented" / "b_ornek.png")
+        Image.fromarray(arr, mode="L").save(veri_klasoru / "NonDemented" / "a_ornek.png")
+
+        eda = EDAAnaLiz(veri_klasoru=veri_klasoru, cikti_klasoru=tmp_path / "out")
+        df = eda.veri_yukle()
+
+        non_demented = (
+            df[df["label_name"] == "NonDemented"]["filepath"].map(lambda yol: Path(yol).name).tolist()
+        )
+        assert non_demented == ["a_ornek.png", "b_ornek.png"]
+
     def test_veri_yukle_root_auto_resolve_augmented(self, tmp_path):
         veri_koku = tmp_path / "Veri_Seti"
         augmented = veri_koku / "AugmentedAlzheimerDataset"
@@ -112,6 +129,25 @@ class TestEDAAnaLiz:
         assert beklenen.issubset(enriched.columns)
         assert len(enriched) == len(df)
         assert enriched["int_ort"].notna().all()
+
+    def test_goruntu_istatistikleri_paralel_hata_olursa_tek_cekirdege_duser(
+        self, test_dataset_structure, tmp_path, monkeypatch, capsys
+    ):
+        eda = EDAAnaLiz(veri_klasoru=test_dataset_structure, cikti_klasoru=tmp_path / "out", n_jobs=2)
+        df = eda.veri_yukle()
+
+        class BrokenPool:
+            def __init__(self, *args, **kwargs):
+                raise PermissionError("blocked")
+
+        monkeypatch.setattr(eda_araclar, "Pool", BrokenPool)
+
+        enriched = eda.goruntu_istatistikleri_hesapla(df)
+        captured = capsys.readouterr()
+
+        assert len(enriched) == len(df)
+        assert eda.n_jobs == 1
+        assert "tek cekirdege dusuluyor" in captured.out
 
     def test_goruntu_istatistikleri_hata_raporlar(self, test_dataset_structure, tmp_path, capsys):
         eda = EDAAnaLiz(veri_klasoru=test_dataset_structure, cikti_klasoru=tmp_path / "out")
@@ -169,6 +205,59 @@ class TestEDAAnaLiz:
 
         assert "Korelasyon analizi atlandı" in captured.out
         assert not (eda.cikti_klasoru / "4_korelasyon_matrisi.png").exists()
+
+    def test_yogunluk_analizi_girdi_dataframeini_degistirmez(self, test_dataset_structure, tmp_path):
+        eda = EDAAnaLiz(veri_klasoru=test_dataset_structure, cikti_klasoru=tmp_path / "out")
+        eda.n_jobs = 1
+        df = eda.goruntu_istatistikleri_hesapla(eda.veri_yukle())
+        onceki_kolonlar = list(df.columns)
+
+        eda.yogunluk_analizi_ciz(df)
+
+        assert list(df.columns) == onceki_kolonlar
+
+    def test_pca_analizi_olceklenmis_veriyi_kullanir(self, tmp_path, monkeypatch):
+        veri_klasoru = tmp_path / "veri"
+        _dataset_yapisi_olustur(veri_klasoru)
+        eda = EDAAnaLiz(veri_klasoru=veri_klasoru, cikti_klasoru=tmp_path / "out")
+        gozlem = {}
+
+        class FakeScaler:
+            def fit_transform(self, X):
+                gozlem["scaler_input"] = X.copy()
+                donusmus = X + 7
+                gozlem["scaled_output"] = donusmus.copy()
+                return donusmus
+
+        class FakePCA:
+            def __init__(self, n_components, random_state):
+                self.explained_variance_ratio_ = np.array([0.6, 0.4])
+
+            def fit_transform(self, X):
+                gozlem["pca_input"] = X.copy()
+                return np.column_stack([np.arange(len(X)), np.arange(len(X))])
+
+        monkeypatch.setattr(eda_araclar, "StandardScaler", FakeScaler)
+        monkeypatch.setattr(eda_araclar, "PCA", FakePCA)
+
+        df = pd.DataFrame(
+            {
+                "label_name": ["NonDemented", "MildDemented", "ModerateDemented"],
+                "genislik": [10.0, 20.0, 30.0],
+                "yukseklik": [11.0, 21.0, 31.0],
+                "en_boy_orani": [1.0, 1.1, 1.2],
+                "int_ort": [50.0, 60.0, 70.0],
+                "int_std": [5.0, 6.0, 7.0],
+                "int_min": [1.0, 2.0, 3.0],
+                "int_max": [100.0, 110.0, 120.0],
+                "int_p1": [2.0, 3.0, 4.0],
+                "int_p99": [98.0, 108.0, 118.0],
+            }
+        )
+
+        eda.pca_analizi_ciz(df, n_ornekler=3)
+
+        np.testing.assert_array_equal(gozlem["pca_input"], gozlem["scaled_output"])
 
     def test_tam_analiz_yap(self, test_dataset_structure, tmp_path):
         eda = EDAAnaLiz(veri_klasoru=test_dataset_structure, cikti_klasoru=tmp_path / "out")

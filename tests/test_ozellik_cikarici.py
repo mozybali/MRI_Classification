@@ -38,6 +38,31 @@ def _grouped_features_df(prefix: str, per_class: int) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _augmented_group_pairs_df(per_class: int) -> pd.DataFrame:
+    rows = []
+    classes = ["A", "B", "C", "D"]
+    for class_index, class_name in enumerate(classes):
+        for source_idx in range(per_class):
+            base_name = f"{class_name.lower()}_{source_idx}"
+            rows.append(
+                {
+                    "dosya_adi": f"{base_name}.png",
+                    "feature1": float(class_index * 10 + source_idx),
+                    "sinif": class_name,
+                    "etiket": class_index,
+                }
+            )
+            rows.append(
+                {
+                    "dosya_adi": f"{base_name}_aug1.png",
+                    "feature1": float(class_index * 10 + source_idx + 0.5),
+                    "sinif": class_name,
+                    "etiket": class_index,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
 class TestOzellikCikarici:
     """OzellikCikarici sınıfı için test suite."""
 
@@ -177,10 +202,11 @@ class TestOzellikCikarici:
 class TestVeriBoluntule:
     """Veri bölme fonksiyonu testleri."""
 
-    def test_veri_boluntule_basic(self, sample_features_df, temp_output_dir):
+    def test_veri_boluntule_basic(self, temp_output_dir):
         """Veri seti üç parçaya bölünmeli ve toplam korunmalı."""
         csv_path = temp_output_dir / "features_scaled.csv"
-        sample_features_df.to_csv(csv_path, index=False)
+        df = _grouped_features_df(prefix="basic", per_class=4)
+        df.to_csv(csv_path, index=False)
 
         train_df, val_df, test_df = veri_boluntule(
             csv_dosyasi=csv_path,
@@ -192,7 +218,7 @@ class TestVeriBoluntule:
         assert not test_df.empty
 
         total = len(train_df) + len(val_df) + len(test_df)
-        assert total == len(sample_features_df)
+        assert total == len(df)
 
     def test_veri_boluntule_proportions(self, temp_output_dir):
         """Bölme oranları yaklaşık olarak doğru olmalı."""
@@ -267,6 +293,24 @@ class TestVeriBoluntule:
         df.to_csv(csv_path, index=False)
 
         with pytest.raises(ValueError, match="gereken minimum"):
+            veri_boluntule(csv_dosyasi=csv_path, cikti_klasoru=temp_output_dir)
+
+    def test_veri_boluntule_sinif_kapsami_imkansizsa_anlamli_hata_verir(self, temp_output_dir):
+        data = []
+        for sinif, etiket, sayi in [("A", 0, 3), ("B", 1, 3), ("C", 2, 3), ("D", 3, 3)]:
+            for idx in range(sayi):
+                data.append(
+                    {
+                        "dosya_adi": f"{sinif}_{idx}.png",
+                        "feature1": float(idx),
+                        "sinif": sinif,
+                        "etiket": etiket,
+                    }
+                )
+        csv_path = temp_output_dir / "coverage_gap.csv"
+        pd.DataFrame(data).to_csv(csv_path, index=False)
+
+        with pytest.raises(ValueError, match="Tum splitlerde tum siniflarin temsil edilebilmesi"):
             veri_boluntule(csv_dosyasi=csv_path, cikti_klasoru=temp_output_dir)
 
     def test_veri_setini_bol_ve_olceklendir_basarisiz_boluntuleme(self, temp_output_dir):
@@ -346,15 +390,35 @@ class TestEdgeCases:
         assert not scaled_df.empty
         assert 'constant_feature' in scaled_df.columns
 
+    def test_scaling_string_kolonlarini_olceklendirmeye_dahil_etmez(self, temp_output_dir):
+        cikarici = OzellikCikarici()
+
+        df = pd.DataFrame(
+            {
+                'dosya_adi': ['a.png', 'b.png', 'c.png', 'd.png'],
+                'feature1': [1.0, 2.0, 3.0, 4.0],
+                'patient_id': ['p1', 'p2', 'p3', 'p4'],
+                'sinif': ['A', 'B', 'C', 'D'],
+                'etiket': [0, 1, 2, 3],
+            }
+        )
+        csv_path = temp_output_dir / "mixed_types.csv"
+        df.to_csv(csv_path, index=False)
+
+        scaled_df = cikarici.scaling_uygula(
+            metod='minmax',
+            giris_csv=csv_path,
+            cikti_csv=temp_output_dir / "scaled_mixed_types.csv"
+        )
+
+        assert not scaled_df.empty
+        assert scaled_df['patient_id'].tolist() == ['p1', 'p2', 'p3', 'p4']
+        assert scaled_df['feature1'].min() >= -0.01
+        assert scaled_df['feature1'].max() <= 1.01
+
     def test_veri_boluntule_kaynak_grubu_korur(self, temp_output_dir):
         """Aynı kaynak görüntünün augmentasyonları farklı split'lere düşmemeli."""
-        data = {
-            'dosya_adi': ['img1.png', 'img1_aug1.png', 'img2.png', 'img2_aug1.png', 'img3.png', 'img3_aug1.png', 'img4.png', 'img4_aug1.png'],
-            'feature1': np.random.rand(8),
-            'sinif': ['A', 'A', 'B', 'B', 'C', 'C', 'D', 'D'],
-            'etiket': [0, 0, 1, 1, 2, 2, 3, 3],
-        }
-        df = pd.DataFrame(data)
+        df = _augmented_group_pairs_df(per_class=3)
         csv_path = temp_output_dir / "grouped.csv"
         df.to_csv(csv_path, index=False)
 
@@ -399,16 +463,19 @@ class TestOzellikCikariciRegressions:
         assert not df.empty
         assert cikti_csv.exists()
 
+    def test_csv_olustur_varsayilan_ciktiyi_giris_klasorune_yazar(self, test_dataset_structure):
+        cikarici = OzellikCikarici()
+        cikarici.n_jobs = 1
+
+        df = cikarici.csv_olustur(test_dataset_structure)
+
+        assert not df.empty
+        assert (test_dataset_structure / "goruntu_ozellikleri.csv").exists()
+
     def test_veri_boluntule_cikti_klasorunu_olusturur(self, temp_output_dir):
         """veri_boluntule, hedef klasor yoksa kayit oncesi olusturabilmeli."""
-        data = {
-            'dosya_adi': ['img1.png', 'img1_aug1.png', 'img2.png', 'img2_aug1.png', 'img3.png', 'img3_aug1.png', 'img4.png', 'img4_aug1.png'],
-            'feature1': np.random.rand(8),
-            'sinif': ['A', 'A', 'B', 'B', 'C', 'C', 'D', 'D'],
-            'etiket': [0, 0, 1, 1, 2, 2, 3, 3],
-        }
         csv_path = temp_output_dir / "grouped_for_output.csv"
-        pd.DataFrame(data).to_csv(csv_path, index=False)
+        _augmented_group_pairs_df(per_class=3).to_csv(csv_path, index=False)
 
         cikti_klasoru = temp_output_dir / "olmayan" / "splitler"
         train_df, val_df, test_df = veri_boluntule(csv_dosyasi=csv_path, cikti_klasoru=cikti_klasoru)

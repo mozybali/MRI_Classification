@@ -288,3 +288,33 @@ class TestGorselIsleyiciRegressions:
         """goruntu_isleme.goruntu_isleyici paket import'u ile yuklenebilmeli."""
         modul = importlib.import_module("goruntu_isleme.goruntu_isleyici")
         assert hasattr(modul, "GorselIsleyici")
+
+    def test_log_mesajlari_ascii_kalir(self, test_dataset_structure, tmp_path, monkeypatch, capsys):
+        class DummyPool:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def imap(self, func, iterable):
+                for item in iterable:
+                    yield func(item)
+
+        monkeypatch.setattr(gi, "Pool", DummyPool)
+        monkeypatch.setattr(gi, "tqdm", lambda iterable, **kwargs: iterable)
+
+        isleyici = GorselIsleyici()
+        isleyici.n_jobs = 2
+
+        cikti = tmp_path / "cikti"
+        cikti.mkdir()
+
+        isleyici.tum_gorselleri_isle(cikti, giris_klasoru=test_dataset_structure)
+        output = capsys.readouterr().out
+
+        assert "⚡" not in output
+        assert "📊" not in output

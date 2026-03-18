@@ -10,6 +10,7 @@ import re
 import math
 import numpy as np
 import pandas as pd
+from pandas.api.types import is_numeric_dtype
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from PIL import Image
@@ -99,7 +100,10 @@ class OzellikCikarici:
     def _sayisal_sutunlari_bul(df: pd.DataFrame) -> List[str]:
         """Ölçeklenecek ve modele girecek sayısal sütunları bul."""
         haric_sutunlar = set(KATEGORIK_SUTUNLAR + MODELE_DAHIL_EDILMEYEN_SAYISAL_SUTUNLAR)
-        return [col for col in df.columns if col not in haric_sutunlar]
+        return [
+            col for col in df.columns
+            if col not in haric_sutunlar and is_numeric_dtype(df[col])
+        ]
 
     @staticmethod
     def _stratify_serisi_uygun_mu(seri: pd.Series) -> bool:
@@ -316,14 +320,15 @@ class OzellikCikarici:
             Pandas DataFrame (tüm özellikler ve etiketler)
         """
         # Varsayılan CSV yolunu belirle
+        giris_klasoru = Path(giris_klasoru)
         if cikti_csv is None:
-            cikti_csv = CIKTI_KLASORU / CSV_DOSYA_ADI
+            cikti_csv = giris_klasoru / CSV_DOSYA_ADI
         cikti_csv = Path(cikti_csv)
         cikti_csv.parent.mkdir(parents=True, exist_ok=True)
         
         tum_ozellikler = []  # Tüm görüntülerin özelliklerini saklayacak liste
         
-        print(f"\n⚡ Özellikler çıkarılıyor (paralel: {self.n_jobs} çekirdek)...\n")
+        print(f"\n[BILGI] Ozellikler cikariliyor (is parcacigi: {self.n_jobs})...\n")
         
         # Her sınıf için döngü
         for sinif_adi in SINIF_KLASORLERI:
@@ -340,14 +345,19 @@ class OzellikCikarici:
                 gorseller.extend(sinif_klasoru.glob(f"*{uzanti}"))
             gorseller.sort(key=lambda p: p.name)
             
-            # ⚡ Paralel özellik çıkarma
-            with Pool(processes=self.n_jobs) as pool:
-                partial_func = partial(_ozellik_cikar_wrapper, sinif_adi=sinif_adi)
-                sonuclar = list(tqdm(
-                    pool.imap(partial_func, gorseller),
-                    total=len(gorseller),
-                    desc=f"{sinif_adi} işleniyor (paralel)"
-                ))
+            partial_func = partial(_ozellik_cikar_wrapper, sinif_adi=sinif_adi)
+            if self.n_jobs > 1:
+                with Pool(processes=self.n_jobs) as pool:
+                    sonuclar = list(tqdm(
+                        pool.imap(partial_func, gorseller),
+                        total=len(gorseller),
+                        desc=f"{sinif_adi} isleniyor (paralel)"
+                    ))
+            else:
+                sonuclar = [
+                    partial_func(gorsel)
+                    for gorsel in tqdm(gorseller, total=len(gorseller), desc=f"{sinif_adi} isleniyor")
+                ]
             
             # None olmayan sonuçları ekle
             tum_ozellikler.extend([s for s in sonuclar if s is not None])
@@ -363,7 +373,7 @@ class OzellikCikarici:
         df.to_csv(cikti_csv, index=False, encoding='utf-8')
         print(f"\n[BASARILI] CSV kaydedildi: {cikti_csv}")
         print(f"  Toplam {len(df)} goruntu")
-        print(f"\nSınıf dağılımı:")
+        print(f"\nSinif dagilimi:")
         print(df['sinif'].value_counts().to_string())
         
         return df
@@ -741,6 +751,14 @@ def veri_boluntule(csv_dosyasi: Optional[Path] = None,
         toplam_grup = len(group_df)
         temp_oran = 1 - EGITIM_ORANI
         val_oran = DOGRULAMA_ORANI / (DOGRULAMA_ORANI + TEST_ORANI)
+        sinif_sayisi = len(beklenen_etiketler)
+        grup_sayilari = group_df['etiket'].value_counts()
+        yetersiz = sorted(grup_sayilari[grup_sayilari < 3].index.astype(int).tolist())
+        if yetersiz:
+            raise ValueError(
+                "Tum splitlerde sinif kapsamini korumak icin her sinifta en az 3 farkli "
+                f"kaynak grup gerekli. Eksik etiketler: {yetersiz}"
+            )
 
         temp_grup_sayisi = math.ceil(toplam_grup * temp_oran)
         train_grup_sayisi = toplam_grup - temp_grup_sayisi
@@ -755,9 +773,19 @@ def veri_boluntule(csv_dosyasi: Optional[Path] = None,
                 f"Daha fazla veri ekleyin veya bolme oranlarini ayarlayin."
             )
 
+        if (
+            train_grup_sayisi < sinif_sayisi
+            or val_grup_sayisi < sinif_sayisi
+            or test_grup_sayisi < sinif_sayisi
+        ):
+            raise ValueError(
+                "Tum splitlerde tum siniflarin temsil edilebilmesi icin her splitte en az "
+                f"{sinif_sayisi} kaynak grup olmali "
+                f"(egitim={train_grup_sayisi}, dogrulama={val_grup_sayisi}, test={test_grup_sayisi})."
+            )
+
         stratify_groups = group_df['etiket'] if cikarici._stratify_serisi_uygun_mu(group_df['etiket']) else None
         if stratify_groups is not None:
-            sinif_sayisi = int(group_df['etiket'].nunique())
             if train_grup_sayisi < sinif_sayisi or temp_grup_sayisi < sinif_sayisi:
                 stratify_groups = None
 
@@ -787,6 +815,9 @@ def veri_boluntule(csv_dosyasi: Optional[Path] = None,
         _kaynak_ayrimini_dogrula(train_df, "Egitim", val_df, "Dogrulama")
         _kaynak_ayrimini_dogrula(train_df, "Egitim", test_df, "Test")
         _kaynak_ayrimini_dogrula(val_df, "Dogrulama", test_df, "Test")
+        _sinif_kapsamini_dogrula(train_df, beklenen_etiketler, "Egitim")
+        _sinif_kapsamini_dogrula(val_df, beklenen_etiketler, "Dogrulama")
+        _sinif_kapsamini_dogrula(test_df, beklenen_etiketler, "Test")
 
     # Kaydet
     train_df.to_csv(cikti_klasoru / EGITIM_CSV_DOSYA_ADI, index=False)
@@ -835,7 +866,11 @@ def veri_setini_bol_ve_olceklendir(
 
     train_df, val_df, test_df = boluntuleme_sonucu
 
-    scaler, _ = cikarici._scaler_olustur(metod)
+    try:
+        scaler, _ = cikarici._scaler_olustur(metod)
+    except ValueError as e:
+        print(f"[HATA] Olceklendirme baslatilamadi: {e}")
+        return None
     train_scaled, sayisal_sutunlar = cikarici._df_olceklendir(train_df, scaler, fit=True)
     val_scaled, _ = cikarici._df_olceklendir(val_df, scaler, fit=False)
     test_scaled, _ = cikarici._df_olceklendir(test_df, scaler, fit=False)
