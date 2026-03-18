@@ -1,5 +1,0 @@
-dosya_adi,feature1,feature2,sinif,etiket,tam_yol,kaynak_id,kaynak_grup,augmentasyon_mu
-aug_NonDemented_2.png,2.0,2.0,NonDemented,0,/tmp/aug_NonDemented_2.png,aug_NonDemented_2,NonDemented::aug_NonDemented_2,False
-aug_VeryMildDemented_2.png,12.0,102.0,VeryMildDemented,1,/tmp/aug_VeryMildDemented_2.png,aug_VeryMildDemented_2,VeryMildDemented::aug_VeryMildDemented_2,False
-aug_MildDemented_2.png,22.0,202.0,MildDemented,2,/tmp/aug_MildDemented_2.png,aug_MildDemented_2,MildDemented::aug_MildDemented_2,False
-aug_ModerateDemented_2.png,32.0,302.0,ModerateDemented,3,/tmp/aug_ModerateDemented_2.png,aug_ModerateDemented_2,ModerateDemented::aug_ModerateDemented_2,False
