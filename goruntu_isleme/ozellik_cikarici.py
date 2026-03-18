@@ -412,14 +412,14 @@ class OzellikCikarici:
             for col in sayisal_sutunlar:
                 if df_temiz[col].isnull().any():
                     ort = df_temiz[col].mean()
-                    df_temiz[col].fillna(ort, inplace=True)
+                    df_temiz[col] = df_temiz[col].fillna(ort)
                     print(f"   * {col}: NaN -> {ort:.2f} (ortalama)")
         elif metod == 'median':
             df_temiz = df.copy()
             for col in sayisal_sutunlar:
                 if df_temiz[col].isnull().any():
                     med = df_temiz[col].median()
-                    df_temiz[col].fillna(med, inplace=True)
+                    df_temiz[col] = df_temiz[col].fillna(med)
                     print(f"   * {col}: NaN -> {med:.2f} (medyan)")
         elif metod == 'zero':
             df_temiz = df.copy()
@@ -624,14 +624,46 @@ class OzellikCikarici:
 
 
 def veri_boluntule(csv_dosyasi: Optional[Path] = None,
-                   cikti_klasoru: Optional[Path] = None):
+                   cikti_klasoru: Optional[Path] = None,
+                   test_csv_dosyasi: Optional[Path] = None):
     """
     Veri setini eğitim, doğrulama ve test setlerine böl.
+
+    Tercih edilen akış:
+    - ``csv_dosyasi``: augmented train+validation özellikleri
+    - ``test_csv_dosyasi``: original test özellikleri
 
     Raises:
         ValueError: Oran toplamı 1.0 değilse veya yeterli örnek yoksa
     """
     from sklearn.model_selection import train_test_split
+
+    def _csv_oku_ve_hazirla(dosya: Path, rol: str) -> Optional[pd.DataFrame]:
+        try:
+            okunan = pd.read_csv(dosya)
+        except Exception as e:
+            print(f"[HATA] {rol} CSV okunamadi: {e}")
+            return None
+        return OzellikCikarici.kaynak_kolonlarini_hazirla(okunan)
+
+    def _sinif_kapsamini_dogrula(df_split: pd.DataFrame, beklenen_etiketler: List[int], split_adi: str):
+        mevcut = set(df_split['etiket'].dropna().astype(int).unique().tolist())
+        eksik = sorted(set(beklenen_etiketler) - mevcut)
+        if eksik:
+            raise ValueError(
+                f"{split_adi} split'inde sinif kapsami eksik. "
+                f"Eksik etiketler: {eksik}"
+            )
+
+    def _kaynak_ayrimini_dogrula(df_sol: pd.DataFrame, sol_adi: str,
+                                 df_sag: pd.DataFrame, sag_adi: str):
+        ortak = sorted(set(df_sol['kaynak_grup']) & set(df_sag['kaynak_grup']))
+        if ortak:
+            ornekler = ", ".join(ortak[:5])
+            raise ValueError(
+                f"{sol_adi} ve {sag_adi} arasinda kaynak grup sizintisi var. "
+                f"Ortak grup sayisi: {len(ortak)}. Ornekler: {ornekler}"
+            )
 
     # Oran doğrulaması
     oran_toplam = EGITIM_ORANI + DOGRULAMA_ORANI + TEST_ORANI
@@ -649,65 +681,112 @@ def veri_boluntule(csv_dosyasi: Optional[Path] = None,
     cikti_klasoru = Path(cikti_klasoru)
     cikti_klasoru.mkdir(parents=True, exist_ok=True)
 
-    # CSV'yi oku
-    try:
-        df = pd.read_csv(csv_dosyasi)
-    except Exception as e:
-        print(f"[HATA] CSV okunamadı: {e}")
+    trainval_df = _csv_oku_ve_hazirla(Path(csv_dosyasi), "TrainVal")
+    if trainval_df is None:
         return None
 
-    cikarici = OzellikCikarici()
-    df = cikarici.kaynak_kolonlarini_hazirla(df)
+    group_df = trainval_df[['kaynak_grup', 'etiket']].drop_duplicates().reset_index(drop=True)
+    beklenen_etiketler = sorted(group_df['etiket'].dropna().astype(int).unique().tolist())
 
-    group_df = df[['kaynak_grup', 'etiket']].drop_duplicates().reset_index(drop=True)
+    if test_csv_dosyasi is not None:
+        test_df = _csv_oku_ve_hazirla(Path(test_csv_dosyasi), "Test")
+        if test_df is None:
+            return None
 
-    # Split yapısına göre minimum örnek doğrulaması
-    toplam_grup = len(group_df)
-    temp_oran = 1 - EGITIM_ORANI
-    val_oran = DOGRULAMA_ORANI / (DOGRULAMA_ORANI + TEST_ORANI)
+        toplam_grup = len(group_df)
+        sinif_sayisi = len(beklenen_etiketler)
+        grup_sayilari = group_df['etiket'].value_counts()
+        yetersiz = sorted(grup_sayilari[grup_sayilari < 2].index.astype(int).tolist())
+        if yetersiz:
+            raise ValueError(
+                "Augmented train/validation bolmesi icin her sinifta en az 2 farkli "
+                f"kaynak grup gerekli. Eksik etiketler: {yetersiz}"
+            )
 
-    temp_grup_sayisi = math.ceil(toplam_grup * temp_oran)
-    train_grup_sayisi = toplam_grup - temp_grup_sayisi
-    test_grup_sayisi = math.ceil(temp_grup_sayisi * (1 - val_oran))
-    val_grup_sayisi = temp_grup_sayisi - test_grup_sayisi
+        val_oran = DOGRULAMA_ORANI / (EGITIM_ORANI + DOGRULAMA_ORANI)
+        val_grup_sayisi = max(math.ceil(toplam_grup * val_oran), sinif_sayisi)
+        train_grup_sayisi = toplam_grup - val_grup_sayisi
+        if val_grup_sayisi >= toplam_grup or train_grup_sayisi < sinif_sayisi:
+            raise ValueError(
+                "Augmented train/validation bolmesi icin yeterli kaynak grup yok. "
+                f"Toplam grup: {toplam_grup}, gereken minimum val grup: {sinif_sayisi}"
+            )
 
-    if train_grup_sayisi < 1 or val_grup_sayisi < 1 or test_grup_sayisi < 1:
-        min_split_groups = 4  # varsayılan oranlarda güvenli alt sınır
-        raise ValueError(
-            f"Veri setinde yeterli benzersiz kaynak grup yok "
-            f"(bulunan: {toplam_grup}, gereken minimum: {min_split_groups}). "
-            f"Daha fazla veri ekleyin veya bolme oranlarini ayarlayin."
+        train_groups, val_groups = train_test_split(
+            group_df,
+            test_size=val_grup_sayisi,
+            stratify=group_df['etiket'],
+            random_state=RASTGELE_TOHUM,
         )
 
-    stratify_groups = group_df['etiket'] if cikarici._stratify_serisi_uygun_mu(group_df['etiket']) else None
-    if stratify_groups is not None:
-        sinif_sayisi = int(group_df['etiket'].nunique())
-        if train_grup_sayisi < sinif_sayisi or temp_grup_sayisi < sinif_sayisi:
-            stratify_groups = None
+        train_df = trainval_df[trainval_df['kaynak_grup'].isin(train_groups['kaynak_grup'])].copy()
+        val_df = trainval_df[trainval_df['kaynak_grup'].isin(val_groups['kaynak_grup'])].copy()
 
-    # Aynı kaynak görüntünün augmentasyonları farklı split'lere düşmesin.
-    train_groups, temp_groups = train_test_split(
-        group_df,
-        test_size=(1 - EGITIM_ORANI),
-        stratify=stratify_groups,
-        random_state=RASTGELE_TOHUM
-    )
+        _kaynak_ayrimini_dogrula(train_df, "Egitim", val_df, "Dogrulama")
+        _kaynak_ayrimini_dogrula(trainval_df, "Augmented trainval", test_df, "Original test")
 
-    temp_stratify = temp_groups['etiket'] if cikarici._stratify_serisi_uygun_mu(temp_groups['etiket']) else None
-    if temp_stratify is not None:
-        temp_sinif_sayisi = int(temp_groups['etiket'].nunique())
-        if val_grup_sayisi < temp_sinif_sayisi or test_grup_sayisi < temp_sinif_sayisi:
-            temp_stratify = None
-    val_groups, test_groups = train_test_split(
-        temp_groups,
-        test_size=(1 - val_oran),
-        stratify=temp_stratify,
-        random_state=RASTGELE_TOHUM
-    )
+        test_etiketler = sorted(test_df['etiket'].dropna().astype(int).unique().tolist())
+        if test_etiketler != beklenen_etiketler:
+            raise ValueError(
+                "Original test CSV sinif kapsamasi augmented trainval ile eslesmiyor. "
+                f"TrainVal etiketleri: {beklenen_etiketler}, Test etiketleri: {test_etiketler}"
+            )
 
-    train_df = df[df['kaynak_grup'].isin(train_groups['kaynak_grup'])].copy()
-    val_df = df[df['kaynak_grup'].isin(val_groups['kaynak_grup'])].copy()
-    test_df = df[df['kaynak_grup'].isin(test_groups['kaynak_grup'])].copy()
+        _sinif_kapsamini_dogrula(train_df, beklenen_etiketler, "Egitim")
+        _sinif_kapsamini_dogrula(val_df, beklenen_etiketler, "Dogrulama")
+        _sinif_kapsamini_dogrula(test_df, beklenen_etiketler, "Test")
+    else:
+        cikarici = OzellikCikarici()
+
+        toplam_grup = len(group_df)
+        temp_oran = 1 - EGITIM_ORANI
+        val_oran = DOGRULAMA_ORANI / (DOGRULAMA_ORANI + TEST_ORANI)
+
+        temp_grup_sayisi = math.ceil(toplam_grup * temp_oran)
+        train_grup_sayisi = toplam_grup - temp_grup_sayisi
+        test_grup_sayisi = math.ceil(temp_grup_sayisi * (1 - val_oran))
+        val_grup_sayisi = temp_grup_sayisi - test_grup_sayisi
+
+        if train_grup_sayisi < 1 or val_grup_sayisi < 1 or test_grup_sayisi < 1:
+            min_split_groups = 4
+            raise ValueError(
+                f"Veri setinde yeterli benzersiz kaynak grup yok "
+                f"(bulunan: {toplam_grup}, gereken minimum: {min_split_groups}). "
+                f"Daha fazla veri ekleyin veya bolme oranlarini ayarlayin."
+            )
+
+        stratify_groups = group_df['etiket'] if cikarici._stratify_serisi_uygun_mu(group_df['etiket']) else None
+        if stratify_groups is not None:
+            sinif_sayisi = int(group_df['etiket'].nunique())
+            if train_grup_sayisi < sinif_sayisi or temp_grup_sayisi < sinif_sayisi:
+                stratify_groups = None
+
+        train_groups, temp_groups = train_test_split(
+            group_df,
+            test_size=(1 - EGITIM_ORANI),
+            stratify=stratify_groups,
+            random_state=RASTGELE_TOHUM
+        )
+
+        temp_stratify = temp_groups['etiket'] if cikarici._stratify_serisi_uygun_mu(temp_groups['etiket']) else None
+        if temp_stratify is not None:
+            temp_sinif_sayisi = int(temp_groups['etiket'].nunique())
+            if val_grup_sayisi < temp_sinif_sayisi or test_grup_sayisi < temp_sinif_sayisi:
+                temp_stratify = None
+        val_groups, test_groups = train_test_split(
+            temp_groups,
+            test_size=(1 - val_oran),
+            stratify=temp_stratify,
+            random_state=RASTGELE_TOHUM
+        )
+
+        train_df = trainval_df[trainval_df['kaynak_grup'].isin(train_groups['kaynak_grup'])].copy()
+        val_df = trainval_df[trainval_df['kaynak_grup'].isin(val_groups['kaynak_grup'])].copy()
+        test_df = trainval_df[trainval_df['kaynak_grup'].isin(test_groups['kaynak_grup'])].copy()
+
+        _kaynak_ayrimini_dogrula(train_df, "Egitim", val_df, "Dogrulama")
+        _kaynak_ayrimini_dogrula(train_df, "Egitim", test_df, "Test")
+        _kaynak_ayrimini_dogrula(val_df, "Dogrulama", test_df, "Test")
 
     # Kaydet
     train_df.to_csv(cikti_klasoru / EGITIM_CSV_DOSYA_ADI, index=False)
@@ -718,6 +797,8 @@ def veri_boluntule(csv_dosyasi: Optional[Path] = None,
     print(f"  Eğitim: {len(train_df)} ({EGITIM_ORANI*100:.0f}%)")
     print(f"  Doğrulama: {len(val_df)} ({DOGRULAMA_ORANI*100:.0f}%)")
     print(f"  Test: {len(test_df)} ({TEST_ORANI*100:.0f}%)")
+    if test_csv_dosyasi is not None:
+        print("  Strateji: augmented -> train/validation, original -> test")
 
     return train_df, val_df, test_df
 
@@ -725,7 +806,8 @@ def veri_boluntule(csv_dosyasi: Optional[Path] = None,
 def veri_setini_bol_ve_olceklendir(
     csv_dosyasi: Optional[Path] = None,
     cikti_klasoru: Optional[Path] = None,
-    metod: str = SCALING_METODU
+    metod: str = SCALING_METODU,
+    test_csv_dosyasi: Optional[Path] = None,
 ):
     """
     Veri setini önce grup-bazlı böl, sonra scaler'ı sadece eğitim verisinde fit et.
@@ -738,7 +820,11 @@ def veri_setini_bol_ve_olceklendir(
     cikarici = OzellikCikarici()
 
     try:
-        boluntuleme_sonucu = veri_boluntule(csv_dosyasi=csv_dosyasi, cikti_klasoru=cikti_klasoru)
+        boluntuleme_sonucu = veri_boluntule(
+            csv_dosyasi=csv_dosyasi,
+            cikti_klasoru=cikti_klasoru,
+            test_csv_dosyasi=test_csv_dosyasi,
+        )
     except ValueError as e:
         print(f"[HATA] Veri boluntuleme basarisiz: {e}")
         return None

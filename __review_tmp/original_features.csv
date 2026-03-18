@@ -1,0 +1,9 @@
+dosya_adi,feature1,feature2,sinif,etiket,tam_yol
+orig_NonDemented_0.png,0.0,0.0,NonDemented,0,/tmp/orig_NonDemented_0.png
+orig_NonDemented_1.png,1.0,1.0,NonDemented,0,/tmp/orig_NonDemented_1.png
+orig_VeryMildDemented_0.png,10.0,100.0,VeryMildDemented,1,/tmp/orig_VeryMildDemented_0.png
+orig_VeryMildDemented_1.png,11.0,101.0,VeryMildDemented,1,/tmp/orig_VeryMildDemented_1.png
+orig_MildDemented_0.png,20.0,200.0,MildDemented,2,/tmp/orig_MildDemented_0.png
+orig_MildDemented_1.png,21.0,201.0,MildDemented,2,/tmp/orig_MildDemented_1.png
+orig_ModerateDemented_0.png,30.0,300.0,ModerateDemented,3,/tmp/orig_ModerateDemented_0.png
+orig_ModerateDemented_1.png,31.0,301.0,ModerateDemented,3,/tmp/orig_ModerateDemented_1.png

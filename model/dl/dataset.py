@@ -116,6 +116,28 @@ def _validate_class_match(trainval_dir: Path, test_dir: Path) -> None:
         )
 
 
+def _validate_dataset_separation(
+    trainval_groups: List[str],
+    test_groups: List[str],
+    trainval_dir: Path,
+    test_dir: Path,
+) -> None:
+    """Train/val ve test veri kaynaklarinin ayrik oldugunu dogrula."""
+    overlap = sorted(set(trainval_groups) & set(test_groups))
+    if not overlap:
+        return
+
+    sample = ", ".join(overlap[:5])
+    raise ValueError(
+        "Train/validation icin augmented, test icin original veri bekleniyor; "
+        "iki dizin arasinda ortak kaynak grup bulundu.\n"
+        f"  TrainVal: {trainval_dir}\n"
+        f"  Test    : {test_dir}\n"
+        f"  Ortak grup sayisi: {len(overlap)}\n"
+        f"  Ornekler: {sample}"
+    )
+
+
 def _group_stratified_train_val_split(
     labels: List[int],
     groups: List[str],
@@ -296,6 +318,12 @@ def create_dataloaders(
     if len(tv_paths) == 0:
         raise FileNotFoundError(f"Trainval verisi bulunamadi: {trainval_dir}")
 
+    paths_test, labels_test, test_groups = collect_images(test_dir)
+    if len(paths_test) == 0:
+        raise FileNotFoundError(f"Test verisi bulunamadi: {test_dir}")
+
+    _validate_dataset_separation(tv_groups, test_groups, trainval_dir, test_dir)
+
     print(f"  [TrainVal] Kaynak: {trainval_dir}")
     print(f"  [TrainVal] Toplam goruntu: {len(tv_paths)}")
     for name, lbl in SINIF_ETIKETI.items():
@@ -314,11 +342,6 @@ def create_dataloaders(
     labels_train = [tv_labels[i] for i in train_idxs]
     paths_val = [tv_paths[i] for i in val_idxs]
     labels_val = [tv_labels[i] for i in val_idxs]
-
-    # --- Original: test ---
-    paths_test, labels_test, _ = collect_images(test_dir)
-    if len(paths_test) == 0:
-        raise FileNotFoundError(f"Test verisi bulunamadi: {test_dir}")
 
     print(f"  [Test] Kaynak: {test_dir}")
     print(f"  [Test] Toplam goruntu: {len(paths_test)}")

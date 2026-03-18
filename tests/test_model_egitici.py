@@ -3,11 +3,21 @@ Derin ogrenme model katmani icin temel testler.
 Not: Dosya adi geriye donuk uyumluluk icin korunmustur.
 """
 
+import os
 from pathlib import Path
 import subprocess
 import sys
 
 import numpy as np
+import pytest
+
+if os.environ.get("MRI_RUN_TORCH_TESTS") != "1":
+    pytest.skip(
+        "Torch bagimli testler varsayilan olarak atlanir. Calistirmak icin "
+        "MRI_RUN_TORCH_TESTS=1 ayarlayin.",
+        allow_module_level=True,
+    )
+
 import torch
 import torch.nn.functional as F
 

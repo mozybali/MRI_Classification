@@ -1,0 +1,17 @@
+dosya_adi,feature1,feature2,sinif,etiket,tam_yol
+aug_NonDemented_0.png,0.0,0.0,NonDemented,0,/tmp/aug_NonDemented_0.png
+aug_NonDemented_1.png,1.0,1.0,NonDemented,0,/tmp/aug_NonDemented_1.png
+aug_NonDemented_2.png,2.0,2.0,NonDemented,0,/tmp/aug_NonDemented_2.png
+aug_NonDemented_3.png,3.0,3.0,NonDemented,0,/tmp/aug_NonDemented_3.png
+aug_VeryMildDemented_0.png,10.0,100.0,VeryMildDemented,1,/tmp/aug_VeryMildDemented_0.png
+aug_VeryMildDemented_1.png,11.0,101.0,VeryMildDemented,1,/tmp/aug_VeryMildDemented_1.png
+aug_VeryMildDemented_2.png,12.0,102.0,VeryMildDemented,1,/tmp/aug_VeryMildDemented_2.png
+aug_VeryMildDemented_3.png,13.0,103.0,VeryMildDemented,1,/tmp/aug_VeryMildDemented_3.png
+aug_MildDemented_0.png,20.0,200.0,MildDemented,2,/tmp/aug_MildDemented_0.png
+aug_MildDemented_1.png,21.0,201.0,MildDemented,2,/tmp/aug_MildDemented_1.png
+aug_MildDemented_2.png,22.0,202.0,MildDemented,2,/tmp/aug_MildDemented_2.png
+aug_MildDemented_3.png,23.0,203.0,MildDemented,2,/tmp/aug_MildDemented_3.png
+aug_ModerateDemented_0.png,30.0,300.0,ModerateDemented,3,/tmp/aug_ModerateDemented_0.png
+aug_ModerateDemented_1.png,31.0,301.0,ModerateDemented,3,/tmp/aug_ModerateDemented_1.png
+aug_ModerateDemented_2.png,32.0,302.0,ModerateDemented,3,/tmp/aug_ModerateDemented_2.png
+aug_ModerateDemented_3.png,33.0,303.0,ModerateDemented,3,/tmp/aug_ModerateDemented_3.png

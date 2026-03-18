@@ -84,6 +84,12 @@ def parse_args(argv=None):
     parser.add_argument("--output-dir", type=Path, default=None, help="Cikti klasoru")
     parser.add_argument("--csv-path", type=Path, default=None, help="CSV dosya yolu")
     parser.add_argument(
+        "--test-csv-path",
+        type=Path,
+        default=None,
+        help="Original test ozellik CSV yolu",
+    )
+    parser.add_argument(
         "--method",
         choices=["drop", "mean", "median", "zero", "minmax", "robust", "standard", "maxabs"],
         default=None,
@@ -238,6 +244,7 @@ def scaling_uygula(
     csv_dosyasi: Path | None = None,
     cikti_klasoru: Path | None = None,
     metod: str = SCALING_METODU,
+    test_csv_dosyasi: Path | None = None,
 ):
     """Leakage-free split ve scaling uygula."""
     print("\n[4] VERI BOLME + OLCEKLENDIRME")
@@ -249,6 +256,7 @@ def scaling_uygula(
         csv_dosyasi=csv_dosyasi,
         cikti_klasoru=cikti_klasoru,
         metod=metod,
+        test_csv_dosyasi=test_csv_dosyasi,
     )
     if splitler and all(not df.empty for df in splitler):
         print("\n[BASARILI] Veri bolme ve olceklendirme tamamlandi.")
@@ -265,12 +273,20 @@ def istatistik_goster(csv_dosyasi: Path | None = None):
     cikarici.istatistik_raporu(csv_dosyasi=csv_dosyasi)
 
 
-def veri_bol(csv_dosyasi: Path | None = None, cikti_klasoru: Path | None = None):
+def veri_bol(
+    csv_dosyasi: Path | None = None,
+    cikti_klasoru: Path | None = None,
+    test_csv_dosyasi: Path | None = None,
+):
     """Ham CSV uzerinden veri setini bol."""
     print("\n[6] VERI SETI BOLME")
     print("-" * 60)
     print(f"\nOranlar: Egitim={EGITIM_ORANI}, Dogrulama={DOGRULAMA_ORANI}, Test={TEST_ORANI}")
-    return veri_boluntule(csv_dosyasi=csv_dosyasi, cikti_klasoru=cikti_klasoru)
+    return veri_boluntule(
+        csv_dosyasi=csv_dosyasi,
+        cikti_klasoru=cikti_klasoru,
+        test_csv_dosyasi=test_csv_dosyasi,
+    )
 
 
 def tum_islemleri_yap(
@@ -429,11 +445,16 @@ def run_action(args):
             csv_dosyasi=args.csv_path,
             cikti_klasoru=args.output_dir,
             metod=args.method or SCALING_METODU,
+            test_csv_dosyasi=args.test_csv_path,
         )
     if args.action == "report":
         return istatistik_goster(csv_dosyasi=args.csv_path)
     if args.action == "split":
-        return veri_bol(csv_dosyasi=args.csv_path, cikti_klasoru=args.output_dir)
+        return veri_bol(
+            csv_dosyasi=args.csv_path,
+            cikti_klasoru=args.output_dir,
+            test_csv_dosyasi=args.test_csv_path,
+        )
     if args.action == "all":
         return tum_islemleri_yap(
             giris_klasoru=args.input_dir,

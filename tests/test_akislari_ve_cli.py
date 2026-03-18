@@ -12,19 +12,19 @@ from goruntu_isleme.ayarlar import SCALER_DOSYA_ADI
 from goruntu_isleme.ozellik_cikarici import OzellikCikarici, veri_setini_bol_ve_olceklendir
 
 
-def _grouped_features_df() -> pd.DataFrame:
+def _grouped_features_df(prefix: str = "aug", per_class: int = 4) -> pd.DataFrame:
     rows = []
     classes = ["NonDemented", "VeryMildDemented", "MildDemented", "ModerateDemented"]
     for class_index, class_name in enumerate(classes):
-        for source_idx in range(4):
+        for source_idx in range(per_class):
             rows.append(
                 {
-                    "dosya_adi": f"{class_name}_{source_idx}.png",
+                    "dosya_adi": f"{prefix}_{class_name}_{source_idx}.png",
                     "feature1": class_index * 10 + source_idx,
                     "feature2": class_index * 100 + source_idx,
                     "sinif": class_name,
                     "etiket": class_index,
-                    "tam_yol": f"/tmp/{class_name}_{source_idx}.png",
+                    "tam_yol": f"/tmp/{prefix}_{class_name}_{source_idx}.png",
                 }
             )
     return pd.DataFrame(rows)
@@ -83,13 +83,16 @@ def test_nan_temizle_mean_sayisal_nanlari_doldurur_ve_kaydeder(tmp_path):
 
 
 def test_veri_setini_bol_ve_olceklendir_scaler_ve_csvleri_kaydeder(tmp_path):
-    csv_path = tmp_path / "grouped.csv"
-    _grouped_features_df().to_csv(csv_path, index=False)
+    trainval_csv = tmp_path / "grouped_augmented.csv"
+    test_csv = tmp_path / "grouped_original.csv"
+    _grouped_features_df(prefix="aug", per_class=4).to_csv(trainval_csv, index=False)
+    _grouped_features_df(prefix="orig", per_class=2).to_csv(test_csv, index=False)
 
     train_df, val_df, test_df = veri_setini_bol_ve_olceklendir(
-        csv_dosyasi=csv_path,
+        csv_dosyasi=trainval_csv,
         cikti_klasoru=tmp_path,
         metod="minmax",
+        test_csv_dosyasi=test_csv,
     )
 
     assert not train_df.empty
@@ -117,12 +120,15 @@ def test_parse_args_extract_action_yollarini_cozer(tmp_path):
             str(tmp_path / "girdi"),
             "--csv-path",
             str(tmp_path / "out.csv"),
+            "--test-csv-path",
+            str(tmp_path / "test.csv"),
         ]
     )
 
     assert args.action == "extract"
     assert args.input_dir == tmp_path / "girdi"
     assert args.csv_path == tmp_path / "out.csv"
+    assert args.test_csv_path == tmp_path / "test.csv"
 
 
 def test_run_action_preprocess_parametreleri_iletir(monkeypatch, tmp_path):

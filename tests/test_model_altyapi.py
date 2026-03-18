@@ -1,10 +1,20 @@
 from pathlib import Path
+import os
+import sys
 
 import numpy as np
 import pytest
+from PIL import Image
+
+if os.environ.get("MRI_RUN_TORCH_TESTS") != "1":
+    pytest.skip(
+        "Torch bagimli testler varsayilan olarak atlanir. Calistirmak icin "
+        "MRI_RUN_TORCH_TESTS=1 ayarlayin.",
+        allow_module_level=True,
+    )
+
 import torch
 import torch.nn as nn
-from PIL import Image
 
 from model.dl.dataset import (
     MRIDataset,
@@ -148,6 +158,24 @@ def test_create_dataloaders_builds_leak_free_splits(tmp_path):
     train_sources = {kaynak_id_belirle(path.name) for path in train_loader.dataset.image_paths}
     val_sources = {kaynak_id_belirle(path.name) for path in val_loader.dataset.image_paths}
     assert train_sources.isdisjoint(val_sources)
+
+
+def test_create_dataloaders_rejects_trainval_test_source_overlap(tmp_path):
+    trainval_dir = tmp_path / "trainval"
+    test_dir = tmp_path / "test"
+    _create_class_dataset(trainval_dir, per_class=2, prefix="shared")
+    _create_class_dataset(test_dir, per_class=1, prefix="shared")
+
+    with pytest.raises(ValueError, match="ortak kaynak grup"):
+        create_dataloaders(
+            trainval_dir=trainval_dir,
+            test_dir=test_dir,
+            batch_size=2,
+            image_size=32,
+            val_ratio=0.5,
+            seed=42,
+            num_workers=0,
+        )
 
 
 def test_unet_classifier_forward_shape():

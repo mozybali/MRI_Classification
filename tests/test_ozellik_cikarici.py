@@ -20,6 +20,24 @@ import ozellik_cikarici as oc_mod
 from ozellik_cikarici import OzellikCikarici, veri_boluntule, veri_setini_bol_ve_olceklendir
 
 
+def _grouped_features_df(prefix: str, per_class: int) -> pd.DataFrame:
+    rows = []
+    classes = ["NonDemented", "VeryMildDemented", "MildDemented", "ModerateDemented"]
+    for class_index, class_name in enumerate(classes):
+        for source_idx in range(per_class):
+            rows.append(
+                {
+                    "dosya_adi": f"{prefix}_{class_name}_{source_idx}.png",
+                    "feature1": float(class_index * 10 + source_idx),
+                    "feature2": float(class_index * 100 + source_idx),
+                    "sinif": class_name,
+                    "etiket": class_index,
+                    "tam_yol": f"/tmp/{prefix}_{class_name}_{source_idx}.png",
+                }
+            )
+    return pd.DataFrame(rows)
+
+
 class TestOzellikCikarici:
     """OzellikCikarici sınıfı için test suite."""
 
@@ -113,7 +131,10 @@ class TestOzellikCikarici:
 
         cikarici.istatistik_raporu(csv_dosyasi=csv_path)
         captured = capsys.readouterr()
-        assert "RAPOR" in captured.out.upper() or "istatistik" in captured.out.lower() or len(captured.out) > 0
+        output = captured.out
+        assert "RAPOR" in output.upper()
+        assert "Toplam görüntü sayısı".lower() in output.lower() or "Toplam goruntu sayisi".lower() in output.lower()
+        assert "Sınıf dağılımı".lower() in output.lower() or "Sinif dagilimi".lower() in output.lower()
 
     def test_csv_with_empty_directory(self, tmp_path):
         """Boş dizinden CSV oluşturulduğunda boş DataFrame dönmeli."""
@@ -199,9 +220,10 @@ class TestVeriBoluntule:
     def test_veri_boluntule_stratification(self, temp_output_dir):
         """Her sınıf tüm setlerde temsil edilmeli."""
         data = {
-            'feature1': np.random.rand(100),
-            'sinif': ['A'] * 50 + ['B'] * 30 + ['C'] * 20,
-            'etiket': [0] * 50 + [1] * 30 + [2] * 20
+            'dosya_adi': [f"img_{i}.png" for i in range(40)],
+            'feature1': np.random.rand(40),
+            'sinif': ['A'] * 10 + ['B'] * 10 + ['C'] * 10 + ['D'] * 10,
+            'etiket': [0] * 10 + [1] * 10 + [2] * 10 + [3] * 10
         }
         df = pd.DataFrame(data)
 
@@ -213,9 +235,10 @@ class TestVeriBoluntule:
             cikti_klasoru=temp_output_dir
         )
 
+        beklenen_siniflar = {'A', 'B', 'C', 'D'}
         for df_split in [train_df, val_df, test_df]:
-            unique_classes = df_split['sinif'].unique()
-            assert len(unique_classes) >= 2
+            unique_classes = set(df_split['sinif'].unique())
+            assert unique_classes == beklenen_siniflar
 
     def test_veri_boluntule_yetersiz_ornek_hatasi(self, temp_output_dir):
         """Yetersiz örnekle ValueError fırlatılmalı."""
@@ -263,6 +286,37 @@ class TestVeriBoluntule:
             cikti_klasoru=temp_output_dir
         )
         assert sonuc is None
+
+    def test_veri_boluntule_augmented_trainval_ve_original_test_stratejisini_destekler(self, temp_output_dir):
+        trainval_csv = temp_output_dir / "augmented.csv"
+        test_csv = temp_output_dir / "original.csv"
+        _grouped_features_df(prefix="aug", per_class=4).to_csv(trainval_csv, index=False)
+        _grouped_features_df(prefix="orig", per_class=2).to_csv(test_csv, index=False)
+
+        train_df, val_df, test_df = veri_boluntule(
+            csv_dosyasi=trainval_csv,
+            cikti_klasoru=temp_output_dir,
+            test_csv_dosyasi=test_csv,
+        )
+
+        assert set(train_df["dosya_adi"]).isdisjoint(set(test_df["dosya_adi"]))
+        assert set(val_df["dosya_adi"]).isdisjoint(set(test_df["dosya_adi"]))
+        assert sorted(train_df["etiket"].unique().tolist()) == [0, 1, 2, 3]
+        assert sorted(val_df["etiket"].unique().tolist()) == [0, 1, 2, 3]
+        assert sorted(test_df["etiket"].unique().tolist()) == [0, 1, 2, 3]
+
+    def test_veri_boluntule_original_test_ile_kaynak_cakismasini_reddeder(self, temp_output_dir):
+        trainval_csv = temp_output_dir / "augmented_overlap.csv"
+        test_csv = temp_output_dir / "original_overlap.csv"
+        _grouped_features_df(prefix="shared", per_class=4).to_csv(trainval_csv, index=False)
+        _grouped_features_df(prefix="shared", per_class=2).to_csv(test_csv, index=False)
+
+        with pytest.raises(ValueError, match="kaynak grup sizintisi"):
+            veri_boluntule(
+                csv_dosyasi=trainval_csv,
+                cikti_klasoru=temp_output_dir,
+                test_csv_dosyasi=test_csv,
+            )
 
 
 class TestEdgeCases:
