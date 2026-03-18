@@ -1,38 +1,61 @@
 # EDA Analiz Modulu
 
-MRI veri seti icin kesifsel veri analizi (EDA) uretir; sinif dagilimi, boyut ve yogunluk istatistikleri, korelasyon ve PCA gorsellerini otomatik kaydeder. Istatistik hesaplamalari cok cekirdekle hizlandirilir.
+Bu modul, MRI veri seti icin kesifsel veri analizi (EDA) uretir. Sinif dagilimi, goruntu boyutlari, yogunluk istatistikleri, korelasyon ve PCA gorsellerini otomatik olarak kaydeder.
 
-## Kurulum
+## Ne Icin Kullanilir?
 
-Yalnizca bu modul:
+- Veri setinin dengeli olup olmadigini hizlica gormek
+- Boyut ve piksel yogunlugu farklarini incelemek
+- Egitimden once veri kalitesini kontrol etmek
+- Rapor veya sunum icin ozet grafikler uretmek
+
+## Calistirma
+
+Repo kokunden onerilen komut:
+
 ```bash
-pip install -r ..\\requirements.txt
+mri-eda --interactive
 ```
-Tum proje paketleri zaten kuruluysa bu adimi atlayabilirsiniz (`../requirements.txt` yeterli).
 
-## Kullanim
+Dogrudan Python ile:
 
 ```bash
-python eda_calistir.py
+python -m eda_analiz.eda_calistir --interactive
 ```
 
-Komut sirasinda veri klasoru (varsayilan: `Veri_Seti/AugmentedAlzheimerDataset`) ve cikti klasoru (varsayilan: `eda_analiz/eda_ciktilar`) sorulur.
+Arguman vererek etkilesimsiz calistirma:
 
-- `Veri_Seti` koku verilirse uygun alt klasor otomatik secilir.
-- `Veri_Seti/OriginalDataset` verilirse sadece original veri analiz edilir.
+```bash
+mri-eda --data-dir Veri_Seti/AugmentedAlzheimerDataset --output-dir eda_analiz/eda_ciktilar
+```
 
-## Uretilenler
+## Varsayilanlar
 
-- `0_ozet_istatistikler.txt`: Toplam ornek, sinif dagilimi ve temel ozet.
-- `1_sinif_dagilimi.png`: Sinif dagilimi grafigi.
-- `2_boyut_analizi.png`: Genislik/yukseklik/en-boy orani dagilimlari.
-- `3_yogunluk_analizi.png`: Yogunluk histogramlari.
-- `4_korelasyon_matrisi.png`: Ozellik korelasyonlari.
-- `5_pca_analizi.png`: PCA ilk iki bilesen gorsellestirmesi.
-- `veri_seti_istatistikler.csv`: Goruntu bazli temel istatistikler.
+- Varsayilan veri klasoru: `Veri_Seti/AugmentedAlzheimerDataset`
+- Varsayilan cikti klasoru: `eda_analiz/eda_ciktilar`
+- `Veri_Seti` koku verilirse uygun alt klasor otomatik cozulur
+- `Veri_Seti/OriginalDataset` verilirse analiz sadece original veri uzerinde yapilir
 
-## Ne Zaman Calistirilmali?
+Desteklenen veri yapilari:
 
-- Veri setinin icerigini ve dengesini hizlica gormek istediginizde.
-- On isleme/augmentasyon stratejisinden once veri kalitesini kontrol ederken.
-- Egitim raporlarini desteklemek icin ozet gorseller gerektiginde.
+```text
+Veri_Seti/<SinifAdi>/
+Veri_Seti/AugmentedAlzheimerDataset/<SinifAdi>/
+Veri_Seti/OriginalDataset/<SinifAdi>/
+```
+
+## Uretilen Ciktilar
+
+- `0_ozet_istatistikler.txt`: Toplam ornek, sinif dagilimi ve temel ozet
+- `1_sinif_dagilimi.png`: Sinif dagilimi grafigi
+- `2_boyut_analizi.png`: Genislik, yukseklik ve oran dagilimlari
+- `3_yogunluk_analizi.png`: Piksel yogunlugu grafikleri
+- `4_korelasyon_matrisi.png`: Sayisal ozellik korelasyonlari
+- `5_pca_analizi.png`: Ilk iki bilesen uzerinden PCA gorsellestirmesi
+- `veri_seti_istatistikler.csv`: Goruntu bazli temel istatistik tablosu
+
+## Notlar
+
+- Istatistik hesaplamalari cok cekirdekli olarak hizlandirilir.
+- Cikti klasoru otomatik olusturulur.
+- Modul, proje kokundeki `requirements.txt` veya `pip install -e .` kurulumu ile calisir.

@@ -1,121 +1,166 @@
 # MRI Beyin Goruntusu Siniflandirma
 
-MRI beyin goruntulerinden demans seviyesini tahmin etmek icin uctan uca bir derin ogrenme projesi. Repo; goruntu on isleme ve CNN tabanli siniflandirma modellerini (ResNet, U-Net) tek yerde toplar.
+Bu repo, MRI beyin goruntulerinden demans seviyesini siniflandirmak icin hazirlanmis uctan uca bir calisma ortami sunar. Proje; kesifsel veri analizi (EDA), goruntu on isleme, ozellik cikarma, derin ogrenme ile egitim ve inference adimlarini tek yerde toplar.
+
+## Moduller
+
+- [`eda_analiz/`](eda_analiz/README.md): Veri seti dagilimi, boyut, yogunluk, korelasyon ve PCA analizleri
+- [`goruntu_isleme/`](goruntu_isleme/README.md): On isleme, ozellik cikarma, CSV uretimi, veri bolme ve olceklendirme
+- [`model/`](model/README.md): ResNet ve U-Net tabanli egitim ve inference akislari
 
 ## Proje Yapisi
 
 ```text
 MRI_Classification/
-|-- Veri_Seti/                 # Ham goruntuler (sinif klasorleri)
-|-- goruntu_isleme/            # On isleme + ozellik cikarma
-|   |-- ana_islem.py           # Menu tabanli ana akis
-|   |-- goruntu_isleyici.py    # On isleme pipeline'i
-|   |-- ozellik_cikarici.py    # Ozellik cikarma ve CSV uretimi
-|   |-- pipeline_quick_test.py # Hizli ortam kontrolu
-|   |-- test_pipeline.py       # Tek goruntu pipeline gorsellestirme
-|   `-- ayarlar.py             # Goruntu isleme ayarlari
-|-- model/                     # Derin ogrenme egitimi ve inference
-|   |-- dl/                    # DL modulleri
-|   |   |-- dataset.py         # PyTorch Dataset ve DataLoader
-|   |   |-- engine.py          # Egitim/degerlendirme dongusu
-|   |   |-- losses.py          # FocalLoss, class weights
-|   |   |-- utils.py           # Seed, device, gorsellestime
-|   |   `-- models/
-|   |       |-- resnet_classifier.py  # ResNet18 siniflandirici
-|   |       `-- unet_classifier.py    # U-Net encoder + classification head
-|   |-- train.py               # Egitim giris noktasi
-|   |-- inference.py           # Tahmin scripti
-|   `-- ayarlar.py             # Merkezi konfigürasyon
+|-- Veri_Seti/
+|   |-- AugmentedAlzheimerDataset/
+|   `-- OriginalDataset/
+|-- eda_analiz/
+|-- goruntu_isleme/
+|-- model/
+|-- tests/
+|-- pyproject.toml
 |-- requirements.txt
-`-- LICENSE
+`-- README.md
 ```
 
+## Gereksinimler
+
+- Python 3.10+
+- `pip`
+- Istege bagli olarak CUDA destekli PyTorch ortami
+
 ## Kurulum
+
+Onerilen kurulum:
 
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
+pip install -U pip
+pip install -e .
+```
+
+Alternatif olarak:
+
+```bash
 pip install -r requirements.txt
 ```
 
-## Kullanim
+`pip install -e .` kullanildiginda su komutlar aktif olur:
 
-### 1. Goruntu on isleme (istege bagli)
+- `mri-eda`
+- `mri-preprocess`
+- `mri-train`
+- `mri-infer`
 
-```bash
-cd goruntu_isleme
-python ana_islem.py
+## Veri Yapisi
+
+Varsayilan klasor yapisi:
+
+```text
+Veri_Seti/
+|-- AugmentedAlzheimerDataset/
+|   |-- NonDemented/
+|   |-- VeryMildDemented/
+|   |-- MildDemented/
+|   `-- ModerateDemented/
+`-- OriginalDataset/
+    |-- NonDemented/
+    |-- VeryMildDemented/
+    |-- MildDemented/
+    `-- ModerateDemented/
 ```
 
-### 2. Model egitimi
+Sinif adlari proje boyunca aynidir:
 
-Proje iki ayri veri kaynagi kullanir:
-- **Augmented veri** (`Veri_Seti/AugmentedAlzheimerDataset`): Yalnizca **train + validation** icin
-- **Original veri** (`Veri_Seti/OriginalDataset`): Yalnizca **test** icin
+- `NonDemented`
+- `VeryMildDemented`
+- `MildDemented`
+- `ModerateDemented`
 
-Bu yaklasim, augmente edilmis goruntulerle egitim yaparken modelin gercek performansinin orijinal veriler uzerinde olculmesini saglar.
+Egitim akisinda varsayilan politika:
 
-```bash
-# ResNet ile egitim (varsayilan dizinler)
-python model/train.py --model resnet --epochs 50 --batch-size 32
+- `AugmentedAlzheimerDataset`: train + validation
+- `OriginalDataset`: test
 
-# U-Net ile egitim
-python model/train.py --model unet --epochs 50 --batch-size 16
+Bu ayrim, augment edilmis verilerle egitim yaparken gercek performansi original veri uzerinde olcmek icin kullanilir.
 
-# Focal loss ve ozel ogrenme hizi
-python model/train.py --model resnet --loss focal --lr 3e-4
+## Hizli Baslangic
 
-# Opsiyonel: ImageNet pretrained agirliklari
-python model/train.py --model resnet --pretrained
-
-# Ozel veri dizinleri ve val orani belirtme
-python model/train.py --model resnet --trainval-dir Veri_Seti/AugmentedAlzheimerDataset --test-dir Veri_Seti/OriginalDataset
-python model/train.py --model unet --val-ratio 0.2
-```
-
-Desteklenen argumanlar:
-- `--model`: `resnet` veya `unet` (varsayilan: resnet)
-- `--epochs`: Epoch sayisi (varsayilan: 50)
-- `--batch-size`: Batch boyutu (varsayilan: 32)
-- `--lr`: Ogrenme hizi (varsayilan: 1e-4)
-- `--loss`: `ce` (CrossEntropy) veya `focal` (FocalLoss) (varsayilan: ce)
-- `--patience`: Early stopping sabir degeri (varsayilan: 10)
-- `--image-size`: Goruntu boyutu (varsayilan: 224)
-- `--trainval-dir`: Train+Val icin augmented veri dizini (varsayilan: `Veri_Seti/AugmentedAlzheimerDataset`)
-- `--test-dir`: Test icin original veri dizini (varsayilan: `Veri_Seti/OriginalDataset`)
-- `--val-ratio`: Augmented veri icerisindeki validation orani (varsayilan: 0.15)
-- `--seed`: Rastgele tohum (varsayilan: 42)
-- `--pretrained`: Sadece ResNet icin ImageNet agirliklarini ac (varsayilan: kapali)
-
-### 3. Tahmin (inference)
+### 1. EDA
 
 ```bash
-# Tek goruntu
-python model/inference.py --model-path model/ciktilar/modeller/best_resnet.pt --image /path/to/image.jpg
-
-# Batch tahmin
-python model/inference.py --model-path model/ciktilar/modeller/best_unet.pt --batch /path/to/folder/
+mri-eda --interactive
 ```
 
-## Teknik Detaylar
+Alternatif:
 
-- **Framework**: PyTorch
-- **Modeller**: ResNet18 (pretrained ImageNet), U-Net encoder + classification head
-- **Siniflar**: NonDemented, VeryMildDemented, MildDemented, ModerateDemented
-- **Ozellikler**: Early stopping, best checkpoint, ReduceLROnPlateau scheduler, class weights / focal loss
-- **Split**: Augmented veri → train/val, Original veri → test (kaynak-grup leak-free)
-- **Donusumler**: Train: augmentation + normalize; Val/Test: sadece resize + normalize
-- **Metrikler**: Accuracy, precision, recall, F1 (macro)
-- **Gorseller**: Confusion matrix, egitim egrileri (loss/accuracy)
-- **GPU**: Otomatik CUDA algilama, yoksa CPU fallback
-- **Seed**: Deterministic (varsayilan: 42)
+```bash
+python -m eda_analiz.eda_calistir --interactive
+```
+
+### 2. Goruntu on isleme ve ozellik cikarma
+
+Interaktif menu:
+
+```bash
+mri-preprocess --action menu
+```
+
+Tek komutta tum temel 2D akis:
+
+```bash
+mri-preprocess --action all --input-dir Veri_Seti/AugmentedAlzheimerDataset --output-dir goruntu_isleme/cikti --yes
+```
+
+### 3. Model egitimi
+
+```bash
+mri-train --model resnet --epochs 50 --batch-size 32
+mri-train --model unet --epochs 50 --batch-size 16
+```
+
+Alternatif:
+
+```bash
+python -m model.train --model resnet --epochs 50 --batch-size 32
+```
+
+### 4. Tahmin
+
+```bash
+mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --image ornek.jpg
+```
+
+## Teknik Ozet
+
+- Framework: PyTorch
+- Modeller: ResNet18 ve U-Net encoder tabanli siniflandirici
+- Metrikler: Accuracy, precision, recall, F1 (macro)
+- Egitim ozellikleri: early stopping, best checkpoint, ReduceLROnPlateau, class weights, focal loss
+- Veri guvenligi: augment turevlerini ayni grup icinde tutan split mantigi
+- Cihaz secimi: CUDA varsa GPU, yoksa CPU
 
 ## Ciktilar
 
+- `eda_analiz/eda_ciktilar/`: EDA raporlari ve grafikler
+- `goruntu_isleme/cikti/`: Islenmis goruntuler, ozellik CSV'leri ve scaler dosyalari
 - `model/ciktilar/modeller/`: Egitilmis `.pt` checkpoint dosyalari
 - `model/ciktilar/raporlar/`: JSON performans raporlari
 - `model/ciktilar/gorseller/`: Confusion matrix ve egitim egrileri
-- `goruntu_isleme/cikti/`: Islenmis goruntuler ve CSV dosyalari
+
+## Test
+
+```bash
+pytest
+```
+
+Veri ya da GPU gerektiren testleri filtrelemek icin:
+
+```bash
+pytest -m "not requires_data and not requires_gpu"
+```
 
 ## Lisans
 

@@ -1,4 +1,4 @@
-"""
+﻿"""
 ozellik_cikarici.py
 -------------------
 İşlenmiş görüntülerden özellik çıkarma ve CSV oluşturma modülü.

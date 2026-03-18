@@ -1,93 +1,109 @@
 # Model Egitim Modulu
 
-MRI beyin goruntulerinden demans seviyesini siniflandirmak icin PyTorch tabanli derin ogrenme modulleri.
+Bu modul, MRI beyin goruntulerinden demans seviyesini siniflandirmak icin PyTorch tabanli egitim ve inference akisini saglar.
 
 ## Desteklenen Modeller
 
 | Model | Aciklama |
 |-------|----------|
-| **ResNet** | Pretrained ResNet18 + classification head |
-| **U-Net** | U-Net encoder + GAP + FC classification head (segmentasyon mask'i gerektirmez) |
+| `resnet` | ResNet18 tabanli siniflandirici |
+| `unet` | U-Net encoder + classification head |
 
-## Gereksinimler
+## Veri Politikasi
 
-Ana dizindeki `requirements.txt` tum bagimliliklari icerir (`torch`, `torchvision`, `scikit-learn` vb.).
+Varsayilan olarak iki ayri veri kaynagi kullanilir:
 
-## Kullanim
+- `Veri_Seti/AugmentedAlzheimerDataset`: train + validation
+- `Veri_Seti/OriginalDataset`: test
 
-### Egitim
+Bu ayrim, augment edilmis goruntulerle egitim yaparken nihai degerlendirmeyi original veri uzerinde tutmak icin kullanilir.
 
-Proje iki ayri veri kaynagi kullanir:
-- **Augmented** (`Veri_Seti/AugmentedAlzheimerDataset`): train + validation
-- **Original** (`Veri_Seti/OriginalDataset`): test
+## Egitim
+
+Repo kokunden onerilen komutlar:
 
 ```bash
-# ResNet ile egitim (varsayilan dizinler)
-python train.py --model resnet --epochs 50 --batch-size 32
-
-# U-Net ile egitim
-python train.py --model unet --epochs 50 --batch-size 16
-
-# Focal loss kullan
-python train.py --model resnet --loss focal --lr 3e-4
-
-# Opsiyonel: ImageNet pretrained agirliklari
-python train.py --model resnet --pretrained
-
-# Ozel veri dizinleri
-python train.py --model resnet --trainval-dir ../Veri_Seti/AugmentedAlzheimerDataset --test-dir ../Veri_Seti/OriginalDataset
-python train.py --model unet --val-ratio 0.2
+mri-train --model resnet --epochs 50 --batch-size 32
+mri-train --model unet --epochs 50 --batch-size 16
 ```
 
-### Tahmin (Inference)
+Dogrudan Python ile:
 
 ```bash
-# Tek goruntu
-python inference.py --model-path ciktilar/modeller/best_resnet.pt --image /path/to/image.jpg
+python -m model.train --model resnet --epochs 50 --batch-size 32
+```
 
-# Batch tahmin
-python inference.py --model-path ciktilar/modeller/best_unet.pt --batch /path/to/folder/
+Diger ornekler:
+
+```bash
+mri-train --model resnet --loss focal --lr 3e-4
+mri-train --model resnet --pretrained
+mri-train --model resnet --trainval-dir Veri_Seti/AugmentedAlzheimerDataset --test-dir Veri_Seti/OriginalDataset
+mri-train --model unet --val-ratio 0.2
+```
+
+Temel argumanlar:
+
+- `--model`: `resnet` veya `unet`
+- `--epochs`: Epoch sayisi
+- `--batch-size`: Batch boyutu
+- `--lr`: Ogrenme hizi
+- `--patience`: Early stopping sabir degeri
+- `--image-size`: Giris goruntu boyutu
+- `--trainval-dir`: Train + validation veri dizini
+- `--test-dir`: Test veri dizini
+- `--val-ratio`: Validation orani
+- `--loss`: `ce` veya `focal`
+- `--seed`: Rastgele tohum
+- `--num-workers`: DataLoader worker sayisi
+- `--pretrained`: Sadece ResNet icin ImageNet agirliklarini acar
+
+## Inference
+
+```bash
+mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --image ornek.jpg
+mri-infer --model-path model/ciktilar/modeller/best_unet.pt --batch ornek_klasor
+```
+
+Dogrudan Python ile:
+
+```bash
+python -m model.inference --model-path model/ciktilar/modeller/best_resnet.pt --image ornek.jpg
 ```
 
 ## Dosya Yapisi
 
 ```text
 model/
-|-- train.py               # Egitim giris noktasi (CLI)
-|-- inference.py            # Tahmin scripti (CLI)
-|-- ayarlar.py              # Merkezi konfigürasyon
+|-- train.py
+|-- inference.py
+|-- ayarlar.py
 |-- dl/
-|   |-- dataset.py          # MRIDataset + DataLoader olusturma
-|   |-- engine.py           # train_one_epoch, evaluate, EarlyStopping
-|   |-- losses.py           # FocalLoss, compute_class_weights
-|   |-- utils.py            # set_seed, get_device, plot_confusion_matrix
+|   |-- dataset.py
+|   |-- engine.py
+|   |-- losses.py
+|   |-- utils.py
 |   `-- models/
-|       |-- resnet_classifier.py  # ResNet18 wrapper
-|       `-- unet_classifier.py    # U-Net encoder + classification head
+|       |-- resnet_classifier.py
+|       `-- unet_classifier.py
 `-- ciktilar/
-    |-- modeller/            # .pt checkpoint dosyalari
-    |-- raporlar/            # JSON performans raporlari
-    `-- gorseller/           # Confusion matrix, egitim egrileri
+    |-- modeller/
+    |-- raporlar/
+    `-- gorseller/
 ```
 
 ## Ozellikler
 
-- Early stopping (sabir degeri ayarlanabilir)
-- Best checkpoint kaydı (val_loss'a gore)
-- ReduceLROnPlateau learning rate scheduler
-- Class weights veya Focal Loss ile sinif dengesizligi yonetimi
-- Kaynak-grup leak-free split (augment turevleri ayni split'te tutulur)
-- Augmented veri → train/val, Original veri → test (veri karisimi yok)
-- Train: augmentation + normalize; Val/Test: sadece resize + normalize
-- Accuracy, precision, recall, F1 (macro) metrikleri
+- Early stopping ve best checkpoint kaydi
+- ReduceLROnPlateau scheduler
+- Class weights veya focal loss ile sinif dengesizligi yonetimi
+- Kaynak-grup mantigi ile veri sizintisini azaltan split stratejisi
+- Accuracy, precision, recall, F1 (macro) raporlamasi
 - Confusion matrix ve egitim egrileri gorselleri
-- GPU otomatik algilama, yoksa CPU fallback
-- Deterministic seed (varsayilan: 42)
+- CUDA varsa GPU, yoksa CPU fallback
 
-## Yapilandirma
+## Ciktilar
 
-`ayarlar.py` uzerinden:
-- Train/Val veri dizini (Augmented)
-- Test veri dizini (Original)
-- Cikti klasorleri
-- Rastgele tohum degeri
+- `model/ciktilar/modeller/`: `.pt` checkpoint dosyalari
+- `model/ciktilar/raporlar/`: JSON performans raporlari
+- `model/ciktilar/gorseller/`: Confusion matrix ve egitim egrileri

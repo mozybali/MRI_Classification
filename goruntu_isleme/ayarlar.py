@@ -1,4 +1,4 @@
-"""
+﻿"""
 ayarlar.py
 ----------
 MRI görüntü işleme için merkezi konfigürasyon dosyası.

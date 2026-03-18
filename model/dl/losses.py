@@ -17,7 +17,7 @@ import torch.nn.functional as F
 
 class FocalLoss(nn.Module):
     """
-    Focal Loss — sınıf dengesizliğine karşı etkili kayıp fonksiyonu.
+    Focal Loss - sınıf dengesizliğine karşı etkili kayıp fonksiyonu.
 
     Lin et al., "Focal Loss for Dense Object Detection", 2017.
     """
