@@ -139,7 +139,7 @@ mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --image ornek.jpg
 - Modeller: ResNet18 ve U-Net encoder tabanli siniflandirici
 - Metrikler: Accuracy, precision, recall, F1 (macro)
 - Egitim ozellikleri: early stopping, best checkpoint, ReduceLROnPlateau, class weights, focal loss
-- Veri guvenligi: augment turevlerini ayni grup icinde tutan split mantigi
+- Veri guvenligi: dosya adindan kaynak grup cikarilabiliyorsa leak-free split, aksi halde uyari ile stratified fallback
 - Cihaz secimi: CUDA varsa GPU, yoksa CPU
 
 ## Ciktilar

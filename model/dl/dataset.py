@@ -6,13 +6,14 @@ dataset.py
 ----------
 MRI goruntuleri icin PyTorch Dataset ve DataLoader olusturma.
 Sinif klasorlerinden (NonDemented, VeryMildDemented, MildDemented, ModerateDemented)
-goruntuleri okur, kaynak-grup sizintisini engelleyerek train/val/test olarak boler.
+goruntuleri okur; dosya adindan kaynak grup cikarilabiliyorsa leak-free bolme uygular,
+aksi halde uyari ile stratified fallback kullanir.
 """
 
 from pathlib import Path
-from typing import Tuple, List, Dict
+from typing import Tuple, List, Dict, Any
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 import numpy as np
 from PIL import Image
@@ -93,6 +94,27 @@ def collect_images(data_dir: Path) -> Tuple[List[Path], List[int], List[str]]:
                 groups.append(f"{class_name}::{kaynak_id_belirle(img_file.name)}")
 
     return image_paths, labels, groups
+
+
+def _summarize_grouping(groups: List[str]) -> Dict[str, Any]:
+    """Dosya adindan uretilen kaynak grup kapsamini ozetle."""
+    counts = Counter(groups)
+    total_images = len(groups)
+    multi_group_count = sum(1 for count in counts.values() if count > 1)
+    images_in_multi_groups = sum(count for count in counts.values() if count > 1)
+    unique_groups = len(counts)
+
+    return {
+        "total_images": total_images,
+        "unique_groups": unique_groups,
+        "multi_group_count": multi_group_count,
+        "singleton_group_count": unique_groups - multi_group_count,
+        "images_in_multi_groups": images_in_multi_groups,
+        "multi_group_coverage": (
+            images_in_multi_groups / total_images if total_images else 0.0
+        ),
+        "grouping_reliable": multi_group_count > 0,
+    }
 
 
 def _collect_class_dirs(data_dir: Path) -> set[str]:
@@ -272,7 +294,7 @@ def _group_stratified_train_val_split(
         moved = _move_smallest_group_with_class(donor_split, missing_split, class_id)
         if not moved and require_all_classes_in_each_split:
             raise RuntimeError(
-                "Leak-free split sonrasi her sinif train ve validation icinde temsil edilemedi. "
+                "Leak-free split sonrasi sinif kapsami eksik kaldi. "
                 f"Sorunlu sinif: {SINIF_ISIMLERI[class_id]}"
             )
 
@@ -302,6 +324,57 @@ def _group_stratified_train_val_split(
     return split_indices[0], split_indices[1]
 
 
+def _stratified_train_val_split(
+    labels: List[int],
+    val_ratio: float,
+    seed: int,
+    num_classes: int,
+    require_all_classes_in_each_split: bool = False,
+) -> Tuple[List[int], List[int]]:
+    """Kaynak grup cikarilamadiginda sinif-dengeli train/val bolmesi yap."""
+    if val_ratio <= 0 or val_ratio >= 1.0:
+        raise ValueError("val_ratio 0 ile 1 arasinda olmali.")
+
+    rng = np.random.default_rng(seed)
+    labels_arr = np.asarray(labels)
+    train_idxs: List[int] = []
+    val_idxs: List[int] = []
+
+    for class_id in range(num_classes):
+        class_indices = np.flatnonzero(labels_arr == class_id)
+        if len(class_indices) == 0:
+            continue
+
+        shuffled = rng.permutation(class_indices)
+        if len(shuffled) == 1:
+            if require_all_classes_in_each_split:
+                raise RuntimeError(
+                    f"validation split'inde sinif kapsami eksik kaldi: {SINIF_ISIMLERI[class_id]}"
+                )
+            train_idxs.extend(int(idx) for idx in shuffled)
+            continue
+
+        val_count = int(round(len(shuffled) * val_ratio))
+        val_count = max(1, min(len(shuffled) - 1, val_count))
+
+        val_idxs.extend(int(idx) for idx in shuffled[:val_count])
+        train_idxs.extend(int(idx) for idx in shuffled[val_count:])
+
+    if not train_idxs or not val_idxs:
+        raise RuntimeError("Train/Val bolmesi olusturulamadi: splitlerden biri bos kaldi.")
+
+    if require_all_classes_in_each_split:
+        for split_name, idxs in (("train", train_idxs), ("validation", val_idxs)):
+            missing_classes = _missing_class_names([labels[idx] for idx in idxs], num_classes)
+            if missing_classes:
+                joined = ", ".join(missing_classes)
+                raise RuntimeError(
+                    f"{split_name} split'inde sinif kapsami eksik kaldi: {joined}"
+                )
+
+    return train_idxs, val_idxs
+
+
 def create_dataloaders(
     trainval_dir: Path,
     test_dir: Path,
@@ -322,10 +395,12 @@ def create_dataloaders(
     tv_paths, tv_labels, tv_groups = collect_images(trainval_dir)
     if len(tv_paths) == 0:
         raise FileNotFoundError(f"Trainval verisi bulunamadi: {trainval_dir}")
+    tv_group_stats = _summarize_grouping(tv_groups)
 
     paths_test, labels_test, test_groups = collect_images(test_dir)
     if len(paths_test) == 0:
         raise FileNotFoundError(f"Test verisi bulunamadi: {test_dir}")
+    test_group_stats = _summarize_grouping(test_groups)
 
     _validate_dataset_separation(tv_groups, test_groups, trainval_dir, test_dir)
 
@@ -333,15 +408,30 @@ def create_dataloaders(
     print(f"  [TrainVal] Toplam goruntu: {len(tv_paths)}")
     for name, lbl in SINIF_ETIKETI.items():
         print(f"    {name}: {tv_labels.count(lbl)}")
-    print(f"  [TrainVal] Kaynak grup sayisi: {len(set(tv_groups))}")
+    print(f"  [TrainVal] Kaynak grup sayisi: {tv_group_stats['unique_groups']}")
 
-    train_idxs, val_idxs = _group_stratified_train_val_split(
-        labels=tv_labels,
-        groups=tv_groups,
-        val_ratio=val_ratio,
-        seed=seed,
-        num_classes=len(SINIF_ISIMLERI),
-    )
+    split_warnings = []
+    if tv_group_stats["grouping_reliable"]:
+        split_strategy = "group_stratified"
+        train_idxs, val_idxs = _group_stratified_train_val_split(
+            labels=tv_labels,
+            groups=tv_groups,
+            val_ratio=val_ratio,
+            seed=seed,
+            num_classes=len(SINIF_ISIMLERI),
+        )
+    else:
+        split_strategy = "stratified_without_groups"
+        split_warnings.append(
+            "TrainVal dosya adlarindan tekrarli kaynak grup cikarilamadi; "
+            "stratified split kullanildi ve augment turevleri icin leak-free garanti verilemiyor."
+        )
+        train_idxs, val_idxs = _stratified_train_val_split(
+            labels=tv_labels,
+            val_ratio=val_ratio,
+            seed=seed,
+            num_classes=len(SINIF_ISIMLERI),
+        )
 
     paths_train = [tv_paths[i] for i in train_idxs]
     labels_train = [tv_labels[i] for i in train_idxs]
@@ -349,7 +439,6 @@ def create_dataloaders(
     labels_val = [tv_labels[i] for i in val_idxs]
     train_missing_classes = _missing_class_names(labels_train, len(SINIF_ISIMLERI))
     val_missing_classes = _missing_class_names(labels_val, len(SINIF_ISIMLERI))
-    split_warnings = []
     if train_missing_classes:
         split_warnings.append(f"Train split'inde eksik siniflar: {', '.join(train_missing_classes)}")
     if val_missing_classes:
@@ -361,6 +450,7 @@ def create_dataloaders(
     print(f"  [Test] Toplam goruntu: {len(paths_test)}")
     for name, lbl in SINIF_ETIKETI.items():
         print(f"    {name}: {labels_test.count(lbl)}")
+    print(f"  [Split] Strateji: {split_strategy}")
     for warning in split_warnings:
         print(f"  [UYARI] {warning}")
 
@@ -395,6 +485,9 @@ def create_dataloaders(
         "trainval_dir": str(trainval_dir),
         "test_dir": str(test_dir),
         "val_ratio": val_ratio,
+        "split_strategy": split_strategy,
+        "trainval_grouping": tv_group_stats,
+        "test_grouping": test_group_stats,
         "split_warnings": split_warnings,
     }
 

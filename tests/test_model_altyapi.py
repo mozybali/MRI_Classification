@@ -26,7 +26,7 @@ from model.dl.dataset import (
 )
 from model.dl.engine import EarlyStopping, evaluate, train_one_epoch
 from model.dl.models.unet_classifier import UNetClassifier
-from model.inference import load_model, predict_image
+from model.inference import collect_batch_images, load_model, predict_image
 
 
 def _create_image(path: Path, value: int = 128) -> None:
@@ -41,6 +41,23 @@ def _create_class_dataset(root: Path, per_class: int, prefix: str) -> None:
         for image_idx in range(per_class):
             value = 40 + (class_index * 30) + image_idx
             _create_image(class_dir / f"{prefix}_{class_index}_{image_idx}.jpg", value=value)
+
+
+def _create_grouped_class_dataset(
+    root: Path,
+    groups_per_class: int,
+    copies_per_group: int,
+    prefix: str,
+) -> None:
+    for class_index, class_name in enumerate(SINIF_ISIMLERI):
+        class_dir = root / class_name
+        class_dir.mkdir(parents=True, exist_ok=True)
+        for group_idx in range(groups_per_class):
+            base_name = f"{prefix}_{class_index}_{group_idx}"
+            for copy_idx in range(copies_per_group):
+                value = 40 + (class_index * 30) + group_idx + copy_idx
+                suffix = ".jpg" if copy_idx == 0 else f" ({copy_idx}).jpg"
+                _create_image(class_dir / f"{base_name}{suffix}", value=value)
 
 
 def test_train_one_epoch_returns_metrics_and_updates_weights():
@@ -147,7 +164,7 @@ def test_validate_class_match_beklenmeyen_klasoru_reddeder(tmp_path):
 def test_create_dataloaders_builds_leak_free_splits(tmp_path):
     trainval_dir = tmp_path / "trainval"
     test_dir = tmp_path / "test"
-    _create_class_dataset(trainval_dir, per_class=2, prefix="train")
+    _create_grouped_class_dataset(trainval_dir, groups_per_class=2, copies_per_group=2, prefix="train")
     _create_class_dataset(test_dir, per_class=1, prefix="test")
 
     train_loader, val_loader, test_loader, info = create_dataloaders(
@@ -160,9 +177,9 @@ def test_create_dataloaders_builds_leak_free_splits(tmp_path):
         num_workers=0,
     )
 
-    assert info["train_size"] == 4
-    assert info["val_size"] == 4
+    assert info["train_size"] + info["val_size"] == 16
     assert info["test_size"] == 4
+    assert info["split_strategy"] == "group_stratified"
     assert len(train_loader.dataset) == info["train_size"]
     assert len(val_loader.dataset) == info["val_size"]
     assert len(test_loader.dataset) == info["test_size"]
@@ -170,6 +187,27 @@ def test_create_dataloaders_builds_leak_free_splits(tmp_path):
     train_sources = {kaynak_id_belirle(path.name) for path in train_loader.dataset.image_paths}
     val_sources = {kaynak_id_belirle(path.name) for path in val_loader.dataset.image_paths}
     assert train_sources.isdisjoint(val_sources)
+
+
+def test_create_dataloaders_warns_when_grouping_cannot_be_inferred(tmp_path):
+    trainval_dir = tmp_path / "trainval"
+    test_dir = tmp_path / "test"
+    _create_class_dataset(trainval_dir, per_class=2, prefix="train")
+    _create_class_dataset(test_dir, per_class=1, prefix="test")
+
+    _, _, _, info = create_dataloaders(
+        trainval_dir=trainval_dir,
+        test_dir=test_dir,
+        batch_size=2,
+        image_size=32,
+        val_ratio=0.5,
+        seed=42,
+        num_workers=0,
+    )
+
+    assert info["split_strategy"] == "stratified_without_groups"
+    assert info["trainval_grouping"]["grouping_reliable"] is False
+    assert any("leak-free garanti verilemiyor" in warning for warning in info["split_warnings"])
 
 
 def test_create_dataloaders_rejects_trainval_test_source_overlap(tmp_path):
@@ -264,3 +302,16 @@ def test_predict_image_returns_ranked_probabilities(tmp_path):
     assert result["tahmin_sinif"] == 2
     assert result["tahmin_adi"] == "C"
     assert abs(sum(result["olasiliklar"].values()) - 1.0) < 1e-6
+
+
+def test_collect_batch_images_uppercase_uzantilari_da_toplar(tmp_path):
+    image_upper = tmp_path / "sample.JPG"
+    image_lower = tmp_path / "sample2.png"
+    text_file = tmp_path / "notes.txt"
+    _create_image(image_upper, value=110)
+    _create_image(image_lower, value=120)
+    text_file.write_text("ignore", encoding="utf-8")
+
+    images = collect_batch_images(tmp_path)
+
+    assert images == sorted([image_upper, image_lower])

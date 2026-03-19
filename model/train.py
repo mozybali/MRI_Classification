@@ -158,8 +158,9 @@ Ornekler:
         f"  Grup: Train={info['train_groups']}, "
         f"Val={info['val_groups']}"
     )
+    print(f"  Split stratejisi : {info['split_strategy']}")
     if info["split_warnings"]:
-        print("  [UYARI] Leak-free split sinif kapsami tam degil:")
+        print("  [UYARI] Split ile ilgili notlar:")
         for warning in info["split_warnings"]:
             print(f"    - {warning}")
 
@@ -275,13 +276,16 @@ Ornekler:
             "f1_macro": round(test_metrics["f1"], 4),
         },
         "data_split": {
-            "strategy": "augmented_trainval_original_test",
+            "strategy": info["split_strategy"],
             "trainval_dir": str(trainval_dir),
             "test_dir": str(test_dir),
             "val_ratio": args.val_ratio,
             "train_size": info["train_size"],
             "val_size": info["val_size"],
             "test_size": info["test_size"],
+            "trainval_grouping": info["trainval_grouping"],
+            "test_grouping": info["test_grouping"],
+            "warnings": info["split_warnings"],
         },
         "args": vars(args),
     }

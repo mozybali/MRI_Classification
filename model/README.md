@@ -97,7 +97,7 @@ model/
 - Early stopping ve best checkpoint kaydi
 - ReduceLROnPlateau scheduler
 - Class weights veya focal loss ile sinif dengesizligi yonetimi
-- Kaynak-grup mantigi ile veri sizintisini azaltan split stratejisi
+- Dosya adindan kaynak grup cikarilabiliyorsa leak-free split; cikarilamiyorsa uyari ile stratified fallback
 - Accuracy, precision, recall, F1 (macro) raporlamasi
 - Confusion matrix ve egitim egrileri gorselleri
 - CUDA varsa GPU, yoksa CPU fallback

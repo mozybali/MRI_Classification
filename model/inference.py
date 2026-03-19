@@ -26,12 +26,12 @@ if __package__ in {None, ""}:
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(PROJECT_ROOT))
 
-    from model.dl.dataset import SINIF_ISIMLERI
+    from model.dl.dataset import GORUNTU_UZANTILARI, SINIF_ISIMLERI
     from model.dl.models.resnet_classifier import ResNetClassifier
     from model.dl.models.unet_classifier import UNetClassifier
     from model.dl.utils import get_device, load_checkpoint
 else:
-    from .dl.dataset import SINIF_ISIMLERI
+    from .dl.dataset import GORUNTU_UZANTILARI, SINIF_ISIMLERI
     from .dl.models.resnet_classifier import ResNetClassifier
     from .dl.models.unet_classifier import UNetClassifier
     from .dl.utils import get_device, load_checkpoint
@@ -89,6 +89,14 @@ def predict_image(model, image_path: Path, image_size: int, class_names, device)
     }
 
 
+def collect_batch_images(batch_dir: Path) -> list[Path]:
+    """Batch inference icin desteklenen goruntuleri buyuk/kucuk harf duyarli olmadan topla."""
+    return sorted(
+        path for path in batch_dir.iterdir()
+        if path.is_file() and path.suffix.lower() in GORUNTU_UZANTILARI
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="MRI derin ogrenme inference",
@@ -140,9 +148,7 @@ Ornekler:
             print(f"[HATA] Klasor bulunamadi: {batch_dir}")
             return 1
 
-        images = []
-        for ext in ("*.jpg", "*.jpeg", "*.png"):
-            images.extend(batch_dir.glob(ext))
+        images = collect_batch_images(batch_dir)
 
         if not images:
             print(f"[UYARI] Goruntu bulunamadi: {batch_dir}")
