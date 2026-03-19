@@ -90,7 +90,8 @@ temp/
 # =========================
 # Project data and generated outputs
 # =========================
-Veri_Seti/
+Veri_Seti/*
+!Veri_Seti/README.md
 output/
 results/
 logs/

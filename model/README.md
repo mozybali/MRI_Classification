@@ -1,6 +1,6 @@
 # Model Egitim Modulu
 
-Bu modul, MRI beyin goruntulerinden demans seviyesini siniflandirmak icin PyTorch tabanli egitim ve inference akisini saglar.
+Bu modul, MRI goruntulerinden demans seviyesi siniflandirmak icin PyTorch tabanli egitim ve inference akisini saglar.
 
 ## Desteklenen Modeller
 
@@ -9,14 +9,12 @@ Bu modul, MRI beyin goruntulerinden demans seviyesini siniflandirmak icin PyTorc
 | `resnet` | ResNet18 tabanli siniflandirici |
 | `unet` | U-Net encoder + classification head |
 
-## Veri Politikasi
-
-Varsayilan olarak iki ayri veri kaynagi kullanilir:
+## Varsayilan Veri Politikasi
 
 - `Veri_Seti/AugmentedAlzheimerDataset`: train + validation
 - `Veri_Seti/OriginalDataset`: test
 
-Bu ayrim, augment edilmis goruntulerle egitim yaparken nihai degerlendirmeyi original veri uzerinde tutmak icin kullanilir.
+Bu ayrim, augment edilmis goruntulerle egitim yaparken nihai degerlendirmeyi original veri uzerinde tutar.
 
 ## Egitim
 
@@ -33,7 +31,7 @@ Dogrudan Python ile:
 python -m model.train --model resnet --epochs 50 --batch-size 32
 ```
 
-Diger ornekler:
+Ek ornekler:
 
 ```bash
 mri-train --model resnet --loss focal --lr 3e-4
@@ -42,7 +40,7 @@ mri-train --model resnet --trainval-dir Veri_Seti/AugmentedAlzheimerDataset --te
 mri-train --model unet --val-ratio 0.2
 ```
 
-Temel argumanlar:
+## Temel Parametreler
 
 - `--model`: `resnet` veya `unet`
 - `--epochs`: Epoch sayisi
@@ -60,8 +58,15 @@ Temel argumanlar:
 
 ## Inference
 
+Tek goruntu:
+
 ```bash
 mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --image ornek.jpg
+```
+
+Klasor bazli batch tahmin:
+
+```bash
 mri-infer --model-path model/ciktilar/modeller/best_unet.pt --batch ornek_klasor
 ```
 
@@ -92,18 +97,19 @@ model/
     `-- gorseller/
 ```
 
+## Uretilen Ciktilar
+
+- `model/ciktilar/modeller/best_resnet.pt`
+- `model/ciktilar/modeller/best_unet.pt`
+- `model/ciktilar/raporlar/rapor_<model>_<timestamp>.json`
+- `model/ciktilar/gorseller/confusion_matrix_<model>.png`
+- `model/ciktilar/gorseller/training_curves_<model>.png`
+
 ## Ozellikler
 
 - Early stopping ve best checkpoint kaydi
 - ReduceLROnPlateau scheduler
 - Class weights veya focal loss ile sinif dengesizligi yonetimi
-- Dosya adindan kaynak grup cikarilabiliyorsa leak-free split; cikarilamiyorsa uyari ile stratified fallback
-- Accuracy, precision, recall, F1 (macro) raporlamasi
-- Confusion matrix ve egitim egrileri gorselleri
+- Grup bilgisi cikartilabiliyorsa leak-free split, aksi durumda uyari ile fallback stratejisi
+- Accuracy, precision, recall ve F1 macro raporlamasi
 - CUDA varsa GPU, yoksa CPU fallback
-
-## Ciktilar
-
-- `model/ciktilar/modeller/`: `.pt` checkpoint dosyalari
-- `model/ciktilar/raporlar/`: JSON performans raporlari
-- `model/ciktilar/gorseller/`: Confusion matrix ve egitim egrileri

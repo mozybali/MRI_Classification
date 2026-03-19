@@ -85,8 +85,13 @@ def test_nan_temizle_mean_sayisal_nanlari_doldurur_ve_kaydeder(tmp_path):
 def test_veri_setini_bol_ve_olceklendir_scaler_ve_csvleri_kaydeder(tmp_path):
     trainval_csv = tmp_path / "grouped_augmented.csv"
     test_csv = tmp_path / "grouped_original.csv"
-    _grouped_features_df(prefix="aug", per_class=4).to_csv(trainval_csv, index=False)
-    _grouped_features_df(prefix="orig", per_class=2).to_csv(test_csv, index=False)
+    trainval_df = _grouped_features_df(prefix="aug", per_class=4)
+    test_df_raw = _grouped_features_df(prefix="orig", per_class=2)
+    trainval_df.loc[0, "feature1"] = np.nan
+    trainval_df.loc[1, "feature2"] = np.nan
+    test_df_raw.loc[0, "feature2"] = np.nan
+    trainval_df.to_csv(trainval_csv, index=False)
+    test_df_raw.to_csv(test_csv, index=False)
 
     train_df, val_df, test_df = veri_setini_bol_ve_olceklendir(
         csv_dosyasi=trainval_csv,
@@ -98,6 +103,9 @@ def test_veri_setini_bol_ve_olceklendir_scaler_ve_csvleri_kaydeder(tmp_path):
     assert not train_df.empty
     assert not val_df.empty
     assert not test_df.empty
+    assert train_df[["feature1", "feature2"]].isna().sum().sum() == 0
+    assert val_df[["feature1", "feature2"]].isna().sum().sum() == 0
+    assert test_df[["feature1", "feature2"]].isna().sum().sum() == 0
     assert (tmp_path / "egitim_scaled.csv").exists()
     assert (tmp_path / "dogrulama_scaled.csv").exists()
     assert (tmp_path / "test_scaled.csv").exists()

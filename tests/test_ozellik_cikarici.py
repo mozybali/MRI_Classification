@@ -198,6 +198,17 @@ class TestOzellikCikarici:
         assert "test_image.jpeg" in dosya_adlari
         assert "test_image2.jpg" in dosya_adlari
 
+    def test_sabit_goruntu_ozellikleri_nan_uretmez(self, tmp_path):
+        cikarici = OzellikCikarici()
+        gorsel = tmp_path / "constant.png"
+        Image.fromarray(np.full((32, 32), 128, dtype=np.uint8), mode="L").save(gorsel)
+
+        ozellikler = cikarici.tek_goruntu_ozellikleri(str(gorsel))
+
+        assert ozellikler is not None
+        assert np.isfinite(ozellikler["carpiklik"])
+        assert np.isfinite(ozellikler["basiklik"])
+
 
 class TestVeriBoluntule:
     """Veri bölme fonksiyonu testleri."""
@@ -486,6 +497,21 @@ class TestOzellikCikariciRegressions:
         assert (cikti_klasoru / "egitim.csv").exists()
         assert (cikti_klasoru / "dogrulama.csv").exists()
         assert (cikti_klasoru / "test.csv").exists()
+
+    def test_csv_olustur_paralel_hata_olursa_sequential_fallback_kullanir(self, test_dataset_structure, monkeypatch):
+        class FailingPool:
+            def __init__(self, *args, **kwargs):
+                raise PermissionError("pool blocked")
+
+        monkeypatch.setattr(oc_mod, "Pool", FailingPool)
+
+        cikarici = OzellikCikarici()
+        cikarici.n_jobs = 2
+
+        df = cikarici.csv_olustur(test_dataset_structure, cikti_csv=test_dataset_structure / "fallback.csv")
+
+        assert not df.empty
+        assert (test_dataset_structure / "fallback.csv").exists()
 
     def test_modul_paket_olarak_import_edilebilir(self):
         """goruntu_isleme.ozellik_cikarici paket import'u ile yuklenebilmeli."""

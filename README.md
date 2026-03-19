@@ -1,12 +1,14 @@
 # MRI Beyin Goruntusu Siniflandirma
 
-Bu repo, MRI beyin goruntulerinden demans seviyesini siniflandirmak icin hazirlanmis uctan uca bir calisma ortami sunar. Proje; kesifsel veri analizi (EDA), goruntu on isleme, ozellik cikarma, derin ogrenme ile egitim ve inference adimlarini tek yerde toplar.
+Bu repo, MRI beyin goruntulerinden demans seviyesini siniflandirmaya yonelik uctan uca bir Python projesidir. Kod tabani; kesifsel veri analizi, 2D goruntu on isleme, ozellik cikarma, PyTorch ile model egitimi, inference ve test altyapisini ayni yerde toplar.
 
 ## Moduller
 
-- [`eda_analiz/`](eda_analiz/README.md): Veri seti dagilimi, boyut, yogunluk, korelasyon ve PCA analizleri
-- [`goruntu_isleme/`](goruntu_isleme/README.md): On isleme, ozellik cikarma, CSV uretimi, veri bolme ve olceklendirme
-- [`model/`](model/README.md): ResNet ve U-Net tabanli egitim ve inference akislari
+- [`eda_analiz/README.md`](eda_analiz/README.md): Veri seti dagilimi, boyut, yogunluk, korelasyon ve PCA analizleri
+- [`goruntu_isleme/README.md`](goruntu_isleme/README.md): On isleme, ozellik cikarma, veri bolme ve olceklendirme akisi
+- [`model/README.md`](model/README.md): ResNet ve U-Net tabanli egitim ve inference komutlari
+- [`tests/README.md`](tests/README.md): Pytest duzeni, test dosyalari ve calistirma ornekleri
+- [`Veri_Seti/README.md`](Veri_Seti/README.md): Beklenen veri klasor yapisi ve varsayilan veri politikasi
 
 ## Proje Yapisi
 
@@ -14,12 +16,30 @@ Bu repo, MRI beyin goruntulerinden demans seviyesini siniflandirmak icin hazirla
 MRI_Classification/
 |-- Veri_Seti/
 |   |-- AugmentedAlzheimerDataset/
-|   `-- OriginalDataset/
+|   |-- OriginalDataset/
+|   `-- README.md
 |-- eda_analiz/
+|   |-- eda_araclar.py
+|   |-- eda_calistir.py
+|   `-- README.md
 |-- goruntu_isleme/
+|   |-- ana_islem.py
+|   |-- goruntu_isleyici.py
+|   |-- ozellik_cikarici.py
+|   |-- cikti/
+|   `-- README.md
 |-- model/
+|   |-- train.py
+|   |-- inference.py
+|   |-- dl/
+|   |-- ciktilar/
+|   `-- README.md
 |-- tests/
+|   |-- conftest.py
+|   |-- test_*.py
+|   `-- README.md
 |-- pyproject.toml
+|-- pytest.ini
 |-- requirements.txt
 `-- README.md
 ```
@@ -38,53 +58,21 @@ Onerilen kurulum:
 python -m venv .venv
 .venv\Scripts\activate
 pip install -U pip
-pip install -e .
+pip install -e .[dev]
 ```
 
-Alternatif olarak:
+Alternatif:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-`pip install -e .` kullanildiginda su komutlar aktif olur:
+`pip install -e .` veya `pip install -e .[dev]` sonrasinda su komutlar aktif olur:
 
 - `mri-eda`
 - `mri-preprocess`
 - `mri-train`
 - `mri-infer`
-
-## Veri Yapisi
-
-Varsayilan klasor yapisi:
-
-```text
-Veri_Seti/
-|-- AugmentedAlzheimerDataset/
-|   |-- NonDemented/
-|   |-- VeryMildDemented/
-|   |-- MildDemented/
-|   `-- ModerateDemented/
-`-- OriginalDataset/
-    |-- NonDemented/
-    |-- VeryMildDemented/
-    |-- MildDemented/
-    `-- ModerateDemented/
-```
-
-Sinif adlari proje boyunca aynidir:
-
-- `NonDemented`
-- `VeryMildDemented`
-- `MildDemented`
-- `ModerateDemented`
-
-Egitim akisinda varsayilan politika:
-
-- `AugmentedAlzheimerDataset`: train + validation
-- `OriginalDataset`: test
-
-Bu ayrim, augment edilmis verilerle egitim yaparken gercek performansi original veri uzerinde olcmek icin kullanilir.
 
 ## Hizli Baslangic
 
@@ -92,12 +80,6 @@ Bu ayrim, augment edilmis verilerle egitim yaparken gercek performansi original 
 
 ```bash
 mri-eda --interactive
-```
-
-Alternatif:
-
-```bash
-python -m eda_analiz.eda_calistir --interactive
 ```
 
 ### 2. Goruntu on isleme ve ozellik cikarma
@@ -108,7 +90,7 @@ Interaktif menu:
 mri-preprocess --action menu
 ```
 
-Tek komutta tum temel 2D akis:
+Tam 2D akis:
 
 ```bash
 mri-preprocess --action all --input-dir Veri_Seti/AugmentedAlzheimerDataset --output-dir goruntu_isleme/cikti --yes
@@ -121,46 +103,42 @@ mri-train --model resnet --epochs 50 --batch-size 32
 mri-train --model unet --epochs 50 --batch-size 16
 ```
 
-Alternatif:
-
-```bash
-python -m model.train --model resnet --epochs 50 --batch-size 32
-```
-
 ### 4. Tahmin
 
 ```bash
 mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --image ornek.jpg
 ```
 
-## Teknik Ozet
+## Varsayilan Veri Politikasi
 
-- Framework: PyTorch
-- Modeller: ResNet18 ve U-Net encoder tabanli siniflandirici
-- Metrikler: Accuracy, precision, recall, F1 (macro)
-- Egitim ozellikleri: early stopping, best checkpoint, ReduceLROnPlateau, class weights, focal loss
-- Veri guvenligi: dosya adindan kaynak grup cikarilabiliyorsa leak-free split, aksi halde uyari ile stratified fallback
-- Cihaz secimi: CUDA varsa GPU, yoksa CPU
+- `Veri_Seti/AugmentedAlzheimerDataset`: train + validation
+- `Veri_Seti/OriginalDataset`: test
+
+Bu ayrim, augment edilmis goruntulerle egitim yaparken nihai degerlendirmeyi original veri uzerinde tutmak icin kullanilir. Ayrintilar icin [`Veri_Seti/README.md`](Veri_Seti/README.md) dosyasina bakin.
 
 ## Ciktilar
 
-- `eda_analiz/eda_ciktilar/`: EDA raporlari ve grafikler
-- `goruntu_isleme/cikti/`: Islenmis goruntuler, ozellik CSV'leri ve scaler dosyalari
+- `eda_analiz/eda_ciktilar/`: EDA grafik ve tablo ciktilari
+- `goruntu_isleme/cikti/`: Islenmis goruntuler, ozellik CSV'leri, split dosyalari ve scaler
 - `model/ciktilar/modeller/`: Egitilmis `.pt` checkpoint dosyalari
 - `model/ciktilar/raporlar/`: JSON performans raporlari
 - `model/ciktilar/gorseller/`: Confusion matrix ve egitim egrileri
 
 ## Test
 
+Tum testler:
+
 ```bash
 pytest
 ```
 
-Veri ya da GPU gerektiren testleri filtrelemek icin:
+Veri veya GPU gerektirenleri disarida birakmak icin:
 
 ```bash
 pytest -m "not requires_data and not requires_gpu"
 ```
+
+Test duzeni icin [`tests/README.md`](tests/README.md) dosyasina bakin.
 
 ## Lisans
 

@@ -322,7 +322,7 @@ def tum_islemleri_yap(
     print("\nSu islemler sirayla yapilacak:")
     print("  1. Goruntu on isleme")
     print("  2. Ozellik cikarma")
-    print("  3. Veri bolme + egitim setine gore olceklendirme")
+    print("  3. Veri bolme + egitim setine gore NaN temizligi + olceklendirme")
     print("  4. Istatistik raporu")
 
     if not skip_confirmation:
@@ -355,6 +355,7 @@ def tum_islemleri_yap(
     print("\n\n" + "=" * 60)
     print("ADIM 3/4: VERI BOLME + OLCEKLENDIRME")
     print("=" * 60)
+    print("[BILGI] Sayisal NaN degerler varsa yalnizca egitim seti medyani ile temizlenecek.")
     sonuc = veri_setini_bol_ve_olceklendir(
         csv_dosyasi=ozellik_csv,
         cikti_klasoru=cikti_klasoru,

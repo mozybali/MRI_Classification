@@ -284,6 +284,47 @@ class TestGorselIsleyiciRegressions:
         assert isleyici_a._random.random() != isleyici_b._random.random()
         assert not np.array_equal(isleyici_a.gaussian_noise(img), isleyici_b.gaussian_noise(img))
 
+    def test_ayni_stem_farkli_uzantilar_birbirini_ezmez(self, tmp_path):
+        isleyici = GorselIsleyici()
+        isleyici.n_jobs = 1
+
+        dataset = tmp_path / "dataset"
+        sinif_klasoru = dataset / "NonDemented"
+        sinif_klasoru.mkdir(parents=True)
+
+        arr_a = np.tile(np.arange(32, dtype=np.uint8), (32, 1)) + 80
+        arr_b = np.tile(np.arange(32, dtype=np.uint8), (32, 1)) + 120
+        Image.fromarray(arr_a, mode="L").save(sinif_klasoru / "sample.jpg")
+        Image.fromarray(arr_b, mode="L").save(sinif_klasoru / "sample.png")
+
+        cikti = tmp_path / "cikti"
+        cikti.mkdir()
+
+        istatistikler = isleyici.tum_gorselleri_isle(cikti, giris_klasoru=dataset)
+        kaydedilenler = sorted(p.name for p in (cikti / "NonDemented").glob("*.png"))
+
+        assert istatistikler["NonDemented"] == 2
+        assert kaydedilenler == ["sample_jpg.png", "sample_png.png"]
+
+    def test_paralel_hata_olursa_sequential_fallback_kullanilir(self, test_dataset_structure, tmp_path, monkeypatch):
+        class FailingPool:
+            def __init__(self, *args, **kwargs):
+                raise PermissionError("pool blocked")
+
+        monkeypatch.setattr(gi, "Pool", FailingPool)
+        monkeypatch.setattr(gi, "tqdm", lambda iterable, **kwargs: iterable)
+
+        isleyici = GorselIsleyici()
+        isleyici.n_jobs = 2
+
+        cikti = tmp_path / "cikti"
+        cikti.mkdir()
+
+        istatistikler = isleyici.tum_gorselleri_isle(cikti, giris_klasoru=test_dataset_structure)
+
+        assert sum(istatistikler.values()) > 0
+        assert len(list(cikti.rglob("*.png"))) > 0
+
     def test_modul_paket_olarak_import_edilebilir(self):
         """goruntu_isleme.goruntu_isleyici paket import'u ile yuklenebilmeli."""
         modul = importlib.import_module("goruntu_isleme.goruntu_isleyici")

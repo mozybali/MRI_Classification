@@ -158,6 +158,42 @@ class OzellikCikarici:
                 },
                 f
             )
+
+    @staticmethod
+    def _sonlu_sayiya_zorla(deger: float, varsayilan: float = 0.0) -> float:
+        """NaN/inf degerleri guvenli varsayilana donustur."""
+        try:
+            sayi = float(deger)
+        except (TypeError, ValueError):
+            return float(varsayilan)
+        return sayi if np.isfinite(sayi) else float(varsayilan)
+
+    @classmethod
+    def _sayisal_nanlari_egitim_referansiyla_doldur(
+        cls,
+        train_df: pd.DataFrame,
+        *diger_dfler: pd.DataFrame,
+    ) -> Tuple[Tuple[pd.DataFrame, ...], Dict[str, float]]:
+        """NaN degerleri yalnizca egitim setinden hesaplanan doldurma degerleriyle temizle."""
+        temiz_train = cls.kaynak_kolonlarini_hazirla(train_df.copy())
+        temiz_digerler = [cls.kaynak_kolonlarini_hazirla(df.copy()) for df in diger_dfler]
+        sayisal_sutunlar = cls._sayisal_sutunlari_bul(temiz_train)
+
+        doldurma_degerleri: Dict[str, float] = {}
+        for col in sayisal_sutunlar:
+            if not (
+                temiz_train[col].isnull().any()
+                or any(col in df.columns and df[col].isnull().any() for df in temiz_digerler)
+            ):
+                continue
+            medyan = cls._sonlu_sayiya_zorla(temiz_train[col].median(skipna=True))
+            doldurma_degerleri[col] = medyan
+            temiz_train[col] = temiz_train[col].fillna(medyan)
+            for df in temiz_digerler:
+                if col in df.columns:
+                    df[col] = df[col].fillna(medyan)
+
+        return (temiz_train, *temiz_digerler), doldurma_degerleri
     
     def tek_goruntu_ozellikleri(self, goruntu_yolu: str) -> Optional[Dict]:
         """
@@ -233,11 +269,11 @@ class OzellikCikarici:
             # Skewness (Çarpıklık): Dağılımın simetrisini ölçer
             # Pozitif = sağa çarpık, negatif = sola çarpık, 0 = simetrik
             from scipy.stats import skew, kurtosis
-            carpiklik = float(skew(piksel_array.flatten()))
+            carpiklik = self._sonlu_sayiya_zorla(skew(piksel_array.flatten()))
             
             # Kurtosis (Basıklık): Dağılımın kuyruk kalınlığını ölçer
             # Yüksek = sivri tepe ve kalın kuyruklar, düşük = düz dağılım
-            basiklik = float(kurtosis(piksel_array.flatten()))
+            basiklik = self._sonlu_sayiya_zorla(kurtosis(piksel_array.flatten()))
             
             # 10. GRADYAN ÖZELLİKLERİ (Kenar Yoğunluğu)
             # Gradyan, görüntüdeki değişim hızını ölçer (kenarları yakalar)
@@ -347,12 +383,22 @@ class OzellikCikarici:
             
             partial_func = partial(_ozellik_cikar_wrapper, sinif_adi=sinif_adi)
             if self.n_jobs > 1:
-                with Pool(processes=self.n_jobs) as pool:
-                    sonuclar = list(tqdm(
-                        pool.imap(partial_func, gorseller),
-                        total=len(gorseller),
-                        desc=f"{sinif_adi} isleniyor (paralel)"
-                    ))
+                try:
+                    with Pool(processes=self.n_jobs) as pool:
+                        sonuclar = list(tqdm(
+                            pool.imap(partial_func, gorseller),
+                            total=len(gorseller),
+                            desc=f"{sinif_adi} isleniyor (paralel)"
+                        ))
+                except Exception as e:
+                    print(
+                        "[UYARI] Paralel ozellik cikarma baslatilamadi; sequential moda geciliyor: "
+                        f"{type(e).__name__}: {e}"
+                    )
+                    sonuclar = [
+                        partial_func(gorsel)
+                        for gorsel in tqdm(gorseller, total=len(gorseller), desc=f"{sinif_adi} isleniyor")
+                    ]
             else:
                 sonuclar = [
                     partial_func(gorsel)
@@ -871,6 +917,22 @@ def veri_setini_bol_ve_olceklendir(
     except ValueError as e:
         print(f"[HATA] Olceklendirme baslatilamadi: {e}")
         return None
+
+    (train_df, val_df, test_df), doldurma_degerleri = cikarici._sayisal_nanlari_egitim_referansiyla_doldur(
+        train_df,
+        val_df,
+        test_df,
+    )
+    if doldurma_degerleri:
+        train_nan = int(train_df.isnull().sum().sum())
+        val_nan = int(val_df.isnull().sum().sum())
+        test_nan = int(test_df.isnull().sum().sum())
+        if train_nan + val_nan + test_nan == 0:
+            print(
+                f"[BILGI] Scaling oncesi sayisal NaN degerler egitim medyani ile dolduruldu "
+                f"({len(doldurma_degerleri)} sutun)."
+            )
+
     train_scaled, sayisal_sutunlar = cikarici._df_olceklendir(train_df, scaler, fit=True)
     val_scaled, _ = cikarici._df_olceklendir(val_df, scaler, fit=False)
     test_scaled, _ = cikarici._df_olceklendir(test_df, scaler, fit=False)

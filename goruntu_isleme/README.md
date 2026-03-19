@@ -1,6 +1,6 @@
 # Goruntu Isleme Modulu
 
-Bu modul, ham MRI goruntulerini model egitimine hazir hale getirmek icin on isleme, ozellik cikarma, veri bolme ve olceklendirme adimlarini toplar.
+Bu modul, ham MRI goruntulerini model egitimine hazir hale getirmek icin 2D on isleme, ozellik cikarma, veri bolme ve olceklendirme adimlarini tek akista toplar.
 
 ## Calistirma
 
@@ -16,62 +16,89 @@ Dogrudan Python ile:
 python -m goruntu_isleme.ana_islem --action menu
 ```
 
-Etkilesimsiz ornekler:
+## Aksiyonlar
+
+- `menu`: Interaktif menu
+- `preprocess`: Goruntuleri on isler
+- `extract`: Islenmis goruntulerden ozellik CSV'si uretir
+- `clean-nan`: CSV icindeki NaN degerleri temizler
+- `scale`: Veriyi boler ve scaler'i egitim setine gore fit eder
+- `report`: CSV uzerinden istatistik raporu gosterir
+- `split`: Ham CSV uzerinden veri bolme yapar
+- `all`: `preprocess -> extract -> scale -> report` akisini otomatik calistirir
+
+## Sik Kullanilan Komutlar
+
+Tam 2D akis:
 
 ```bash
-mri-preprocess --action preprocess --input-dir Veri_Seti/AugmentedAlzheimerDataset --output-dir goruntu_isleme/cikti
-mri-preprocess --action extract --input-dir goruntu_isleme/cikti
 mri-preprocess --action all --input-dir Veri_Seti/AugmentedAlzheimerDataset --output-dir goruntu_isleme/cikti --yes
 ```
 
-## Desteklenen Veri Yapisi
+Sadece on isleme:
+
+```bash
+mri-preprocess --action preprocess --input-dir Veri_Seti/AugmentedAlzheimerDataset --output-dir goruntu_isleme/cikti
+```
+
+Ozellik cikarma:
+
+```bash
+mri-preprocess --action extract --input-dir goruntu_isleme/cikti --csv-path goruntu_isleme/cikti/goruntu_ozellikleri.csv
+```
+
+NaN temizleme:
+
+```bash
+mri-preprocess --action clean-nan --csv-path goruntu_isleme/cikti/goruntu_ozellikleri.csv --method median
+```
+
+Bolme ve olceklendirme:
+
+```bash
+mri-preprocess --action scale --csv-path goruntu_isleme/cikti/goruntu_ozellikleri.csv --output-dir goruntu_isleme/cikti --method robust
+```
+
+Ham CSV uzerinden veri bolme:
+
+```bash
+mri-preprocess --action split --csv-path goruntu_isleme/cikti/goruntu_ozellikleri.csv --output-dir goruntu_isleme/cikti
+```
+
+## Onemli Parametreler
+
+- `--action`: Calistirilacak islem
+- `--mode`: `2d` veya opsiyonel modul varsa `3d`
+- `--input-dir`: Girdi klasoru
+- `--output-dir`: Cikti klasoru
+- `--csv-path`: Islem yapilacak CSV dosyasi
+- `--test-csv-path`: Original test ozellik CSV yolu
+- `--method`: `clean-nan` icin `drop|mean|median|zero`, `scale|all` icin `minmax|robust|standard|maxabs`
+- `--yes`: `all` aksiyonunda onayi atlar
+
+3D yolunda ek olarak:
+
+- `--volume-path`: 3D hacim dosyasi veya DICOM klasoru
+- `--class-name`: 3D islem icin sinif adi
+- `--model-path`: 3D model dosyasi
+
+## Varsayilanlar
+
+- Varsayilan giris klasoru: `Veri_Seti/AugmentedAlzheimerDataset`
+- Geri uyumluluk icin `Veri_Seti/` de desteklenir
+- Varsayilan cikti klasoru: `goruntu_isleme/cikti`
+- Varsayilan scaling metodu: `robust`
+- Varsayilan akis 2D'dir; 3D ancak opsiyonel modul mevcutsa kullanilabilir
+
+Desteklenen veri yapilari:
 
 ```text
 Veri_Seti/AugmentedAlzheimerDataset/<SinifAdi>/
 Veri_Seti/OriginalDataset/<SinifAdi>/
-Veri_Seti/<SinifAdi>/                  # Geri uyumluluk
+Veri_Seti/<SinifAdi>/
 ```
 
-Siniflar:
-
-- `NonDemented`
-- `VeryMildDemented`
-- `MildDemented`
-- `ModerateDemented`
-
-On isleme varsayilan olarak `AugmentedAlzheimerDataset` klasorunu kullanir. Kok `Veri_Seti` verilirse uygun alt klasor otomatik secilir.
-
-## Is Akisi
-
-Interaktif menudeki temel adimlar:
-
-- `1`: Goruntuleri on isler
-- `2`: Ozellik cikarir ve `goruntu_ozellikleri.csv` uretir
-- `3`: CSV icindeki `NaN` degerleri temizler (`drop`, `mean`, `median`, `zero`)
-- `4`: Veriyi boler ve scaler'i sadece egitim setine fit ederek olceklendirir
-- `5`: Istatistik raporu gosterir
-- `6`: Ham CSV uzerinden veri boler
-- `7`: `1 -> 2 -> 4 -> 5` adimlarini tek akis halinde calistirir
-
-## Varsayilan Ayarlar
-
-- `VERI_ARTIRMA_AKTIF = False`
-- `BIAS_FIELD_CORRECTION_AKTIF = False`
-- `SKULL_STRIPPING_AKTIF = False`
-- `REGISTRATION_AKTIF = False`
-- `SCALING_METODU = "robust"`
-
-Kod tabani `bias field correction`, `skull stripping`, `registration` ve 3D islem icin genislemeye aciktir; ancak varsayilan 2D JPG akisinda bu ozellikler kapali gelir.
-
-## Veri Sizintisi Notu
-
-Ayni kaynaktan tureyen dosyalar, ornegin `26.jpg` ve `26 (19).jpg`, ayri split'lere dusmemesi icin grup mantigi ile ele alinmaya calisilir. Bu davranis egitim ve degerlendirme arasinda sizinti riskini azaltir.
-
-## Ciktilar
-
-Varsayilan cikti klasoru: `goruntu_isleme/cikti`
-
-Uretilen baslica dosyalar:
+## Uretilen Ciktilar
 
 - Islenmis goruntuler
 - `goruntu_ozellikleri.csv`
@@ -80,15 +107,13 @@ Uretilen baslica dosyalar:
 - `egitim_scaled.csv`, `dogrulama_scaled.csv`, `test_scaled.csv`
 - `feature_scaler.pkl`
 
+## Veri Sizintisi Notu
+
+Split mantigi, ayni kaynaktan tureyen dosyalari mumkun oldugunca ayni grupta tutmaya calisir. Bu sayede egitim ve degerlendirme arasinda kaynak grup sizintisi riski azaltilir.
+
 ## Yardimci Komutlar
 
 ```bash
 python goruntu_isleme/pipeline_quick_test.py
 python goruntu_isleme/test_pipeline.py ornek_goruntu.jpg
 ```
-
-## Notlar
-
-- Boyut ve dosya boyutu gibi sayisal meta kolonlar modele verilmez.
-- Paralel islem sayisi `GorselIsleyici.n_jobs` veya `OzellikCikarici.n_jobs` uzerinden sinirlandirilabilir.
-- Tespit edilen `NaN` degerleri icin genelde `3 -> 4 -> 5` adimlarini yeniden calistirmak yeterlidir.

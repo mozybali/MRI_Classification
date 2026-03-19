@@ -109,6 +109,16 @@ class GorselIsleyici:
     def _cached_path_check(yol_str: str) -> bool:
         """Dosya yolu kontrolü için cache'lenmiş fonksiyon."""
         return Path(yol_str).exists()
+
+    @staticmethod
+    def _cikti_dosya_koku(dosya_yolu: str) -> str:
+        """Cikti dosya kokunu giris adini benzersiz koruyacak sekilde uret."""
+        kaynak = Path(dosya_yolu)
+        uzanti = kaynak.suffix.lower().lstrip(".")
+        parcalar = [kaynak.stem]
+        if uzanti:
+            parcalar.append(uzanti)
+        return "_".join(parca for parca in parcalar if parca)
     
     @staticmethod
     def klasor_olustur(yol: Path):
@@ -1098,7 +1108,7 @@ class GorselIsleyici:
 
             if goruntu is not None:
                 # Orijinal görüntüyü kaydet
-                dosya_adi = Path(dosya_info["yol"]).stem
+                dosya_adi = self._cikti_dosya_koku(dosya_info["yol"])
                 cikti_yolu = sinif_cikti / f"{dosya_adi}.png"
                 self.goruntu_kaydet(goruntu, str(cikti_yolu))
 
@@ -1251,20 +1261,26 @@ class GorselIsleyici:
             paralel_kullan = False
             print("[BILGI] Affine/rigid registration aktif - sequential modda calisiyor (template tutarliligi icin)")
 
+        sonuclar = []
         if paralel_kullan and self.n_jobs > 1:
             # ⚡ PERFORMANS İYİLEŞTİRMESİ: Paralel işleme ile hızlandırma
             print(f"[BILGI] Paralel isleme aktif: {self.n_jobs} cekirdek kullaniliyor")
+            try:
+                with Pool(processes=self.n_jobs, initializer=_islem_worker_init) as pool:
+                    sonuclar = list(tqdm(
+                        pool.imap(_islem_wrapper, islem_args),
+                        total=len(dosyalar),
+                        desc="Goruntuler isleniyor (paralel)"
+                    ))
+            except Exception as e:
+                print(
+                    "[UYARI] Paralel isleme baslatilamadi; sequential moda geciliyor: "
+                    f"{type(e).__name__}: {e}"
+                )
 
-            with Pool(processes=self.n_jobs, initializer=_islem_worker_init) as pool:
-                sonuclar = list(tqdm(
-                    pool.imap(_islem_wrapper, islem_args),
-                    total=len(dosyalar),
-                    desc="Görüntüler işleniyor (paralel)"
-                ))
-        else:
+        if not sonuclar:
             # Sequential işleme
-            sonuclar = []
-            for args in tqdm(islem_args, desc="Görüntüler işleniyor"):
+            for args in tqdm(islem_args, desc="Goruntuler isleniyor"):
                 sonuclar.append(self._tek_goruntu_isle(*args))
 
         # Sonuçları topla

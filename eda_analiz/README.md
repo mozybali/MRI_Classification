@@ -1,13 +1,13 @@
 # EDA Analiz Modulu
 
-Bu modul, MRI veri seti icin kesifsel veri analizi (EDA) uretir. Sinif dagilimi, goruntu boyutlari, yogunluk istatistikleri, korelasyon ve PCA gorsellerini otomatik olarak kaydeder.
+Bu modul, MRI veri seti icin kesifsel veri analizi uretir. Sinif dagilimi, goruntu boyutlari, piksel yogunlugu, korelasyon ve PCA gorsellerini otomatik olarak kaydeder.
 
-## Ne Icin Kullanilir?
+## Ne Icin Kullanilir
 
-- Veri setinin dengeli olup olmadigini hizlica gormek
-- Boyut ve piksel yogunlugu farklarini incelemek
-- Egitimden once veri kalitesini kontrol etmek
-- Rapor veya sunum icin ozet grafikler uretmek
+- Veri setinin dengeli olup olmadigini kontrol etmek
+- Boyut ve yogunluk farklarini egitim oncesi incelemek
+- Problemli goruntu veya sinif dagilimlarini erken fark etmek
+- Rapor ve sunumlar icin hazir grafik ciktilari uretmek
 
 ## Calistirma
 
@@ -23,25 +23,26 @@ Dogrudan Python ile:
 python -m eda_analiz.eda_calistir --interactive
 ```
 
-Arguman vererek etkilesimsiz calistirma:
+Etkilesimsiz ornekler:
 
 ```bash
 mri-eda --data-dir Veri_Seti/AugmentedAlzheimerDataset --output-dir eda_analiz/eda_ciktilar
+mri-eda --data-dir Veri_Seti/OriginalDataset --jobs 1
 ```
 
-Tek cekirdege zorlamak veya paralel sayisini belirlemek icin:
+## CLI Parametreleri
 
-```bash
-mri-eda --data-dir Veri_Seti/AugmentedAlzheimerDataset --jobs 1
-```
+- `--data-dir`: Analiz edilecek veri klasoru
+- `--output-dir`: Ciktilarin yazilacagi klasor
+- `--interactive`: Eksik argumanlari soru-cevap ile tamamlar
+- `--jobs`: Istatistik hesaplamada kullanilacak cekirdek sayisi
 
 ## Varsayilanlar
 
 - Varsayilan veri klasoru: `Veri_Seti/AugmentedAlzheimerDataset`
+- Augmented veri yoksa geri uyumluluk icin `Veri_Seti/`
 - Varsayilan cikti klasoru: `eda_analiz/eda_ciktilar`
-- `--jobs` verilmezse cekirdek sayisi otomatik secilir; paralel hesaplama kullanilamazsa arac tek cekirdege geri duser
-- `Veri_Seti` koku verilirse uygun alt klasor otomatik cozulur
-- `Veri_Seti/OriginalDataset` verilirse analiz sadece original veri uzerinde yapilir
+- `--jobs` verilmezse cekirdek sayisi otomatik secilir
 
 Desteklenen veri yapilari:
 
@@ -53,16 +54,16 @@ Veri_Seti/OriginalDataset/<SinifAdi>/
 
 ## Uretilen Ciktilar
 
-- `0_ozet_istatistikler.txt`: Toplam ornek, sinif dagilimi ve temel ozet
-- `1_sinif_dagilimi.png`: Sinif dagilimi grafigi
-- `2_boyut_analizi.png`: Genislik, yukseklik ve oran dagilimlari
-- `3_yogunluk_analizi.png`: Piksel yogunlugu grafikleri
-- `4_korelasyon_matrisi.png`: Sayisal ozellik korelasyonlari
-- `5_pca_analizi.png`: Ilk iki bilesen uzerinden PCA gorsellestirmesi
-- `veri_seti_istatistikler.csv`: Goruntu bazli temel istatistik tablosu
+- `0_ozet_istatistikler.txt`
+- `1_sinif_dagilimi.png`
+- `2_boyut_analizi.png`
+- `3_yogunluk_analizi.png`
+- `4_korelasyon_matrisi.png`
+- `5_pca_analizi.png`
+- `veri_seti_istatistikler.csv`
 
 ## Notlar
 
-- Istatistik hesaplamalari cok cekirdekli olarak hizlandirilir.
-- Cikti klasoru otomatik olusturulur.
-- Modul, proje kokundeki `requirements.txt` veya `pip install -e .` kurulumu ile calisir.
+- Arac, cikti klasorunu yoksa otomatik olusturur.
+- Istatistik hesaplamalari cok cekirdekli calisma destekler.
+- Proje genelindeki sinif adlari `NonDemented`, `VeryMildDemented`, `MildDemented`, `ModerateDemented` olarak sabittir.
