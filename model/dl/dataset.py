@@ -90,29 +90,54 @@ def collect_images(data_dir: Path) -> Tuple[List[Path], List[int], List[str]]:
             if img_file.suffix.lower() in GORUNTU_UZANTILARI:
                 image_paths.append(img_file)
                 labels.append(label)
-                # Sinif + kaynak id birlikte tutulur; ayni kaynagin turevleri ayni split'te kalir.
                 groups.append(f"{class_name}::{kaynak_id_belirle(img_file.name)}")
 
     return image_paths, labels, groups
 
 
+def _collect_class_dirs(data_dir: Path) -> set[str]:
+    """Veri dizinindeki tum sinif klasorlerini topla."""
+    return {entry.name for entry in data_dir.iterdir() if entry.is_dir()}
+
+
+def _missing_class_names(labels: List[int], num_classes: int) -> List[str]:
+    """Etiket listesinde hic temsil edilmeyen siniflari dondur."""
+    class_counts = np.bincount(labels, minlength=num_classes)
+    return [
+        SINIF_ISIMLERI[class_id]
+        for class_id, count in enumerate(class_counts)
+        if count == 0
+    ]
+
+
 def _validate_class_match(trainval_dir: Path, test_dir: Path) -> None:
-    """İki dizindeki sınıf klasörlerinin eşleştiğini doğrula."""
-    tv_classes = {d.name for d in trainval_dir.iterdir() if d.is_dir()} & set(SINIF_ISIMLERI)
-    te_classes = {d.name for d in test_dir.iterdir() if d.is_dir()} & set(SINIF_ISIMLERI)
+    """Iki dizindeki sinif klasorlerinin beklenen yapida oldugunu dogrula."""
+    expected_classes = set(SINIF_ISIMLERI)
+    tv_classes = _collect_class_dirs(trainval_dir)
+    te_classes = _collect_class_dirs(test_dir)
     if not tv_classes:
         raise FileNotFoundError(
-            f"Trainval dizininde bilinen sinif klasoru yok: {trainval_dir}"
+            f"Trainval dizininde sinif klasoru yok: {trainval_dir}"
         )
     if not te_classes:
         raise FileNotFoundError(
-            f"Test dizininde bilinen sinif klasoru yok: {test_dir}"
+            f"Test dizininde sinif klasoru yok: {test_dir}"
         )
-    if tv_classes != te_classes:
+
+    def _format_details(root: Path, classes: set[str]) -> str:
+        missing = sorted(expected_classes - classes)
+        unexpected = sorted(classes - expected_classes)
+        return (
+            f"  {root}: mevcut={sorted(classes)} | "
+            f"eksik={missing or ['yok']} | "
+            f"beklenmeyen={unexpected or ['yok']}"
+        )
+
+    if tv_classes != expected_classes or te_classes != expected_classes:
         raise ValueError(
             f"Sinif isimleri eslesmiyor!\n"
-            f"  Trainval ({trainval_dir}): {sorted(tv_classes)}\n"
-            f"  Test     ({test_dir}):     {sorted(te_classes)}"
+            f"{_format_details(trainval_dir, tv_classes)}\n"
+            f"{_format_details(test_dir, te_classes)}"
         )
 
 
@@ -144,6 +169,7 @@ def _group_stratified_train_val_split(
     val_ratio: float,
     seed: int,
     num_classes: int,
+    require_all_classes_in_each_split: bool = False,
 ) -> Tuple[List[int], List[int]]:
     """
     Grup sizintisini engelleyerek (ayni kaynak ayni split'te) yaklasik
@@ -160,22 +186,6 @@ def _group_stratified_train_val_split(
     if len(group_to_indices) < 2:
         raise ValueError(
             f"Leak-free bolme icin en az 2 kaynak grup gerekli (bulunan: {len(group_to_indices)})."
-        )
-
-    class_to_groups: Dict[int, set[str]] = defaultdict(set)
-    for label, grp in zip(labels, groups):
-        class_to_groups[label].add(grp)
-
-    insufficient_classes = [
-        SINIF_ISIMLERI[class_id]
-        for class_id in range(num_classes)
-        if len(class_to_groups[class_id]) < 2
-    ]
-    if insufficient_classes:
-        joined = ", ".join(insufficient_classes)
-        raise ValueError(
-            "Leak-free train/val bolme icin her sinifta en az 2 farkli kaynak grup gerekli. "
-            f"Eksik siniflar: {joined}"
         )
 
     group_items = []
@@ -260,7 +270,7 @@ def _group_stratified_train_val_split(
         missing_split = 0 if split_class_totals[0] == 0 else 1
         donor_split = 1 - missing_split
         moved = _move_smallest_group_with_class(donor_split, missing_split, class_id)
-        if not moved:
+        if not moved and require_all_classes_in_each_split:
             raise RuntimeError(
                 "Leak-free split sonrasi her sinif train ve validation icinde temsil edilemedi. "
                 f"Sorunlu sinif: {SINIF_ISIMLERI[class_id]}"
@@ -280,18 +290,14 @@ def _group_stratified_train_val_split(
     if split_group_keys[0] & split_group_keys[1]:
         raise RuntimeError("Train/Val arasinda kaynak grup sizintisi tespit edildi.")
 
-    for split_name, idxs in (("train", split_indices[0]), ("validation", split_indices[1])):
-        class_counts = np.bincount([labels[idx] for idx in idxs], minlength=num_classes)
-        missing_classes = [
-            SINIF_ISIMLERI[class_id]
-            for class_id, count in enumerate(class_counts)
-            if count == 0
-        ]
-        if missing_classes:
-            joined = ", ".join(missing_classes)
-            raise RuntimeError(
-                f"{split_name} split'inde sinif kapsami eksik kaldi: {joined}"
-            )
+    if require_all_classes_in_each_split:
+        for split_name, idxs in (("train", split_indices[0]), ("validation", split_indices[1])):
+            missing_classes = _missing_class_names([labels[idx] for idx in idxs], num_classes)
+            if missing_classes:
+                joined = ", ".join(missing_classes)
+                raise RuntimeError(
+                    f"{split_name} split'inde sinif kapsami eksik kaldi: {joined}"
+                )
 
     return split_indices[0], split_indices[1]
 
@@ -313,7 +319,6 @@ def create_dataloaders(
     """
     _validate_class_match(trainval_dir, test_dir)
 
-    # --- Augmented: train + val ---
     tv_paths, tv_labels, tv_groups = collect_images(trainval_dir)
     if len(tv_paths) == 0:
         raise FileNotFoundError(f"Trainval verisi bulunamadi: {trainval_dir}")
@@ -342,13 +347,23 @@ def create_dataloaders(
     labels_train = [tv_labels[i] for i in train_idxs]
     paths_val = [tv_paths[i] for i in val_idxs]
     labels_val = [tv_labels[i] for i in val_idxs]
+    train_missing_classes = _missing_class_names(labels_train, len(SINIF_ISIMLERI))
+    val_missing_classes = _missing_class_names(labels_val, len(SINIF_ISIMLERI))
+    split_warnings = []
+    if train_missing_classes:
+        split_warnings.append(f"Train split'inde eksik siniflar: {', '.join(train_missing_classes)}")
+    if val_missing_classes:
+        split_warnings.append(
+            f"Validation split'inde eksik siniflar: {', '.join(val_missing_classes)}"
+        )
 
     print(f"  [Test] Kaynak: {test_dir}")
     print(f"  [Test] Toplam goruntu: {len(paths_test)}")
     for name, lbl in SINIF_ETIKETI.items():
         print(f"    {name}: {labels_test.count(lbl)}")
+    for warning in split_warnings:
+        print(f"  [UYARI] {warning}")
 
-    # --- Dataset ve DataLoader ---
     train_ds = MRIDataset(paths_train, labels_train, get_transforms(image_size, is_train=True))
     val_ds = MRIDataset(paths_val, labels_val, get_transforms(image_size, is_train=False))
     test_ds = MRIDataset(paths_test, labels_test, get_transforms(image_size, is_train=False))
@@ -380,6 +395,7 @@ def create_dataloaders(
         "trainval_dir": str(trainval_dir),
         "test_dir": str(test_dir),
         "val_ratio": val_ratio,
+        "split_warnings": split_warnings,
     }
 
     return train_loader, val_loader, test_loader, info

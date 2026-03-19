@@ -29,17 +29,17 @@ if __package__ in {None, ""}:
     from model.dl.dataset import SINIF_ISIMLERI
     from model.dl.models.resnet_classifier import ResNetClassifier
     from model.dl.models.unet_classifier import UNetClassifier
-    from model.dl.utils import get_device
+    from model.dl.utils import get_device, load_checkpoint
 else:
     from .dl.dataset import SINIF_ISIMLERI
     from .dl.models.resnet_classifier import ResNetClassifier
     from .dl.models.unet_classifier import UNetClassifier
-    from .dl.utils import get_device
+    from .dl.utils import get_device, load_checkpoint
 
 
 def load_model(model_path: Path, device: torch.device):
     """Checkpoint'tan model yukle."""
-    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+    checkpoint = load_checkpoint(model_path, map_location=device)
     model_name = checkpoint.get("model_name", "resnet")
     num_classes = checkpoint.get("num_classes", 4)
 
@@ -56,6 +56,10 @@ def load_model(model_path: Path, device: torch.device):
 
     image_size = checkpoint.get("image_size", 224)
     class_names = checkpoint.get("class_names", SINIF_ISIMLERI)
+    if len(class_names) != num_classes:
+        raise ValueError(
+            "Checkpoint metadata tutarsiz: class_names uzunlugu num_classes ile eslesmiyor."
+        )
 
     return model, image_size, class_names
 

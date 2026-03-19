@@ -24,7 +24,7 @@ import torch.nn.functional as F
 from model.dl.dataset import kaynak_id_belirle, _group_stratified_train_val_split
 from model.dl.losses import FocalLoss, compute_class_weights
 from model.dl.models.resnet_classifier import ResNetClassifier
-from model.dl.utils import plot_confusion_matrix
+from model.dl.utils import load_checkpoint, plot_confusion_matrix
 from model.train import build_model
 
 
@@ -82,25 +82,41 @@ def test_group_split_her_sinifi_iki_splitte_de_temsil_eder():
     assert np.all(val_counts > 0)
 
 
-def test_group_split_yetersiz_kaynak_grubunda_hata_verir():
+def test_group_split_tek_kaynakli_sinifta_best_effort_bolme_yapar():
     labels = [0, 0, 1, 1]
     groups = [
         "A::g1", "A::g1",
         "B::g1", "B::g2",
     ]
 
-    try:
+    train_idxs, val_idxs = _group_stratified_train_val_split(
+        labels=labels,
+        groups=groups,
+        val_ratio=0.5,
+        seed=42,
+        num_classes=2,
+    )
+
+    assert set(train_idxs).isdisjoint(val_idxs)
+    assert len(train_idxs) + len(val_idxs) == len(labels)
+
+
+def test_group_split_strict_modda_eksik_sinif_kapsamini_reddeder():
+    labels = [0, 0, 1, 1]
+    groups = [
+        "A::g1", "A::g1",
+        "B::g1", "B::g2",
+    ]
+
+    with pytest.raises(RuntimeError, match="sinif kapsami eksik kaldi"):
         _group_stratified_train_val_split(
             labels=labels,
             groups=groups,
             val_ratio=0.5,
             seed=42,
             num_classes=2,
+            require_all_classes_in_each_split=True,
         )
-    except ValueError as exc:
-        assert "en az 2 farkli kaynak grup" in str(exc)
-    else:
-        raise AssertionError("Beklenen ValueError olusmadi.")
 
 
 def test_compute_class_weights_pozitif_deger_uretir():
@@ -153,6 +169,23 @@ def test_resnet_pretrained_yuklenemezse_acik_hata_verir(monkeypatch):
         assert "pretrained agirliklar istendi ama yuklenemedi" in str(exc)
     else:
         raise AssertionError("Beklenen RuntimeError olusmadi.")
+
+
+def test_load_checkpoint_guvenli_modu_kullanir(monkeypatch, tmp_path):
+    calls = {}
+
+    def fake_load(path, map_location=None, weights_only=None):
+        calls["path"] = path
+        calls["map_location"] = map_location
+        calls["weights_only"] = weights_only
+        return {"model_state_dict": {"weight": torch.tensor([1.0])}}
+
+    monkeypatch.setattr("model.dl.utils.torch.load", fake_load)
+
+    checkpoint = load_checkpoint(tmp_path / "dummy.pt", map_location="cpu")
+
+    assert checkpoint["model_state_dict"]["weight"].item() == 1.0
+    assert calls["weights_only"] is True
 
 
 def test_train_epochs_sifir_icin_anlamli_hata_verir():

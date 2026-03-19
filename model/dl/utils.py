@@ -44,6 +44,24 @@ def get_device() -> torch.device:
     return device
 
 
+def load_checkpoint(path: Path, map_location: torch.device | str):
+    """Checkpoint'i pickle calistirmadan guvenli modda yukle."""
+    try:
+        checkpoint = torch.load(path, map_location=map_location, weights_only=True)
+    except Exception as exc:
+        raise RuntimeError(
+            "Checkpoint guvenli modda yuklenemedi. Dosyanin bu proje tarafindan "
+            "olusturulan standart bir checkpoint oldugundan emin olun."
+        ) from exc
+
+    if not isinstance(checkpoint, dict):
+        raise ValueError("Checkpoint formati gecersiz: sozluk bekleniyordu.")
+    if "model_state_dict" not in checkpoint:
+        raise ValueError("Checkpoint formati gecersiz: 'model_state_dict' anahtari eksik.")
+
+    return checkpoint
+
+
 def plot_confusion_matrix(
     labels: np.ndarray,
     preds: np.ndarray,

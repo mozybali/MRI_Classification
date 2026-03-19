@@ -132,6 +132,18 @@ def test_validate_class_match_mismatch_raises(tmp_path):
         _validate_class_match(trainval_dir, test_dir)
 
 
+def test_validate_class_match_beklenmeyen_klasoru_reddeder(tmp_path):
+    trainval_dir = tmp_path / "trainval"
+    test_dir = tmp_path / "test"
+    for class_name in SINIF_ISIMLERI:
+        (trainval_dir / class_name).mkdir(parents=True, exist_ok=True)
+        (test_dir / class_name).mkdir(parents=True, exist_ok=True)
+    (trainval_dir / "UnknownClass").mkdir()
+
+    with pytest.raises(ValueError, match="beklenmeyen"):
+        _validate_class_match(trainval_dir, test_dir)
+
+
 def test_create_dataloaders_builds_leak_free_splits(tmp_path):
     trainval_dir = tmp_path / "trainval"
     test_dir = tmp_path / "test"

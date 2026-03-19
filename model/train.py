@@ -37,7 +37,13 @@ if __package__ in {None, ""}:
     from model.dl.losses import FocalLoss, compute_class_weights
     from model.dl.models.resnet_classifier import ResNetClassifier
     from model.dl.models.unet_classifier import UNetClassifier
-    from model.dl.utils import set_seed, get_device, plot_confusion_matrix, plot_training_curves
+    from model.dl.utils import (
+        set_seed,
+        get_device,
+        load_checkpoint,
+        plot_confusion_matrix,
+        plot_training_curves,
+    )
 else:
     from .ayarlar import (
         MODELS_KLASORU,
@@ -52,7 +58,13 @@ else:
     from .dl.losses import FocalLoss, compute_class_weights
     from .dl.models.resnet_classifier import ResNetClassifier
     from .dl.models.unet_classifier import UNetClassifier
-    from .dl.utils import set_seed, get_device, plot_confusion_matrix, plot_training_curves
+    from .dl.utils import (
+        set_seed,
+        get_device,
+        load_checkpoint,
+        plot_confusion_matrix,
+        plot_training_curves,
+    )
 
 
 def build_model(
@@ -146,6 +158,10 @@ Ornekler:
         f"  Grup: Train={info['train_groups']}, "
         f"Val={info['val_groups']}"
     )
+    if info["split_warnings"]:
+        print("  [UYARI] Leak-free split sinif kapsami tam degil:")
+        for warning in info["split_warnings"]:
+            print(f"    - {warning}")
 
     num_classes = info["num_classes"]
     model = build_model(args.model, num_classes, device, pretrained=args.pretrained)
@@ -221,7 +237,7 @@ Ornekler:
     print("TEST DEGERLENDIRMESI")
     print(f"{'='*70}\n")
 
-    checkpoint = torch.load(best_checkpoint_path, map_location=device, weights_only=False)
+    checkpoint = load_checkpoint(best_checkpoint_path, map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])
 
     test_metrics = evaluate(model, test_loader, criterion, device)
