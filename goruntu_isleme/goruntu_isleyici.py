@@ -370,26 +370,46 @@ class GorselIsleyici:
             pil_img = pil_img.resize((genislik, yukseklik), Image.LANCZOS)
             return np.array(pil_img)
     
-    def gurultu_gider(self, goruntu: np.ndarray, metod: str = 'median') -> np.ndarray:
+    def _bilateral_filtre_uygula(self, goruntu: np.ndarray) -> np.ndarray:
+        """OpenCV mevcutsa kenar korumali bilateral filtre uygula."""
+        if not CV2_AVAILABLE:
+            return goruntu
+
+        filtered = cv2.bilateralFilter(goruntu, d=5, sigmaColor=35, sigmaSpace=35)
+        return np.clip(filtered, 0, 255).astype(np.uint8)
+
+    def gurultu_gider(self, goruntu: np.ndarray, metod: str = 'auto') -> np.ndarray:
         """
         Görüntüden gürültüyü temizle.
-        
+
         MRI görüntülerinde sıkça salt-and-pepper ve Gaussian gürültü görülür.
         Bu gürültüler model performansını düşürür, temizlenmesi gerekir.
-        
+
         Args:
             goruntu: Girdi görüntüsü
-            metod: 'median' (salt-and-pepper için) veya 'gaussian' (Gaussian için)
-            
+            metod: 'auto', 'median', 'gaussian' veya 'bilateral'
+
         Returns:
             Gürültüsü azaltılmış görüntü
         """
+        if metod == 'auto':
+            if GELISMIS_FILTRE_AKTIF:
+                if BILATERAL_FILTRE_AKTIF and CV2_AVAILABLE:
+                    return self._bilateral_filtre_uygula(goruntu)
+                if GAUSSIAN_BLUR_AKTIF:
+                    return self.gurultu_gider(goruntu, metod='gaussian')
+            return self.gurultu_gider(goruntu, metod='median')
+
         if metod == 'median':
             # Median filtre: Salt-and-pepper gürültüsü için ideal
-            return ndimage.median_filter(goruntu, size=3)
+            filtered = ndimage.median_filter(goruntu, size=3)
+            return np.clip(filtered, 0, 255).astype(np.uint8)
         elif metod == 'gaussian' and GAUSSIAN_BLUR_AKTIF:
             # Gaussian filtre: Genel gürültü azaltma
-            return ndimage.gaussian_filter(goruntu, sigma=GAUSSIAN_BLUR_SIGMA)
+            filtered = ndimage.gaussian_filter(goruntu, sigma=GAUSSIAN_BLUR_SIGMA)
+            return np.clip(filtered, 0, 255).astype(np.uint8)
+        elif metod == 'bilateral' and BILATERAL_FILTRE_AKTIF and CV2_AVAILABLE:
+            return self._bilateral_filtre_uygula(goruntu)
         else:
             return goruntu
     
@@ -419,22 +439,66 @@ class GorselIsleyici:
             return self._advanced_skull_strip(goruntu)
         else:
             return self._simple_skull_strip(goruntu)
+
+    @staticmethod
+    def _kenar_maskesini_temizle(mask: np.ndarray) -> np.ndarray:
+        """Maske kenarlarindaki artefaktlari ayarlanabilir pay ile temizle."""
+        temiz = mask.astype(bool, copy=True)
+        pay = max(0, int(MASKE_KENAR_PAYI))
+        if pay == 0:
+            return temiz
+
+        h, w = temiz.shape
+        if pay * 2 >= min(h, w):
+            return np.zeros_like(temiz, dtype=bool)
+
+        temiz[:pay, :] = False
+        temiz[-pay:, :] = False
+        temiz[:, :pay] = False
+        temiz[:, -pay:] = False
+        return temiz
+
+    @staticmethod
+    def _morfolojik_yapi(kernel_boyutu: Optional[int] = None) -> np.ndarray:
+        """Ayarlardaki kernel boyutunu kullanarak kare yapı elemani üret."""
+        boyut = int(kernel_boyutu or MORFOLOJIK_KERNEL_BOYUTU)
+        boyut = max(1, boyut)
+        return np.ones((boyut, boyut), dtype=bool)
+
+    def _maskeyi_duzenle(
+        self,
+        mask: np.ndarray,
+        *,
+        closing_scale: int = 2,
+        dilation_scale: int = 0,
+    ) -> np.ndarray:
+        """Maske kenarlarini ve morfolojik temizligini ayarlara gore uygula."""
+        duzenli = self._kenar_maskesini_temizle(mask)
+        if not MORFOLOJIK_OPERASYONLAR_AKTIF:
+            return duzenli
+
+        temel = self._morfolojik_yapi()
+        close_kernel = self._morfolojik_yapi(MORFOLOJIK_KERNEL_BOYUTU * max(1, closing_scale))
+        duzenli = ndimage.binary_opening(duzenli, structure=temel)
+        duzenli = ndimage.binary_closing(duzenli, structure=close_kernel)
+
+        if dilation_scale > 0:
+            dilate_kernel = self._morfolojik_yapi(MORFOLOJIK_KERNEL_BOYUTU * dilation_scale)
+            duzenli = ndimage.binary_dilation(duzenli, structure=dilate_kernel)
+
+        return duzenli.astype(bool)
     
     def _simple_skull_strip(self, goruntu: np.ndarray) -> np.ndarray:
         """Basit skull stripping (Otsu thresholding)."""
         try:
             from skimage.filters import threshold_otsu
-            from skimage.morphology import binary_opening, disk, binary_closing
             
             # Eşik değeri bul
             esik = threshold_otsu(goruntu)
             
             # Binary maske oluştur
             maske = goruntu > esik
-            
-            # Morfolojik işlemlerle gürültü temizle
-            maske = binary_opening(maske, disk(2))  # Küçük delikleri kapat
-            maske = binary_closing(maske, disk(5))  # Küçük noktaları sil
+            maske = self._maskeyi_duzenle(maske, closing_scale=2)
             
             # Maskeyi uygula
             return (goruntu * maske).astype(np.uint8)
@@ -443,6 +507,7 @@ class GorselIsleyici:
             # scikit-image yoksa basit eşikleme kullan
             esik = np.percentile(goruntu, 30)
             maske = goruntu > esik
+            maske = self._maskeyi_duzenle(maske, closing_scale=2)
             return (goruntu * maske).astype(np.uint8)
     
     def _advanced_skull_strip(self, goruntu: np.ndarray) -> np.ndarray:
@@ -461,29 +526,26 @@ class GorselIsleyici:
         try:
             from skimage.filters import threshold_otsu
             from skimage.morphology import (
-                binary_opening, binary_closing, binary_erosion,
-                binary_dilation, disk, remove_small_objects, remove_small_holes
+                remove_small_objects, remove_small_holes
             )
             from skimage.measure import label
             
             # 1. Otsu eşikleme ile başlangıç maskesi
             esik = threshold_otsu(goruntu)
             maske = goruntu > esik
+            maske = self._kenar_maskesini_temizle(maske)
             
             # 2. Küçük nesneleri temizle (min_size = toplam pikselin %0.5'i)
             min_size = int(goruntu.size * 0.005)
             maske = remove_small_objects(maske, min_size=min_size)
             
-            # 3. Morfolojik opening (gürültü temizleme)
-            maske = binary_opening(maske, disk(3))
+            # 3. Morfolojik gürültü temizleme
+            maske = self._maskeyi_duzenle(maske, closing_scale=1)
             
             # 4. Küçük delikleri kapat
             maske = remove_small_holes(maske, area_threshold=min_size)
             
-            # 5. Morfolojik closing (kenarları düzgünleştir)
-            maske = binary_closing(maske, disk(7))
-            
-            # 6. En büyük bağlantılı bileşeni bul (beyin olmalı)
+            # 5. En büyük bağlantılı bileşeni bul (beyin olmalı)
             labeled_mask = label(maske)
             if labeled_mask.max() > 0:
                 # Her bileşenin boyutunu hesapla
@@ -491,11 +553,11 @@ class GorselIsleyici:
                 # Arka plan (0) hariç en büyük bölgeyi bul
                 largest_region = regions[1:].argmax() + 1
                 maske = labeled_mask == largest_region
+
+            # 6. Kenarlari yumusat ve beyin dokusunu korumak icin hafif genislet
+            maske = self._maskeyi_duzenle(maske, closing_scale=2, dilation_scale=1)
             
-            # 7. Kenarları biraz genişlet (beyin dokusunu kaybetmemek için)
-            maske = binary_dilation(maske, disk(3))
-            
-            # 8. Maskeyi uygula
+            # 7. Maskeyi uygula
             result = (goruntu * maske).astype(np.uint8)
             
             return result
@@ -811,7 +873,7 @@ class GorselIsleyici:
             return None
         
         # 3. Gürültü giderme (erken aşama)
-        goruntu = self.gurultu_gider(goruntu, metod='median')
+        goruntu = self.gurultu_gider(goruntu, metod='auto')
         
         # 4. Bias field correction (geliştirilmiş)
         goruntu = self.bias_field_correction(goruntu)

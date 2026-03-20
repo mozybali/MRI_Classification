@@ -20,11 +20,16 @@ import torch
 
 from .ayarlar import (
     CIKTI_KLASORU,
+    GORSELLER_KLASORU,
     ISLENMIS_TEST_VERI_DIZINI,
     ISLENMIS_TRAINVAL_VERI_DIZINI,
     ISLENMIS_VERI_KLASORU,
+    MODELS_KLASORU,
     RASTGELE_TOHUM,
+    RAPORLAR_KLASORU,
+    TEST_VERI_DIZINI,
     TRAINVAL_VERI_DIZINI,
+    VARSAYILAN_VERI_DIZINI,
 )
 from .dl.dataset import SINIF_ISIMLERI, create_dataloaders
 from .dl.engine import EarlyStopping, evaluate, train_one_epoch
@@ -72,6 +77,23 @@ def _resolve_processed_trainval_dir() -> Path:
     return ISLENMIS_TRAINVAL_VERI_DIZINI
 
 
+def _resolve_default_trainval_dir() -> Path:
+    """Varsayilan train/val kaynagini ayarlardan sec."""
+    if VARSAYILAN_VERI_DIZINI.exists():
+        return VARSAYILAN_VERI_DIZINI
+    return TRAINVAL_VERI_DIZINI
+
+
+def _resolve_default_test_dir(trainval_dir: Path) -> Path | None:
+    """Ayar dosyasindaki harici test dizini kullanilabiliyorsa dondur."""
+    if not TEST_VERI_DIZINI.exists() or not _contains_class_dirs(TEST_VERI_DIZINI):
+        return None
+
+    if TEST_VERI_DIZINI.resolve() == trainval_dir.resolve():
+        return None
+    return TEST_VERI_DIZINI
+
+
 def build_model(
     name: str,
     num_classes: int,
@@ -108,14 +130,14 @@ def resolve_data_dirs(
     elif config.use_processed_trainval:
         trainval_dir = _resolve_processed_trainval_dir()
     else:
-        trainval_dir = TRAINVAL_VERI_DIZINI
+        trainval_dir = _resolve_default_trainval_dir()
 
     if config.test_dir:
         test_dir: Path | None = Path(config.test_dir)
     elif config.use_processed_test:
         test_dir = ISLENMIS_TEST_VERI_DIZINI
     else:
-        test_dir = None
+        test_dir = _resolve_default_test_dir(trainval_dir)
     return trainval_dir, test_dir
 
 
@@ -182,9 +204,14 @@ def _is_improved(
 
 
 def _build_output_dirs(output_root: Path) -> dict[str, Path]:
-    models_dir = output_root / "modeller"
-    reports_dir = output_root / "raporlar"
-    visuals_dir = output_root / "gorseller"
+    if output_root.resolve() == CIKTI_KLASORU.resolve():
+        models_dir = MODELS_KLASORU
+        reports_dir = RAPORLAR_KLASORU
+        visuals_dir = GORSELLER_KLASORU
+    else:
+        models_dir = output_root / "modeller"
+        reports_dir = output_root / "raporlar"
+        visuals_dir = output_root / "gorseller"
     for directory in (models_dir, reports_dir, visuals_dir):
         directory.mkdir(parents=True, exist_ok=True)
     return {

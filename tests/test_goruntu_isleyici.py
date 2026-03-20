@@ -112,6 +112,73 @@ class TestGorselIsleyici:
         assert resized.shape == (256, 256)
         assert resized.dtype == np.uint8
 
+    def test_gurultu_gider_auto_varsayilan_olarak_median_kullanir(self, monkeypatch):
+        """Gelismis filtreler kapaliyken auto mod median filtreye dusmeli."""
+        monkeypatch.setattr(gi, "GELISMIS_FILTRE_AKTIF", False)
+        monkeypatch.setattr(gi, "GAUSSIAN_BLUR_AKTIF", False)
+        monkeypatch.setattr(gi, "BILATERAL_FILTRE_AKTIF", False)
+
+        isleyici = GorselIsleyici()
+        test_img = np.full((9, 9), 128, dtype=np.uint8)
+        test_img[4, 4] = 255
+
+        result = isleyici.gurultu_gider(test_img, metod='auto')
+
+        assert result.dtype == np.uint8
+        assert result[4, 4] != 255
+
+    def test_goruntu_isle_gurultu_giderme_ayar_gudumlu_calisir(self, monkeypatch):
+        """goruntu_isle median'i zorlamamali; gurultu giderme auto modda cagrilmali."""
+        isleyici = GorselIsleyici()
+        test_img = np.random.randint(50, 180, (64, 64), dtype=np.uint8)
+        cagrilan_metodlar = []
+
+        monkeypatch.setattr(isleyici, "goruntu_yukle", lambda _: test_img)
+        monkeypatch.setattr(isleyici, "goruntu_kalite_kontrol", lambda _: (True, ""))
+        monkeypatch.setattr(isleyici, "bias_field_correction", lambda img: img)
+        monkeypatch.setattr(isleyici, "skull_strip", lambda img: img)
+        monkeypatch.setattr(isleyici, "center_of_mass_alignment", lambda img: img)
+        monkeypatch.setattr(isleyici, "_apply_normalization_strategy", lambda img: img)
+        monkeypatch.setattr(isleyici, "boyutlandir", lambda img: img)
+
+        def spy(img, metod='auto'):
+            cagrilan_metodlar.append(metod)
+            return img
+
+        monkeypatch.setattr(isleyici, "gurultu_gider", spy)
+
+        result = isleyici.goruntu_isle("dummy.png")
+
+        assert result is not None
+        assert cagrilan_metodlar == ["auto"]
+
+    def test_kenar_maskesi_ayari_maske_sinirlarini_temizler(self, monkeypatch):
+        """MASKE_KENAR_PAYI kenardaki parlak artefaktlari maske disina itmeli."""
+        monkeypatch.setattr(gi, "MASKE_KENAR_PAYI", 2)
+
+        mask = np.ones((8, 8), dtype=bool)
+        cleaned = GorselIsleyici._kenar_maskesini_temizle(mask)
+
+        assert not cleaned[:2, :].any()
+        assert not cleaned[-2:, :].any()
+        assert not cleaned[:, :2].any()
+        assert not cleaned[:, -2:].any()
+        assert cleaned[2:6, 2:6].all()
+
+    def test_maske_duzenleme_morfolojik_ayari_tekil_gurultuyu_temizler(self, monkeypatch):
+        """Morfolojik ayar aktifken izole tek piksel maskeden silinmeli."""
+        monkeypatch.setattr(gi, "MASKE_KENAR_PAYI", 0)
+        monkeypatch.setattr(gi, "MORFOLOJIK_OPERASYONLAR_AKTIF", True)
+        monkeypatch.setattr(gi, "MORFOLOJIK_KERNEL_BOYUTU", 3)
+
+        isleyici = GorselIsleyici()
+        mask = np.zeros((9, 9), dtype=bool)
+        mask[4, 4] = True
+
+        cleaned = isleyici._maskeyi_duzenle(mask, closing_scale=1)
+
+        assert not cleaned.any()
+
     def test_goruntu_kalite_kontrol_valid(self):
         """Yeterli parlaklık ve kontrasta sahip görüntü kalite kontrolünden geçmeli."""
         isleyici = GorselIsleyici()

@@ -306,13 +306,57 @@ def test_resolve_data_dirs_islenmis_test_varsayilanini_kullanir(monkeypatch):
 
 def test_resolve_data_dirs_varsayilanda_ham_veriyi_korur(monkeypatch):
     monkeypatch.setattr(training_runner, "TRAINVAL_VERI_DIZINI", Path("Veri_Seti/OriginalDataset"))
+    monkeypatch.setattr(training_runner, "VARSAYILAN_VERI_DIZINI", Path("Veri_Seti/OriginalDataset"))
     monkeypatch.setattr(training_runner, "ISLENMIS_TRAINVAL_VERI_DIZINI", Path("goruntu_isleme/cikti/trainval"))
     monkeypatch.setattr(training_runner, "ISLENMIS_TEST_VERI_DIZINI", Path("goruntu_isleme/cikti/test"))
+    monkeypatch.setattr(training_runner, "TEST_VERI_DIZINI", Path("Veri_Seti/OriginalDataset"))
 
     trainval_dir, test_dir = training_runner.resolve_data_dirs(training_runner.TrainingConfig())
 
     assert trainval_dir == Path("Veri_Seti/OriginalDataset")
     assert test_dir is None
+
+
+def test_resolve_data_dirs_varsayilan_veri_dizinini_onceliklendirir(monkeypatch):
+    monkeypatch.setattr(training_runner, "TRAINVAL_VERI_DIZINI", Path("fallback/trainval"))
+    monkeypatch.setattr(training_runner, "VARSAYILAN_VERI_DIZINI", Path("."))
+    monkeypatch.setattr(training_runner, "TEST_VERI_DIZINI", Path("fallback/trainval"))
+
+    trainval_dir, _test_dir = training_runner.resolve_data_dirs(training_runner.TrainingConfig())
+
+    assert trainval_dir == Path(".")
+
+
+def test_resolve_data_dirs_harici_test_ayarini_kullanir(monkeypatch):
+    external_test = Path("tmp_test_artifacts") / f"external_test_{uuid4().hex}"
+    for class_name in training_runner.SINIF_ISIMLERI:
+        (external_test / class_name).mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(training_runner, "TRAINVAL_VERI_DIZINI", Path("Veri_Seti/OriginalDataset"))
+    monkeypatch.setattr(training_runner, "VARSAYILAN_VERI_DIZINI", Path("Veri_Seti/OriginalDataset"))
+    monkeypatch.setattr(training_runner, "TEST_VERI_DIZINI", external_test)
+
+    _trainval_dir, test_dir = training_runner.resolve_data_dirs(training_runner.TrainingConfig())
+
+    assert test_dir == external_test
+
+
+def test_build_output_dirs_varsayilan_alt_klasor_ayarlarini_kullanir(monkeypatch):
+    root = Path("tmp_test_artifacts") / f"output_root_{uuid4().hex}"
+    models = root / "weights"
+    reports = root / "json_reports"
+    visuals = root / "plots"
+
+    monkeypatch.setattr(training_runner, "CIKTI_KLASORU", root)
+    monkeypatch.setattr(training_runner, "MODELS_KLASORU", models)
+    monkeypatch.setattr(training_runner, "RAPORLAR_KLASORU", reports)
+    monkeypatch.setattr(training_runner, "GORSELLER_KLASORU", visuals)
+
+    output_dirs = training_runner._build_output_dirs(root)
+
+    assert output_dirs["models"] == models
+    assert output_dirs["reports"] == reports
+    assert output_dirs["visuals"] == visuals
 
 
 def test_hpo_parse_args_bayes_search_parametrelerini_cozer():
