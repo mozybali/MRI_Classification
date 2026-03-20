@@ -69,12 +69,29 @@ def _contains_class_dirs(data_dir: Path) -> bool:
     return any((data_dir / class_name).is_dir() for class_name in SINIF_ISIMLERI)
 
 
+def _resolve_split_subdir(data_dir: Path, split_name: str) -> Path | None:
+    """Split root verilirse ilgili alt dizini, aksi halde sinif dizinini dondur."""
+    data_dir = Path(data_dir)
+    split_dir = data_dir / split_name
+    if split_dir.exists() and _contains_class_dirs(split_dir):
+        return split_dir
+    if data_dir.exists() and _contains_class_dirs(data_dir):
+        return data_dir
+    return None
+
+
 def _resolve_processed_trainval_dir() -> Path:
-    candidates = [ISLENMIS_TRAINVAL_VERI_DIZINI, ISLENMIS_VERI_KLASORU]
-    for candidate in candidates:
-        if candidate.exists() and _contains_class_dirs(candidate):
-            return candidate
+    if ISLENMIS_TRAINVAL_VERI_DIZINI.exists() and _contains_class_dirs(ISLENMIS_TRAINVAL_VERI_DIZINI):
+        return ISLENMIS_TRAINVAL_VERI_DIZINI
+    if ISLENMIS_VERI_KLASORU.exists() and _contains_class_dirs(ISLENMIS_VERI_KLASORU):
+        return ISLENMIS_VERI_KLASORU
     return ISLENMIS_TRAINVAL_VERI_DIZINI
+
+
+def _resolve_processed_test_dir() -> Path | None:
+    if ISLENMIS_TEST_VERI_DIZINI.exists() and _contains_class_dirs(ISLENMIS_TEST_VERI_DIZINI):
+        return ISLENMIS_TEST_VERI_DIZINI
+    return None
 
 
 def _resolve_default_trainval_dir() -> Path:
@@ -125,17 +142,25 @@ def resolve_data_dirs(
     require_test_dir: bool = True,
 ) -> tuple[Path, Path | None]:
     """Resolve split source directory and optional external test directory."""
+    explicit_trainval_root: Path | None = None
     if config.trainval_dir:
-        trainval_dir = Path(config.trainval_dir)
+        explicit_trainval_root = Path(config.trainval_dir)
+        trainval_dir = _resolve_split_subdir(explicit_trainval_root, "trainval") or explicit_trainval_root
     elif config.use_processed_trainval:
         trainval_dir = _resolve_processed_trainval_dir()
     else:
         trainval_dir = _resolve_default_trainval_dir()
 
     if config.test_dir:
-        test_dir: Path | None = Path(config.test_dir)
+        explicit_test_root = Path(config.test_dir)
+        test_dir = _resolve_split_subdir(explicit_test_root, "test") or explicit_test_root
     elif config.use_processed_test:
-        test_dir = ISLENMIS_TEST_VERI_DIZINI
+        test_dir = _resolve_processed_test_dir() or ISLENMIS_TEST_VERI_DIZINI
+    elif config.use_processed_trainval:
+        if explicit_trainval_root is not None:
+            test_dir = _resolve_split_subdir(explicit_trainval_root, "test")
+        else:
+            test_dir = _resolve_processed_test_dir()
     else:
         test_dir = _resolve_default_test_dir(trainval_dir)
     return trainval_dir, test_dir

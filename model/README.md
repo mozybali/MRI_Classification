@@ -12,6 +12,7 @@ Bu modul, MRI goruntulerinden demans seviyesi siniflandirmak icin PyTorch tabanl
 ## Varsayilan Veri Politikasi
 
 - `Veri_Seti/OriginalDataset`: tek train/validation/test split kaynagi
+- `goruntu_isleme` islenmis goruntuleri `trainval/test` olarak uretir
 - `validation` ve `test`: original-only
 - `augmentation`: yalnizca train transform'u uzerinde
 
@@ -23,7 +24,7 @@ Repo kokunden onerilen komutlar:
 mri-train --model resnet --epochs 50 --batch-size 32
 mri-train --model unet --epochs 50 --batch-size 16
 mri-train --model resnet --trainval-dir Veri_Seti/OriginalDataset
-mri-train --model resnet --use-processed-trainval --trainval-dir goruntu_isleme/cikti
+mri-train --model resnet --use-processed-trainval
 ```
 
 Dogrudan Python ile:
@@ -39,15 +40,17 @@ mri-train --model resnet --loss focal --lr 3e-4
 mri-train --model resnet --loss focal --focal-gamma 2.5
 mri-train --model resnet --weight-decay 1e-3 --scheduler-factor 0.3
 mri-train --model resnet --pretrained
-mri-train --model resnet --use-processed-trainval --trainval-dir goruntu_isleme/cikti
-mri-train --model resnet --use-processed-trainval --use-processed-test --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
+mri-train --model resnet --use-processed-trainval
+mri-train --model resnet --use-processed-trainval --use-processed-test
+mri-train --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
 mri-train --model unet --val-ratio 0.2
 ```
 
-Islenmis goruntulerle egitim icin, original veri uzerinden preprocess alip split'i daha sonra model tarafinda yapmak onerilir:
+Islenmis goruntulerle egitim icin onerilen akis:
 
 ```bash
 mri-preprocess --action preprocess --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti
+mri-train --model resnet --use-processed-trainval
 ```
 
 ## Temel Parametreler
@@ -60,8 +63,8 @@ mri-preprocess --action preprocess --input-dir Veri_Seti/OriginalDataset --outpu
 - `--image-size`: Giris goruntu boyutu
 - `--trainval-dir`: Split kaynagi veya train+validation veri dizini
 - `--test-dir`: Opsiyonel harici test veri dizini
-- `--use-processed-trainval`: Varsayilan train+validation kaynagini islenmis goruntu ciktilarina cevirir
-- `--use-processed-test`: Varsayilan test kaynagini islenmis goruntu ciktilarina cevirir
+- `--use-processed-trainval`: Varsayilan train+validation kaynagini `goruntu_isleme/cikti/trainval` olarak cozer
+- `--use-processed-test`: Varsayilan test kaynagini `goruntu_isleme/cikti/test` olarak cozer
 - `--val-ratio`: Validation orani
 - `--test-ratio`: Harici test dizini yoksa internal test orani
 - `--loss`: `ce` veya `focal`
