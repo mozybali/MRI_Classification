@@ -32,13 +32,13 @@ python -m goruntu_isleme.ana_islem --action menu
 Tam 2D akis:
 
 ```bash
-mri-preprocess --action all --input-dir Veri_Seti/AugmentedAlzheimerDataset --output-dir goruntu_isleme/cikti --yes
+mri-preprocess --action all --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti --yes
 ```
 
 Sadece on isleme:
 
 ```bash
-mri-preprocess --action preprocess --input-dir Veri_Seti/AugmentedAlzheimerDataset --output-dir goruntu_isleme/cikti
+mri-preprocess --action preprocess --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti
 ```
 
 Ozellik cikarma:
@@ -84,7 +84,7 @@ mri-preprocess --action split --csv-path goruntu_isleme/cikti/goruntu_ozellikler
 
 ## Varsayilanlar
 
-- Varsayilan giris klasoru: `Veri_Seti/AugmentedAlzheimerDataset`
+- Varsayilan giris klasoru: `Veri_Seti/OriginalDataset`
 - Geri uyumluluk icin `Veri_Seti/` de desteklenir
 - Varsayilan cikti klasoru: `goruntu_isleme/cikti`
 - Varsayilan scaling metodu: `robust`
@@ -93,7 +93,6 @@ mri-preprocess --action split --csv-path goruntu_isleme/cikti/goruntu_ozellikler
 Desteklenen veri yapilari:
 
 ```text
-Veri_Seti/AugmentedAlzheimerDataset/<SinifAdi>/
 Veri_Seti/OriginalDataset/<SinifAdi>/
 Veri_Seti/<SinifAdi>/
 ```
@@ -109,7 +108,7 @@ Veri_Seti/<SinifAdi>/
 
 ## Veri Sizintisi Notu
 
-Split mantigi, ayni kaynaktan tureyen dosyalari mumkun oldugunca ayni grupta tutmaya calisir. Bu sayede egitim ve degerlendirme arasinda kaynak grup sizintisi riski azaltilir.
+Split mantigi, ayni kaynaktan tureyen dosyalari mumkun oldugunca ayni grupta tutar. Guncel varsayimda validation ve test satirlari yalnizca original goruntulerden uretilir; augmentasyon yalnizca train tarafinda kalir.
 
 ## Yardimci Komutlar
 

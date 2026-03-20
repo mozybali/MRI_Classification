@@ -686,8 +686,12 @@ def veri_boluntule(csv_dosyasi: Optional[Path] = None,
     Veri setini eğitim, doğrulama ve test setlerine böl.
 
     Tercih edilen akış:
-    - ``csv_dosyasi``: augmented train+validation özellikleri
-    - ``test_csv_dosyasi``: original test özellikleri
+    - ``csv_dosyasi``: original kaynak veri veya train tarafinda augment de iceren veri
+    - ``test_csv_dosyasi``: opsiyonel harici/original test özellikleri
+
+    Not:
+    - Eğitim split'i aynı kaynak gruba ait augment türevlerini kullanabilir.
+    - Doğrulama ve test split'leri yalnızca original satırlardan oluşturulur.
 
     Raises:
         ValueError: Oran toplamı 1.0 değilse veya yeterli örnek yoksa
@@ -720,6 +724,15 @@ def veri_boluntule(csv_dosyasi: Optional[Path] = None,
                 f"{sol_adi} ve {sag_adi} arasinda kaynak grup sizintisi var. "
                 f"Ortak grup sayisi: {len(ortak)}. Ornekler: {ornekler}"
             )
+
+    def _yalnizca_orijinal_satirlari_al(df: pd.DataFrame, split_adi: str) -> pd.DataFrame:
+        original_df = df[~df['augmentasyon_mu'].fillna(False)].copy()
+        if original_df.empty:
+            raise ValueError(
+                f"{split_adi} split'i icin original satir bulunamadi. "
+                "Validation/test yalnizca original goruntulerden olusturulmalidir."
+            )
+        return original_df
 
     # Oran doğrulaması
     oran_toplam = EGITIM_ORANI + DOGRULAMA_ORANI + TEST_ORANI
@@ -777,6 +790,8 @@ def veri_boluntule(csv_dosyasi: Optional[Path] = None,
 
         train_df = trainval_df[trainval_df['kaynak_grup'].isin(train_groups['kaynak_grup'])].copy()
         val_df = trainval_df[trainval_df['kaynak_grup'].isin(val_groups['kaynak_grup'])].copy()
+        val_df = _yalnizca_orijinal_satirlari_al(val_df, "Dogrulama")
+        test_df = _yalnizca_orijinal_satirlari_al(test_df, "Test")
 
         _kaynak_ayrimini_dogrula(train_df, "Egitim", val_df, "Dogrulama")
         _kaynak_ayrimini_dogrula(trainval_df, "Augmented trainval", test_df, "Original test")
@@ -857,6 +872,8 @@ def veri_boluntule(csv_dosyasi: Optional[Path] = None,
         train_df = trainval_df[trainval_df['kaynak_grup'].isin(train_groups['kaynak_grup'])].copy()
         val_df = trainval_df[trainval_df['kaynak_grup'].isin(val_groups['kaynak_grup'])].copy()
         test_df = trainval_df[trainval_df['kaynak_grup'].isin(test_groups['kaynak_grup'])].copy()
+        val_df = _yalnizca_orijinal_satirlari_al(val_df, "Dogrulama")
+        test_df = _yalnizca_orijinal_satirlari_al(test_df, "Test")
 
         _kaynak_ayrimini_dogrula(train_df, "Egitim", val_df, "Dogrulama")
         _kaynak_ayrimini_dogrula(train_df, "Egitim", test_df, "Test")
@@ -875,7 +892,9 @@ def veri_boluntule(csv_dosyasi: Optional[Path] = None,
     print(f"  Doğrulama: {len(val_df)} ({DOGRULAMA_ORANI*100:.0f}%)")
     print(f"  Test: {len(test_df)} ({TEST_ORANI*100:.0f}%)")
     if test_csv_dosyasi is not None:
-        print("  Strateji: augmented -> train/validation, original -> test")
+        print("  Strateji: train icin tum kaynak varyantlari, validation/test icin original-only")
+    else:
+        print("  Strateji: tek kaynaktan split, validation/test original-only")
 
     return train_df, val_df, test_df
 

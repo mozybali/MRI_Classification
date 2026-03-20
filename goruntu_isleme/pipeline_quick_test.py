@@ -67,7 +67,6 @@ def test_veri_seti():
 
     siniflar = ["NonDemented", "VeryMildDemented", "MildDemented", "ModerateDemented"]
     aday_kokler = [
-        veri_klasoru / "AugmentedAlzheimerDataset",
         veri_klasoru / "OriginalDataset",
         veri_klasoru,
     ]
@@ -101,7 +100,7 @@ def test_veri_seti():
 
     if bulunan == 0:
         print("[HATA] Bilinen veri yapilarinda sinif klasoru bulunamadi.")
-        print("  Beklenen: Veri_Seti/<Sinif> veya Veri_Seti/AugmentedAlzheimerDataset/<Sinif>")
+        print("  Beklenen: Veri_Seti/<Sinif> veya Veri_Seti/OriginalDataset/<Sinif>")
         return False
 
     print(f"\nToplam: {toplam} goruntu")

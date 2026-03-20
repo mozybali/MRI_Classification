@@ -48,6 +48,11 @@ class TestGorselIsleyici:
         assert test_klasor.exists()
         assert test_klasor.is_dir()
 
+    def test_cikti_dosya_koku_kaynak_grubu_korur(self):
+        """Cikti dosya adi, kaynak grup cikarimini bozmayacak sekilde korunmali."""
+        assert GorselIsleyici._cikti_dosya_koku("26 (1).jpg") == "26 (1)"
+        assert GorselIsleyici._cikti_dosya_koku("26_aug2.png") == "26_aug2"
+
     def test_goruntu_yukle_valid(self, test_image_path):
         """Geçerli görüntü dosyası başarıyla yüklenmeli."""
         isleyici = GorselIsleyici()
@@ -162,9 +167,9 @@ class TestGorselIsleyici:
         assert len(islenmis) > 0
 
     def test_giris_klasoru_bos_oldugundan_default_kullanilir(self, tmp_path, monkeypatch):
-        """giris_klasoru=None ise varsayılan VERI_SETI_KLASORU gerçekten kullanılmalı."""
+        """giris_klasoru=None ise varsayilan original veri yolu kullanilmali."""
         isleyici = GorselIsleyici()
-        varsayilan_dataset = tmp_path / "varsayilan_dataset"
+        varsayilan_dataset = tmp_path / "varsayilan_dataset" / "OriginalDataset"
         sinif = "NonDemented"
         sinif_klasoru = varsayilan_dataset / sinif
         sinif_klasoru.mkdir(parents=True)
@@ -174,7 +179,7 @@ class TestGorselIsleyici:
         )
         img.save(sinif_klasoru / "sample.jpg")
 
-        monkeypatch.setattr(gi, "VERI_SETI_KLASORU", varsayilan_dataset)
+        monkeypatch.setattr(gi, "ON_ISLEME_VARSAYILAN_GIRIS_KLASORU", varsayilan_dataset)
 
         cikti = tmp_path / "cikti"
         cikti.mkdir()
@@ -262,14 +267,11 @@ class TestGorselIsleyiciRegressions:
         ozel_giris = tmp_path / "ozel_giris"
         ozel_giris.mkdir()
 
-        varsayilan_aug = tmp_path / "varsayilan" / "AugmentedAlzheimerDataset" / "NonDemented"
-        varsayilan_aug.mkdir(parents=True)
+        varsayilan_orig = tmp_path / "varsayilan" / "OriginalDataset" / "NonDemented"
+        varsayilan_orig.mkdir(parents=True)
         Image.fromarray(
             np.random.randint(80, 180, (64, 64), dtype=np.uint8), mode='L'
-        ).save(varsayilan_aug / "sample.jpg")
-
-        monkeypatch.setattr(gi, "AUGMENTED_VERI_SETI_KLASORU", varsayilan_aug.parent)
-        monkeypatch.setattr(gi, "ORIGINAL_VERI_SETI_KLASORU", tmp_path / "varsayilan" / "OriginalDataset")
+        ).save(varsayilan_orig / "sample.jpg")
 
         assert isleyici._giris_klasoru_cozumle(ozel_giris) == ozel_giris
 

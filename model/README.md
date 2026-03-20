@@ -11,10 +11,9 @@ Bu modul, MRI goruntulerinden demans seviyesi siniflandirmak icin PyTorch tabanl
 
 ## Varsayilan Veri Politikasi
 
-- `Veri_Seti/AugmentedAlzheimerDataset`: train + validation
-- `Veri_Seti/OriginalDataset`: test
-
-Bu ayrim, augment edilmis goruntulerle egitim yaparken nihai degerlendirmeyi original veri uzerinde tutar.
+- `Veri_Seti/OriginalDataset`: tek train/validation/test split kaynagi
+- `validation` ve `test`: original-only
+- `augmentation`: yalnizca train transform'u uzerinde
 
 ## Egitim
 
@@ -23,6 +22,8 @@ Repo kokunden onerilen komutlar:
 ```bash
 mri-train --model resnet --epochs 50 --batch-size 32
 mri-train --model unet --epochs 50 --batch-size 16
+mri-train --model resnet --trainval-dir Veri_Seti/OriginalDataset
+mri-train --model resnet --use-processed-trainval --trainval-dir goruntu_isleme/cikti
 ```
 
 Dogrudan Python ile:
@@ -35,9 +36,18 @@ Ek ornekler:
 
 ```bash
 mri-train --model resnet --loss focal --lr 3e-4
+mri-train --model resnet --loss focal --focal-gamma 2.5
+mri-train --model resnet --weight-decay 1e-3 --scheduler-factor 0.3
 mri-train --model resnet --pretrained
-mri-train --model resnet --trainval-dir Veri_Seti/AugmentedAlzheimerDataset --test-dir Veri_Seti/OriginalDataset
+mri-train --model resnet --use-processed-trainval --trainval-dir goruntu_isleme/cikti
+mri-train --model resnet --use-processed-trainval --use-processed-test --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
 mri-train --model unet --val-ratio 0.2
+```
+
+Islenmis goruntulerle egitim icin, original veri uzerinden preprocess alip split'i daha sonra model tarafinda yapmak onerilir:
+
+```bash
+mri-preprocess --action preprocess --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti
 ```
 
 ## Temel Parametreler
@@ -48,13 +58,20 @@ mri-train --model unet --val-ratio 0.2
 - `--lr`: Ogrenme hizi
 - `--patience`: Early stopping sabir degeri
 - `--image-size`: Giris goruntu boyutu
-- `--trainval-dir`: Train + validation veri dizini
-- `--test-dir`: Test veri dizini
+- `--trainval-dir`: Split kaynagi veya train+validation veri dizini
+- `--test-dir`: Opsiyonel harici test veri dizini
+- `--use-processed-trainval`: Varsayilan train+validation kaynagini islenmis goruntu ciktilarina cevirir
+- `--use-processed-test`: Varsayilan test kaynagini islenmis goruntu ciktilarina cevirir
 - `--val-ratio`: Validation orani
+- `--test-ratio`: Harici test dizini yoksa internal test orani
 - `--loss`: `ce` veya `focal`
 - `--seed`: Rastgele tohum
 - `--num-workers`: DataLoader worker sayisi
 - `--pretrained`: Sadece ResNet icin ImageNet agirliklarini acar
+- `--weight-decay`: AdamW regularizasyon katsayisi
+- `--scheduler-factor`: Plateau durumunda LR azaltma carpani
+- `--scheduler-patience`: LR scheduler sabir degeri
+- `--focal-gamma`: Focal loss gamma parametresi
 
 ## Inference
 
@@ -76,13 +93,43 @@ Dogrudan Python ile:
 python -m model.inference --model-path model/ciktilar/modeller/best_resnet.pt --image ornek.jpg
 ```
 
+## Bayes Search
+
+Optuna `TPESampler` kullanilarak Bayesian-style hiperparametre aramasi yapilabilir.
+
+```bash
+mri-tune --model resnet --trials 20 --epochs 12 --metric f1
+python -m model.hpo --model unet --trials 30 --metric loss --skip-final-train
+```
+
+Aranan baslica hiperparametreler:
+
+- `batch_size`
+- `image_size`
+- `lr`
+- `weight_decay`
+- `scheduler_factor`
+- `scheduler_patience`
+- `loss`
+- `focal_gamma` (`loss=focal` ise)
+- `pretrained` (`--search-pretrained` ile, sadece ResNet)
+
+Bayes search ciktilari varsayilan olarak `model/ciktilar/hiperparametre_arama/<study_name>/` altina yazilir:
+
+- `trial_history.csv`
+- `study_summary.json`
+- `trials/trial_XXX/trial_summary.json`
+- `best_run/` (final egitim kapatilmazsa)
+
 ## Dosya Yapisi
 
 ```text
 model/
 |-- train.py
+|-- hpo.py
 |-- inference.py
 |-- ayarlar.py
+|-- training_runner.py
 |-- dl/
 |   |-- dataset.py
 |   |-- engine.py

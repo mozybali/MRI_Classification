@@ -22,6 +22,7 @@ dependencies = [
   "SimpleITK>=2.0.0",
   "torch>=2.0.0",
   "torchvision>=0.15.0",
+  "optuna>=3.5.0",
   "scikit-learn==1.4.2",
   "matplotlib>=3.4.0",
   "seaborn>=0.11.0",
@@ -39,6 +40,7 @@ mri-train = "model.train:main"
 mri-infer = "model.inference:main"
 mri-preprocess = "goruntu_isleme.ana_islem:main"
 mri-eda = "eda_analiz.eda_calistir:main"
+mri-tune = "model.hpo:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

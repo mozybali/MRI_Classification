@@ -181,7 +181,6 @@ if __name__ == "__main__":
 
         aday_kokler = [
             ON_ISLEME_VARSAYILAN_GIRIS_KLASORU,
-            VERI_SETI_KLASORU / "AugmentedAlzheimerDataset",
             VERI_SETI_KLASORU / "OriginalDataset",
             VERI_SETI_KLASORU,
         ]
@@ -202,7 +201,7 @@ if __name__ == "__main__":
 
         if bulunan is None:
             print("\n❌ HATA: Veri setinde görüntü bulunamadı!")
-            print("Beklenen yapı: Veri_Seti/<Sinif> veya Veri_Seti/AugmentedAlzheimerDataset/<Sinif>")
+            print("Beklenen yapı: Veri_Seti/<Sinif> veya Veri_Seti/OriginalDataset/<Sinif>")
             print("Kullanım: python test_pipeline.py [goruntu_yolu]")
             sys.exit(1)
         test_goruntu = str(bulunan)

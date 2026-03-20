@@ -4,28 +4,32 @@
 """
 ayarlar.py
 ----------
-Derin öğrenme model eğitimi için merkezi konfigürasyon dosyası.
+Derin ogrenme model egitimi icin merkezi konfigurasyon dosyasi.
 """
 
 from pathlib import Path
 
 # ==================== PROJE YOLLARI ====================
 PROJE_KOK = Path(__file__).parent.parent
+ISLENMIS_VERI_KLASORU = PROJE_KOK / "goruntu_isleme" / "cikti"
+ISLENMIS_TRAINVAL_VERI_DIZINI = ISLENMIS_VERI_KLASORU / "trainval"
+ISLENMIS_TEST_VERI_DIZINI = ISLENMIS_VERI_KLASORU / "test"
 
-# Varsayılan veri dizinleri
-# Augmented veri: yalnızca train + validation için kullanılır
-TRAINVAL_VERI_DIZINI = PROJE_KOK / "Veri_Seti" / "AugmentedAlzheimerDataset"
-# Original veri: yalnızca test için kullanılır
+# Varsayilan veri dizinleri
+# Dogru metodoloji geregi varsayilan kaynak original veri uzerinden train/val/test split'tir.
+# Islenmis veri dizinleri yalnizca ilgili CLI flag'leri ile secilir.
+TRAINVAL_VERI_DIZINI = PROJE_KOK / "Veri_Seti" / "OriginalDataset"
 TEST_VERI_DIZINI = PROJE_KOK / "Veri_Seti" / "OriginalDataset"
 
-# Geriye dönük uyumluluk
+# Geriye donuk uyumluluk
 VARSAYILAN_VERI_DIZINI = TRAINVAL_VERI_DIZINI
 
-# Model çıktıları
+# Model ciktilari
 CIKTI_KLASORU = PROJE_KOK / "model" / "ciktilar"
 MODELS_KLASORU = CIKTI_KLASORU / "modeller"
 RAPORLAR_KLASORU = CIKTI_KLASORU / "raporlar"
 GORSELLER_KLASORU = CIKTI_KLASORU / "gorseller"
+HPO_KLASORU = CIKTI_KLASORU / "hiperparametre_arama"
 
 # ==================== GENEL ====================
 RASTGELE_TOHUM = 42

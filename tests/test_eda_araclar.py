@@ -101,16 +101,16 @@ class TestEDAAnaLiz:
         )
         assert non_demented == ["a_ornek.png", "b_ornek.png"]
 
-    def test_veri_yukle_root_auto_resolve_augmented(self, tmp_path):
+    def test_veri_yukle_root_auto_resolve_original(self, tmp_path):
         veri_koku = tmp_path / "Veri_Seti"
-        augmented = veri_koku / "AugmentedAlzheimerDataset"
-        _dataset_yapisi_olustur(augmented)
+        original = veri_koku / "OriginalDataset"
+        _dataset_yapisi_olustur(original)
 
         eda = EDAAnaLiz(veri_klasoru=veri_koku, cikti_klasoru=tmp_path / "out")
         df = eda.veri_yukle()
 
         assert len(df) == 12
-        assert eda.veri_klasoru == augmented.resolve()
+        assert eda.veri_klasoru == original.resolve()
 
     def test_veri_yukle_invalid_path_raises(self, tmp_path):
         eda = EDAAnaLiz(veri_klasoru=tmp_path / "yok", cikti_klasoru=tmp_path / "out")

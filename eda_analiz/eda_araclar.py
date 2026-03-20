@@ -24,10 +24,9 @@ from tqdm import tqdm
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 VERI_SETI_KLASORU = PROJECT_ROOT / "Veri_Seti"
-AUGMENTED_VERI_KLASORU = VERI_SETI_KLASORU / "AugmentedAlzheimerDataset"
 ORIGINAL_VERI_KLASORU = VERI_SETI_KLASORU / "OriginalDataset"
 DEFAULT_VERI_KLASORU = (
-    AUGMENTED_VERI_KLASORU if AUGMENTED_VERI_KLASORU.exists() else VERI_SETI_KLASORU
+    ORIGINAL_VERI_KLASORU if ORIGINAL_VERI_KLASORU.exists() else VERI_SETI_KLASORU
 )
 DEFAULT_CIKTI_KLASORU = Path(__file__).resolve().parent / "eda_ciktilar"
 
@@ -157,16 +156,13 @@ class EDAAnaLiz:
 
         Desteklenen yapılar:
         1) Veri_Seti/<SinifAdi>/
-        2) Veri_Seti/AugmentedAlzheimerDataset/<SinifAdi>/
-        3) Veri_Seti/OriginalDataset/<SinifAdi>/
+        2) Veri_Seti/OriginalDataset/<SinifAdi>/
         """
         if self._sinif_klasorleri_var_mi(giris_klasoru, self.sinif_klasorleri):
             return giris_klasoru
 
         adaylar = [
-            giris_klasoru / "AugmentedAlzheimerDataset",
             giris_klasoru / "OriginalDataset",
-            AUGMENTED_VERI_KLASORU,
             ORIGINAL_VERI_KLASORU,
         ]
         for aday in adaylar:
@@ -178,7 +174,7 @@ class EDAAnaLiz:
             "Veri klasörü beklenen sınıf klasörlerini içermiyor. "
             f"Verilen yol: {giris_klasoru}. "
             "Beklenen yapılar: Veri_Seti/<SinifAdi> veya "
-            "Veri_Seti/AugmentedAlzheimerDataset/<SinifAdi>."
+            "Veri_Seti/OriginalDataset/<SinifAdi>."
         )
 
     def veri_yukle(self) -> pd.DataFrame:

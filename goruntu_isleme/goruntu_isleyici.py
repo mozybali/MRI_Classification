@@ -78,7 +78,7 @@ class GorselIsleyici:
             "kalite_hatasi": 0
         }
         self.n_jobs = max(1, cpu_count() - 1)  # Bir çekirdek sisteme bırak
-        
+
     @staticmethod
     def _worker_kimligi() -> int:
         """Worker bazli sabit bir kimlik dondur."""
@@ -114,11 +114,7 @@ class GorselIsleyici:
     def _cikti_dosya_koku(dosya_yolu: str) -> str:
         """Cikti dosya kokunu giris adini benzersiz koruyacak sekilde uret."""
         kaynak = Path(dosya_yolu)
-        uzanti = kaynak.suffix.lower().lstrip(".")
-        parcalar = [kaynak.stem]
-        if uzanti:
-            parcalar.append(uzanti)
-        return "_".join(parca for parca in parcalar if parca)
+        return kaynak.stem
     
     @staticmethod
     def klasor_olustur(yol: Path):
@@ -136,8 +132,7 @@ class GorselIsleyici:
 
         Desteklenen yapılar:
         1) Veri_Seti/<SinifAdi>/
-        2) Veri_Seti/AugmentedAlzheimerDataset/<SinifAdi>/
-        3) Veri_Seti/OriginalDataset/<SinifAdi>/
+        2) Veri_Seti/OriginalDataset/<SinifAdi>/
         """
         klasor_yolu = Path(klasor_yolu)
 
@@ -147,7 +142,6 @@ class GorselIsleyici:
 
         # Kök klasör verildiğinde önce klasör altındaki bilinen alt yapıları dene.
         adaylar = [
-            klasor_yolu / "AugmentedAlzheimerDataset",
             klasor_yolu / "OriginalDataset",
         ]
         for aday in adaylar:
@@ -1227,7 +1221,7 @@ class GorselIsleyici:
         """
         self.klasor_olustur(cikti_klasoru)
         if giris_klasoru is None:
-            giris_klasoru = VERI_SETI_KLASORU
+            giris_klasoru = ON_ISLEME_VARSAYILAN_GIRIS_KLASORU
         dosyalar = self.gorselleri_listele(giris_klasoru)
         
         if not dosyalar:

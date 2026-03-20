@@ -15,7 +15,6 @@ Bu repo, MRI beyin goruntulerinden demans seviyesini siniflandirmaya yonelik uct
 ```text
 MRI_Classification/
 |-- Veri_Seti/
-|   |-- AugmentedAlzheimerDataset/
 |   |-- OriginalDataset/
 |   `-- README.md
 |-- eda_analiz/
@@ -73,6 +72,7 @@ pip install -r requirements.txt
 - `mri-preprocess`
 - `mri-train`
 - `mri-infer`
+- `mri-tune`
 
 ## Hizli Baslangic
 
@@ -93,7 +93,7 @@ mri-preprocess --action menu
 Tam 2D akis:
 
 ```bash
-mri-preprocess --action all --input-dir Veri_Seti/AugmentedAlzheimerDataset --output-dir goruntu_isleme/cikti --yes
+mri-preprocess --action all --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti --yes
 ```
 
 ### 3. Model egitimi
@@ -101,6 +101,14 @@ mri-preprocess --action all --input-dir Veri_Seti/AugmentedAlzheimerDataset --ou
 ```bash
 mri-train --model resnet --epochs 50 --batch-size 32
 mri-train --model unet --epochs 50 --batch-size 16
+mri-train --model resnet --use-processed-trainval --trainval-dir goruntu_isleme/cikti
+```
+
+### 3.1 Bayes search ile hiperparametre optimizasyonu
+
+```bash
+mri-tune --model resnet --trials 20 --epochs 12 --metric f1
+mri-tune --model unet --trials 30 --metric loss --skip-final-train
 ```
 
 ### 4. Tahmin
@@ -111,10 +119,11 @@ mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --image ornek.jpg
 
 ## Varsayilan Veri Politikasi
 
-- `Veri_Seti/AugmentedAlzheimerDataset`: train + validation
-- `Veri_Seti/OriginalDataset`: test
+- `Veri_Seti/OriginalDataset`: tek kaynak veri dizini
+- `train`, `validation` ve `test`: ayni original veri kaynagindan uretilir
+- Train tarafinda yalnizca transform tabanli augmentation uygulanir
 
-Bu ayrim, augment edilmis goruntulerle egitim yaparken nihai degerlendirmeyi original veri uzerinde tutmak icin kullanilir. Ayrintilar icin [`Veri_Seti/README.md`](Veri_Seti/README.md) dosyasina bakin.
+Proje akisi `OriginalDataset` uzerine sabitlenmistir. Ayrintilar icin [`Veri_Seti/README.md`](Veri_Seti/README.md) dosyasina bakin.
 
 ## Ciktilar
 
@@ -123,6 +132,7 @@ Bu ayrim, augment edilmis goruntulerle egitim yaparken nihai degerlendirmeyi ori
 - `model/ciktilar/modeller/`: Egitilmis `.pt` checkpoint dosyalari
 - `model/ciktilar/raporlar/`: JSON performans raporlari
 - `model/ciktilar/gorseller/`: Confusion matrix ve egitim egrileri
+- `model/ciktilar/hiperparametre_arama/`: Optuna TPE tabanli Bayes search trial ve study ciktilari
 
 ## Test
 

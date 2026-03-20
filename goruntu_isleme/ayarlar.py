@@ -13,16 +13,15 @@ PROJE_KOK = Path(__file__).parent.parent
 # Ham (orijinal) MRI görüntülerinin bulunduğu klasör
 VERI_SETI_KLASORU = PROJE_KOK / "Veri_Seti"
 
-# Dataset alt klasörleri (repo yapısına uyumlu)
-AUGMENTED_VERI_SETI_KLASORU = VERI_SETI_KLASORU / "AugmentedAlzheimerDataset"
+# Dataset alt klasörleri
 ORIGINAL_VERI_SETI_KLASORU = VERI_SETI_KLASORU / "OriginalDataset"
 
 # Ön işleme için varsayılan giriş:
-# - Augmented klasörü varsa onu kullan
-# - Yoksa geri uyumluluk için kök Veri_Seti klasörüne düş
+# - Dogru metodoloji geregi original veri kullan
+# - Original yoksa yalnizca kok Veri_Seti klasorune dus
 ON_ISLEME_VARSAYILAN_GIRIS_KLASORU = (
-    AUGMENTED_VERI_SETI_KLASORU
-    if AUGMENTED_VERI_SETI_KLASORU.exists()
+    ORIGINAL_VERI_SETI_KLASORU
+    if ORIGINAL_VERI_SETI_KLASORU.exists()
     else VERI_SETI_KLASORU
 )
 
@@ -84,15 +83,15 @@ GAUSSIAN_BLUR_SIGMA = 0.5    # Bulanıklaştırma şiddeti
 MASKE_KENAR_PAYI = 5
 
 # Skull stripping (kafatası çıkarma)
-SKULL_STRIPPING_AKTIF = False
-SKULL_STRIPPING_METHOD = "advanced"  # "simple" veya "advanced" (morfolojik işlemlerle)
+SKULL_STRIPPING_AKTIF = True
+SKULL_STRIPPING_METHOD = "simple"  # "simple" veya "advanced" (morfolojik işlemlerle)
 
 # Bias field correction (MRI yoğunluk düzensizliği düzeltme)
 BIAS_FIELD_CORRECTION_AKTIF = False
 BIAS_FIELD_METHOD = "n4itk"  # "n4itk" (profesyonel) veya "simple" (hızlı)
 
 # Registration/Hizalama
-REGISTRATION_AKTIF = False
+REGISTRATION_AKTIF = True
 REGISTRATION_METHOD = "simple"  # "simple" (center-of-mass), "affine" (gelişmiş), "rigid"
 
 # Morfolojik işlemler
@@ -130,7 +129,7 @@ ELASTIC_SIGMA = 8                # Deformasyon yumuşaklığı
 RANDOM_CROP_AKTIF = True
 RANDOM_CROP_RATIO = 0.95         # Kırpma oranı (0.95 = %95'ini al)
 
-GAUSSIAN_NOISE_AKTIF = True
+GAUSSIAN_NOISE_AKTIF = False
 GAUSSIAN_NOISE_MEAN = 0
 GAUSSIAN_NOISE_SIGMA = 5         # Gürültü şiddeti
 
@@ -169,7 +168,7 @@ SCALING_METODU = "robust"
 # ==================== KALİTE KONTROL AYARLARI ====================
 # Görüntü kalite kontrol eşikleri
 KALITE_KONTROL_AKTIF = True
-MIN_MEAN_INTENSITY = 10       # Minimum ortalama yoğunluk (çok karanlık kontrol)
+MIN_MEAN_INTENSITY = 5       # Minimum ortalama yoğunluk (çok karanlık kontrol)
 MAX_MEAN_INTENSITY = 245      # Maksimum ortalama yoğunluk (çok aydınlık kontrol)
 MIN_STD_INTENSITY = 5         # Minimum standart sapma (düz görüntü kontrol)
-MAX_BLACK_RATIO = 0.7         # Maksimum siyah piksel oranı (boş görüntü kontrol)
+MAX_BLACK_RATIO = 0.8         # Maksimum siyah piksel oranı (boş görüntü kontrol)

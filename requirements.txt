@@ -21,6 +21,7 @@ SimpleITK>=2.0.0
 # -------------------- Deep Learning (PyTorch) --------------------
 torch>=2.0.0
 torchvision>=0.15.0
+optuna>=3.5.0
 
 # -------------------- ML Utilities --------------------
 scikit-learn==1.4.2

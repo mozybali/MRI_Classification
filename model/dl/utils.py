@@ -33,14 +33,16 @@ def set_seed(seed: int = 42):
     os.environ["PYTHONHASHSEED"] = str(seed)
 
 
-def get_device() -> torch.device:
+def get_device(verbose: bool = True) -> torch.device:
     """GPU varsa CUDA, yoksa CPU dondur."""
     if torch.cuda.is_available():
         device = torch.device("cuda")
-        print(f"[OK] GPU kullaniliyor: {torch.cuda.get_device_name(0)}")
+        if verbose:
+            print(f"[OK] GPU kullaniliyor: {torch.cuda.get_device_name(0)}")
     else:
         device = torch.device("cpu")
-        print("[UYARI] GPU bulunamadi, CPU kullaniliyor")
+        if verbose:
+            print("[UYARI] GPU bulunamadi, CPU kullaniliyor")
     return device
 
 

@@ -97,7 +97,7 @@ def collect_batch_images(batch_dir: Path) -> list[Path]:
     )
 
 
-def main():
+def main(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(
         description="MRI derin ogrenme inference",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -111,7 +111,7 @@ Ornekler:
     source_group = parser.add_mutually_exclusive_group(required=True)
     source_group.add_argument("--image", type=str, help="Tek goruntu yolu")
     source_group.add_argument("--batch", type=str, help="Goruntu klasoru (batch tahmin)")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     device = get_device()
     model_path = Path(args.model_path)
@@ -120,51 +120,60 @@ Ornekler:
         print(f"[HATA] Model bulunamadi: {model_path}")
         return 1
 
-    model, image_size, class_names = load_model(model_path, device)
-    print(f"[OK] Model yuklendi: {model_path.name}")
+    try:
+        model, image_size, class_names = load_model(model_path, device)
+        print(f"[OK] Model yuklendi: {model_path.name}")
 
-    if args.image:
-        img_path = Path(args.image)
-        if not img_path.exists():
-            print(f"[HATA] Goruntu bulunamadi: {img_path}")
-            return 1
+        if args.image:
+            img_path = Path(args.image)
+            if not img_path.exists():
+                print(f"[HATA] Goruntu bulunamadi: {img_path}")
+                return 1
 
-        result = predict_image(model, img_path, image_size, class_names, device)
-
-        print(f"\n{'='*60}")
-        print("TAHMIN SONUCU")
-        print(f"{'='*60}")
-        print(f"Tahmin: {result['tahmin_adi']}")
-        print(f"Guven : {result['guven_skoru']:.2%}")
-        print("\nSinif Olasiliklari:")
-        for name, prob in sorted(result["olasiliklar"].items(), key=lambda x: x[1], reverse=True):
-            bar = "#" * int(prob * 40)
-            print(f"   {name:25s}: {prob:6.2%} {bar}")
-        print(f"{'='*60}\n")
-
-    elif args.batch:
-        batch_dir = Path(args.batch)
-        if not batch_dir.exists():
-            print(f"[HATA] Klasor bulunamadi: {batch_dir}")
-            return 1
-
-        images = collect_batch_images(batch_dir)
-
-        if not images:
-            print(f"[UYARI] Goruntu bulunamadi: {batch_dir}")
-            return 1
-
-        print(f"\n[INFO] Batch tahmin: {len(images)} goruntu")
-        results = []
-        for img_path in sorted(images):
             result = predict_image(model, img_path, image_size, class_names, device)
-            results.append(result)
-            print(f"  {img_path.name}: {result['tahmin_adi']} ({result['guven_skoru']:.2%})")
 
-        counts = Counter(r["tahmin_adi"] for r in results)
-        print("\nTahmin Dagilimi:")
-        for cls, cnt in counts.most_common():
-            print(f"   {cls:25s}: {cnt}")
+            print(f"\n{'='*60}")
+            print("TAHMIN SONUCU")
+            print(f"{'='*60}")
+            print(f"Tahmin: {result['tahmin_adi']}")
+            print(f"Guven : {result['guven_skoru']:.2%}")
+            print("\nSinif Olasiliklari:")
+            for name, prob in sorted(
+                result["olasiliklar"].items(),
+                key=lambda x: x[1],
+                reverse=True,
+            ):
+                bar = "#" * int(prob * 40)
+                print(f"   {name:25s}: {prob:6.2%} {bar}")
+            print(f"{'='*60}\n")
+
+        elif args.batch:
+            batch_dir = Path(args.batch)
+            if not batch_dir.exists():
+                print(f"[HATA] Klasor bulunamadi: {batch_dir}")
+                return 1
+
+            images = collect_batch_images(batch_dir)
+
+            if not images:
+                print(f"[UYARI] Goruntu bulunamadi: {batch_dir}")
+                return 1
+
+            print(f"\n[INFO] Batch tahmin: {len(images)} goruntu")
+            results = []
+            for img_path in sorted(images):
+                result = predict_image(model, img_path, image_size, class_names, device)
+                results.append(result)
+                print(f"  {img_path.name}: {result['tahmin_adi']} ({result['guven_skoru']:.2%})")
+
+            counts = Counter(r["tahmin_adi"] for r in results)
+            print("\nTahmin Dagilimi:")
+            for cls, cnt in counts.most_common():
+                print(f"   {cls:25s}: {cnt}")
+
+    except (RuntimeError, ValueError, OSError) as exc:
+        print(f"[HATA] {exc}")
+        return 1
 
     return 0
 

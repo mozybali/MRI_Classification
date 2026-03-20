@@ -1,16 +1,11 @@
 # Veri Seti Yapisi
 
-Bu klasor, projenin bekledigi MRI veri yerlesimini tanimlar. Kod tabani hem kok veri yapisini hem de `AugmentedAlzheimerDataset` ve `OriginalDataset` ayrimini destekler.
+Bu klasor, projenin bekledigi MRI veri yerlesimini tanimlar. Proje yalnizca `OriginalDataset` uzerinden calisacak sekilde sadelelestirilmistir.
 
 ## Beklenen Yapi
 
 ```text
 Veri_Seti/
-|-- AugmentedAlzheimerDataset/
-|   |-- NonDemented/
-|   |-- VeryMildDemented/
-|   |-- MildDemented/
-|   `-- ModerateDemented/
 `-- OriginalDataset/
     |-- NonDemented/
     |-- VeryMildDemented/
@@ -27,12 +22,11 @@ Asagidaki klasor adlari proje boyunca sabit kabul edilir:
 - `MildDemented`
 - `ModerateDemented`
 
-## Varsayilan Kullanim Politikasi
+## Kullanim Politikasi
 
-- `AugmentedAlzheimerDataset`: train + validation
-- `OriginalDataset`: test
-
-Bu politika hem `model/` tarafinda hem de `eda_analiz/` ile `goruntu_isleme/` tarafinda varsayilan davranisla uyumludur.
+- `OriginalDataset`: tek kaynak veri dizini
+- `train`, `validation` ve `test`: ayni original veri kaynagindan uretilir
+- Train tarafinda yalnizca transform tabanli augmentation kullanilir
 
 ## Geri Uyumluluk
 
@@ -42,4 +36,4 @@ Bazi araclar asagidaki yapilari da kabul eder:
 Veri_Seti/<SinifAdi>/
 ```
 
-Ancak repo icindeki guncel beklenti, ayri `AugmentedAlzheimerDataset` ve `OriginalDataset` klasorlerinin bulunmasidir.
+Ancak repo icindeki guncel beklenti, `Veri_Seti/OriginalDataset/<SinifAdi>/` yapisinin kullanilmasidir.

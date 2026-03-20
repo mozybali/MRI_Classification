@@ -373,6 +373,19 @@ class TestVeriBoluntule:
                 test_csv_dosyasi=test_csv,
             )
 
+    def test_veri_boluntule_dogrulama_ve_testte_augmentasyonu_dislar(self, temp_output_dir):
+        csv_path = temp_output_dir / "augmented_pairs.csv"
+        _augmented_group_pairs_df(per_class=8).to_csv(csv_path, index=False)
+
+        train_df, val_df, test_df = veri_boluntule(
+            csv_dosyasi=csv_path,
+            cikti_klasoru=temp_output_dir,
+        )
+
+        assert train_df["augmentasyon_mu"].any()
+        assert not val_df["augmentasyon_mu"].any()
+        assert not test_df["augmentasyon_mu"].any()
+
 
 class TestEdgeCases:
     """Sınır durumları ve hata yönetimi testleri."""
