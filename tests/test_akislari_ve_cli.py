@@ -139,6 +139,95 @@ def test_parse_args_extract_action_yollarini_cozer(tmp_path):
     assert args.test_csv_path == tmp_path / "test.csv"
 
 
+def test_ozellik_cikar_splitli_ciktida_trainval_ve_test_csvlerini_uretir(monkeypatch, tmp_path):
+    root = tmp_path / "cikti"
+    for split_name in ("trainval", "test"):
+        for class_name in ("NonDemented", "VeryMildDemented", "MildDemented", "ModerateDemented"):
+            (root / split_name / class_name).mkdir(parents=True, exist_ok=True)
+
+    calls = []
+
+    class DummyCikarici:
+        def csv_olustur(self, giris_klasoru, cikti_csv=None):
+            calls.append((giris_klasoru, cikti_csv))
+            return pd.DataFrame({"feature1": [1], "sinif": ["NonDemented"], "etiket": [0]})
+
+    monkeypatch.setattr(ana_islem, "OzellikCikarici", DummyCikarici)
+
+    df = ana_islem.ozellik_cikar(giris_klasoru=root)
+
+    assert not df.empty
+    assert calls == [
+        (root / "trainval", root / "goruntu_ozellikleri.csv"),
+        (root / "test", root / "test_goruntu_ozellikleri.csv"),
+    ]
+
+
+def test_scaling_uygula_test_csvsini_otomatik_algilar(monkeypatch, tmp_path):
+    captured = {}
+    trainval_csv = tmp_path / "goruntu_ozellikleri.csv"
+    test_csv = tmp_path / "test_goruntu_ozellikleri.csv"
+    trainval_csv.write_text("feature1,sinif,etiket\n1,NonDemented,0\n", encoding="utf-8")
+    test_csv.write_text("feature1,sinif,etiket\n2,NonDemented,0\n", encoding="utf-8")
+
+    def fake_scale(**kwargs):
+        captured.update(kwargs)
+        return (
+            pd.DataFrame({"x": [1]}),
+            pd.DataFrame({"x": [2]}),
+            pd.DataFrame({"x": [3]}),
+        )
+
+    monkeypatch.setattr(ana_islem, "veri_setini_bol_ve_olceklendir", fake_scale)
+
+    ana_islem.scaling_uygula(csv_dosyasi=trainval_csv, cikti_klasoru=tmp_path, metod="robust")
+
+    assert captured["csv_dosyasi"] == trainval_csv
+    assert captured["test_csv_dosyasi"] == test_csv
+
+
+def test_scaling_uygula_ozel_csv_adi_icin_eslesen_test_csvsini_algilar(monkeypatch, tmp_path):
+    captured = {}
+    trainval_csv = tmp_path / "custom_features.csv"
+    test_csv = tmp_path / "test_custom_features.csv"
+    trainval_csv.write_text("feature1,sinif,etiket\n1,NonDemented,0\n", encoding="utf-8")
+    test_csv.write_text("feature1,sinif,etiket\n2,NonDemented,0\n", encoding="utf-8")
+
+    def fake_scale(**kwargs):
+        captured.update(kwargs)
+        return (
+            pd.DataFrame({"x": [1]}),
+            pd.DataFrame({"x": [2]}),
+            pd.DataFrame({"x": [3]}),
+        )
+
+    monkeypatch.setattr(ana_islem, "veri_setini_bol_ve_olceklendir", fake_scale)
+
+    ana_islem.scaling_uygula(csv_dosyasi=trainval_csv, metod="robust")
+
+    assert captured["csv_dosyasi"] == trainval_csv
+    assert captured["test_csv_dosyasi"] == test_csv
+
+
+def test_ozellik_cikar_test_csv_bos_donerken_hata_verir(monkeypatch, tmp_path):
+    root = tmp_path / "cikti"
+    for split_name in ("trainval", "test"):
+        for class_name in ("NonDemented", "VeryMildDemented", "MildDemented", "ModerateDemented"):
+            (root / split_name / class_name).mkdir(parents=True, exist_ok=True)
+
+    class DummyCikarici:
+        def csv_olustur(self, giris_klasoru, cikti_csv=None):
+            if Path(giris_klasoru).name == "test":
+                return pd.DataFrame()
+            return pd.DataFrame({"feature1": [1], "sinif": ["NonDemented"], "etiket": [0]})
+
+    monkeypatch.setattr(ana_islem, "OzellikCikarici", DummyCikarici)
+
+    sonuc = ana_islem.ozellik_cikar(giris_klasoru=root)
+
+    assert sonuc is None
+
+
 def test_run_action_preprocess_parametreleri_iletir(monkeypatch, tmp_path):
     captured = {}
 

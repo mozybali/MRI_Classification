@@ -885,7 +885,7 @@ def veri_boluntule(csv_dosyasi: Optional[Path] = None,
     # Kaydet
     train_df.to_csv(cikti_klasoru / EGITIM_CSV_DOSYA_ADI, index=False)
     val_df.to_csv(cikti_klasoru / DOGRULAMA_CSV_DOSYA_ADI, index=False)
-    test_df.to_csv(cikti_klasoru / TEST_CSV_DOSYA_ADI, index=False)
+    test_df.to_csv(cikti_klasoru / TEST_SPLIT_CSV_DOSYA_ADI, index=False)
 
     print("\n[BASARILI] Veri seti bolundu:")
     print(f"  Eğitim: {len(train_df)} ({EGITIM_ORANI*100:.0f}%)")

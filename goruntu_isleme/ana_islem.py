@@ -22,6 +22,7 @@ if __package__ in {None, ""}:
         ON_ISLEME_VARSAYILAN_GIRIS_KLASORU,
         SCALING_METODU,
         SINIF_KLASORLERI,
+        TEST_CSV_DOSYA_ADI,
         TEST_ORANI,
     )
     from goruntu_isleme.goruntu_isleyici import GorselIsleyici
@@ -39,6 +40,7 @@ else:
         ON_ISLEME_VARSAYILAN_GIRIS_KLASORU,
         SCALING_METODU,
         SINIF_KLASORLERI,
+        TEST_CSV_DOSYA_ADI,
         TEST_ORANI,
     )
     from .goruntu_isleyici import GorselIsleyici
@@ -56,6 +58,57 @@ OPTIONAL_3D_MODULES = (
 )
 NAN_METODLARI = {"drop", "mean", "median", "zero"}
 SCALING_METODLARI = {"minmax", "robust", "standard", "maxabs"}
+
+
+def _resolve_processed_split_dirs(klasor: Path) -> tuple[Path, Path | None]:
+    """Islenmis goruntu kokunden trainval/test alt dizinlerini cozumle."""
+    klasor = Path(klasor)
+    trainval_dir = klasor / "trainval"
+    test_dir = klasor / "test"
+    if GorselIsleyici._sinif_klasorleri_var_mi(trainval_dir):
+        return trainval_dir, test_dir if GorselIsleyici._sinif_klasorleri_var_mi(test_dir) else None
+    return klasor, None
+
+
+def _resolve_feature_csv_paths(cikti_klasoru: Path, csv_yolu: Path | None = None) -> tuple[Path, Path]:
+    """Trainval ve test ozellik CSV yollarini belirle."""
+    cikti_klasoru = Path(cikti_klasoru)
+    if csv_yolu is None:
+        return cikti_klasoru / CSV_DOSYA_ADI, cikti_klasoru / TEST_CSV_DOSYA_ADI
+    csv_yolu = Path(csv_yolu)
+    test_csv = csv_yolu.with_name(f"test_{csv_yolu.name}")
+    return csv_yolu, test_csv
+
+
+def _auto_detect_test_csv(
+    *,
+    trainval_csv_dosyasi: Path | None,
+    cikti_klasoru: Path | None,
+    test_csv_dosyasi: Path | None,
+) -> Path | None:
+    """Harici test CSV belirtilmediyse preprocess ciktilarindan otomatik bul."""
+    if test_csv_dosyasi is not None:
+        return Path(test_csv_dosyasi)
+
+    adaylar: list[Path] = []
+    if cikti_klasoru is not None:
+        adaylar.append(Path(cikti_klasoru) / TEST_CSV_DOSYA_ADI)
+    if trainval_csv_dosyasi is not None:
+        _, eslesen_test_csv = _resolve_feature_csv_paths(
+            Path(trainval_csv_dosyasi).parent,
+            Path(trainval_csv_dosyasi),
+        )
+        adaylar.append(eslesen_test_csv)
+
+    gorulenler: set[Path] = set()
+    for aday in adaylar:
+        aday = Path(aday)
+        if aday in gorulenler:
+            continue
+        gorulenler.add(aday)
+        if aday.exists():
+            return aday
+    return None
 
 
 def _load_optional_3d_module():
@@ -222,7 +275,11 @@ def goruntu_on_isleme(
     giris_klasoru = Path(giris_klasoru) if giris_klasoru else ON_ISLEME_VARSAYILAN_GIRIS_KLASORU
     cikti_klasoru = Path(cikti_klasoru) if cikti_klasoru else CIKTI_KLASORU
 
-    istatistikler = isleyici.tum_gorselleri_isle(cikti_klasoru, giris_klasoru=giris_klasoru)
+    splitli_islem = getattr(isleyici, "tum_gorselleri_isle_ve_bol", None)
+    if callable(splitli_islem):
+        istatistikler = splitli_islem(cikti_klasoru, giris_klasoru=giris_klasoru)
+    else:
+        istatistikler = isleyici.tum_gorselleri_isle(cikti_klasoru, giris_klasoru=giris_klasoru)
 
     if istatistikler:
         print("\n[BASARILI] Goruntu isleme tamamlandi.")
@@ -238,12 +295,21 @@ def ozellik_cikar(giris_klasoru: Path | None = None, cikti_csv: Path | None = No
 
     cikarici = OzellikCikarici()
     giris_klasoru = Path(giris_klasoru) if giris_klasoru else CIKTI_KLASORU
+    trainval_dir, test_dir = _resolve_processed_split_dirs(giris_klasoru)
+    trainval_csv, test_csv = _resolve_feature_csv_paths(giris_klasoru, cikti_csv)
 
-    df = cikarici.csv_olustur(giris_klasoru, cikti_csv=cikti_csv)
+    df = cikarici.csv_olustur(trainval_dir, cikti_csv=trainval_csv)
+    if test_dir is not None:
+        test_df = cikarici.csv_olustur(test_dir, cikti_csv=test_csv)
+        if test_df.empty:
+            print("\n[HATA] Harici test ozellik cikarimi basarisiz.")
+            return None
+        print(f"[BILGI] Harici test ozellik CSV'si olusturuldu: {test_csv}")
     if not df.empty:
         print("\n[BASARILI] Ozellik cikarimi tamamlandi.")
     else:
         print("\n[HATA] Ozellik cikarimi basarisiz.")
+        return None
     return df
 
 
@@ -272,6 +338,12 @@ def scaling_uygula(
     print("-" * 60)
     print("\nScaler once egitim setine fit edilir, sonra dogrulama ve teste uygulanir.")
     print(f"Mevcut metod: {metod}")
+
+    test_csv_dosyasi = _auto_detect_test_csv(
+        trainval_csv_dosyasi=csv_dosyasi,
+        cikti_klasoru=cikti_klasoru,
+        test_csv_dosyasi=test_csv_dosyasi,
+    )
 
     splitler = veri_setini_bol_ve_olceklendir(
         csv_dosyasi=csv_dosyasi,
@@ -303,6 +375,11 @@ def veri_bol(
     print("\n[6] VERI SETI BOLME")
     print("-" * 60)
     print(f"\nOranlar: Egitim={EGITIM_ORANI}, Dogrulama={DOGRULAMA_ORANI}, Test={TEST_ORANI}")
+    test_csv_dosyasi = _auto_detect_test_csv(
+        trainval_csv_dosyasi=csv_dosyasi,
+        cikti_klasoru=cikti_klasoru,
+        test_csv_dosyasi=test_csv_dosyasi,
+    )
     return veri_boluntule(
         csv_dosyasi=csv_dosyasi,
         cikti_klasoru=cikti_klasoru,
@@ -335,19 +412,29 @@ def tum_islemleri_yap(
 
     giris_klasoru = Path(giris_klasoru) if giris_klasoru else ON_ISLEME_VARSAYILAN_GIRIS_KLASORU
     cikti_klasoru = Path(cikti_klasoru) if cikti_klasoru else CIKTI_KLASORU
-    ozellik_csv = cikti_klasoru / CSV_DOSYA_ADI
+    ozellik_csv, test_ozellik_csv = _resolve_feature_csv_paths(cikti_klasoru)
 
     print("\n\n" + "=" * 60)
     print("ADIM 1/4: GORUNTU ON ISLEME")
     print("=" * 60)
     isleyici = GorselIsleyici()
-    isleyici.tum_gorselleri_isle(cikti_klasoru, giris_klasoru=giris_klasoru)
+    splitli_islem = getattr(isleyici, "tum_gorselleri_isle_ve_bol", None)
+    if callable(splitli_islem):
+        splitli_islem(cikti_klasoru, giris_klasoru=giris_klasoru)
+    else:
+        isleyici.tum_gorselleri_isle(cikti_klasoru, giris_klasoru=giris_klasoru)
 
     print("\n\n" + "=" * 60)
     print("ADIM 2/4: OZELLIK CIKARMA")
     print("=" * 60)
     cikarici = OzellikCikarici()
-    df = cikarici.csv_olustur(cikti_klasoru, cikti_csv=ozellik_csv)
+    trainval_dir, test_dir = _resolve_processed_split_dirs(cikti_klasoru)
+    df = cikarici.csv_olustur(trainval_dir, cikti_csv=ozellik_csv)
+    if test_dir is not None:
+        test_df = cikarici.csv_olustur(test_dir, cikti_csv=test_ozellik_csv)
+        if test_df.empty:
+            print("\n[HATA] Test ozellik cikarimi basarisiz. Islem durduruluyor.")
+            return None
     if df.empty:
         print("\n[HATA] Ozellik cikarimi basarisiz. Islem durduruluyor.")
         return None
@@ -360,6 +447,7 @@ def tum_islemleri_yap(
         csv_dosyasi=ozellik_csv,
         cikti_klasoru=cikti_klasoru,
         metod=metod,
+        test_csv_dosyasi=test_ozellik_csv if test_dir is not None else None,
     )
     if sonuc is None:
         print("\n[HATA] Veri bolme ve olceklendirme basarisiz. Islem durduruluyor.")

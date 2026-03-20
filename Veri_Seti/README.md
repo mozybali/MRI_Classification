@@ -25,7 +25,9 @@ Asagidaki klasor adlari proje boyunca sabit kabul edilir:
 ## Kullanim Politikasi
 
 - `OriginalDataset`: tek kaynak veri dizini
-- `train`, `validation` ve `test`: ayni original veri kaynagindan uretilir
+- `goruntu_isleme/preprocess`: ham veriyi once leak-free `trainval/test` olarak ayirir
+- `validation`: `trainval` icinden original-only olarak uretilir
+- `test`: preprocess sirasinda ayrilan original-only split'tir
 - Train tarafinda yalnizca transform tabanli augmentation kullanilir
 
 ## Not

@@ -304,6 +304,58 @@ def test_resolve_data_dirs_islenmis_test_varsayilanini_kullanir(monkeypatch):
     assert test_dir == processed_test
 
 
+def test_resolve_data_dirs_islenmis_trainval_secildiginde_islenmis_testi_de_kullanir(monkeypatch):
+    processed_trainval = Path("tmp_test_artifacts") / f"processed_trainval_split_{uuid4().hex}"
+    processed_test = Path("tmp_test_artifacts") / f"processed_test_split_{uuid4().hex}"
+    for root in (processed_trainval, processed_test):
+        for class_name in training_runner.SINIF_ISIMLERI:
+            (root / class_name).mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(training_runner, "ISLENMIS_TRAINVAL_VERI_DIZINI", processed_trainval)
+    monkeypatch.setattr(training_runner, "ISLENMIS_TEST_VERI_DIZINI", processed_test)
+
+    trainval_dir, test_dir = training_runner.resolve_data_dirs(
+        training_runner.TrainingConfig(use_processed_trainval=True)
+    )
+
+    assert trainval_dir == processed_trainval
+    assert test_dir == processed_test
+
+
+def test_resolve_data_dirs_trainval_root_verilince_split_alt_dizinlerini_cozer():
+    processed_root = Path("tmp_test_artifacts") / f"processed_root_{uuid4().hex}"
+    for split_name in ("trainval", "test"):
+        for class_name in training_runner.SINIF_ISIMLERI:
+            (processed_root / split_name / class_name).mkdir(parents=True, exist_ok=True)
+
+    trainval_dir, test_dir = training_runner.resolve_data_dirs(
+        training_runner.TrainingConfig(
+            trainval_dir=processed_root,
+            use_processed_trainval=True,
+        )
+    )
+
+    assert trainval_dir == processed_root / "trainval"
+    assert test_dir == processed_root / "test"
+
+
+def test_resolve_data_dirs_test_root_verilince_test_alt_dizinini_cozer():
+    processed_root = Path("tmp_test_artifacts") / f"processed_test_root_{uuid4().hex}"
+    for split_name in ("trainval", "test"):
+        for class_name in training_runner.SINIF_ISIMLERI:
+            (processed_root / split_name / class_name).mkdir(parents=True, exist_ok=True)
+
+    trainval_dir, test_dir = training_runner.resolve_data_dirs(
+        training_runner.TrainingConfig(
+            trainval_dir=processed_root / "trainval",
+            test_dir=processed_root,
+        )
+    )
+
+    assert trainval_dir == processed_root / "trainval"
+    assert test_dir == processed_root / "test"
+
+
 def test_resolve_data_dirs_varsayilanda_ham_veriyi_korur(monkeypatch):
     monkeypatch.setattr(training_runner, "TRAINVAL_VERI_DIZINI", Path("Veri_Seti/OriginalDataset"))
     monkeypatch.setattr(training_runner, "VARSAYILAN_VERI_DIZINI", Path("Veri_Seti/OriginalDataset"))

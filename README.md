@@ -101,7 +101,7 @@ mri-preprocess --action all --input-dir Veri_Seti/OriginalDataset --output-dir g
 ```bash
 mri-train --model resnet --epochs 50 --batch-size 32
 mri-train --model unet --epochs 50 --batch-size 16
-mri-train --model resnet --use-processed-trainval --trainval-dir goruntu_isleme/cikti
+mri-train --model resnet --use-processed-trainval
 ```
 
 ### 3.1 Bayes search ile hiperparametre optimizasyonu
@@ -120,7 +120,8 @@ mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --image ornek.jpg
 ## Varsayilan Veri Politikasi
 
 - `Veri_Seti/OriginalDataset`: tek kaynak veri dizini
-- `train`, `validation` ve `test`: ayni original veri kaynagindan uretilir
+- `goruntu_isleme` ham veriyi leak-free sekilde `trainval/test` olarak ayirir
+- `validation` ve `test`: original-only olarak uretilir
 - Train tarafinda yalnizca transform tabanli augmentation uygulanir
 
 Proje akisi `OriginalDataset` uzerine sabitlenmistir. Ayrintilar icin [`Veri_Seti/README.md`](Veri_Seti/README.md) dosyasina bakin.
@@ -128,7 +129,7 @@ Proje akisi `OriginalDataset` uzerine sabitlenmistir. Ayrintilar icin [`Veri_Set
 ## Ciktilar
 
 - `eda_analiz/eda_ciktilar/`: EDA grafik ve tablo ciktilari
-- `goruntu_isleme/cikti/`: Islenmis goruntuler, ozellik CSV'leri, split dosyalari ve scaler
+- `goruntu_isleme/cikti/`: `trainval/`, `test/`, ozellik CSV'leri, split dosyalari ve scaler
 - `model/ciktilar/modeller/`: Egitilmis `.pt` checkpoint dosyalari
 - `model/ciktilar/raporlar/`: JSON performans raporlari
 - `model/ciktilar/gorseller/`: Confusion matrix ve egitim egrileri

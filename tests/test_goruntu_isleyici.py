@@ -216,6 +216,29 @@ class TestGorselIsleyici:
         assert all('yol' in d for d in dosyalar)
         assert all('sinif' in d for d in dosyalar)
         assert all('etiket' in d for d in dosyalar)
+        assert all('kaynak_grup' in d for d in dosyalar)
+
+    def test_veri_dosyalarini_bol_kaynak_gruplarini_ayirir(self, tmp_path):
+        isleyici = GorselIsleyici()
+        dataset = tmp_path / "dataset"
+
+        for class_name in gi.SINIF_KLASORLERI:
+            class_dir = dataset / class_name
+            class_dir.mkdir(parents=True, exist_ok=True)
+            for idx in range(2):
+                Image.fromarray(
+                    np.random.randint(80, 180, (32, 32), dtype=np.uint8), mode='L'
+                ).save(class_dir / f"{class_name}_{idx}.jpg")
+
+        dosyalar = isleyici.gorselleri_listele(dataset)
+        trainval_dosyalar, test_dosyalar = isleyici.veri_dosyalarini_bol(dosyalar, test_orani=0.5)
+
+        trainval_gruplar = {d["kaynak_grup"] for d in trainval_dosyalar}
+        test_gruplar = {d["kaynak_grup"] for d in test_dosyalar}
+
+        assert trainval_gruplar.isdisjoint(test_gruplar)
+        assert {d["sinif"] for d in trainval_dosyalar} == set(gi.SINIF_KLASORLERI)
+        assert {d["sinif"] for d in test_dosyalar} == set(gi.SINIF_KLASORLERI)
 
     def test_giris_klasoru_gercekten_kullaniliyor(self, test_dataset_structure, tmp_path):
         """tum_gorselleri_isle giris_klasoru parametresini kullanmalı."""
@@ -280,6 +303,33 @@ class TestGorselIsleyici:
         assert isleyici.kalite_istatistikleri['basarili'] == 0
         assert isleyici.kalite_istatistikleri['kalite_hatasi'] == 3
         assert sum(istatistikler.values()) == 0
+
+    def test_tum_gorselleri_isle_ve_bol_test_splitinde_augmentation_kapatir(self, tmp_path, monkeypatch):
+        isleyici = GorselIsleyici()
+        isleyici.n_jobs = 1
+
+        dataset = tmp_path / "dataset"
+        for class_name in gi.SINIF_KLASORLERI:
+            class_dir = dataset / class_name
+            class_dir.mkdir(parents=True, exist_ok=True)
+            for idx in range(2):
+                Image.fromarray(
+                    np.random.randint(80, 180, (32, 32), dtype=np.uint8), mode='L'
+                ).save(class_dir / f"{class_name}_{idx}.jpg")
+
+        monkeypatch.setattr(
+            isleyici,
+            "goruntu_isle",
+            lambda _yol: np.tile(np.arange(32, dtype=np.uint8), (32, 1)),
+        )
+
+        cikti = tmp_path / "cikti"
+        sonuc = isleyici.tum_gorselleri_isle_ve_bol(cikti, giris_klasoru=dataset)
+
+        assert set(sonuc) == {"trainval", "test"}
+        assert any((cikti / "trainval").rglob("*.png"))
+        assert any((cikti / "test").rglob("*.png"))
+        assert all("_aug" not in path.name for path in (cikti / "test").rglob("*.png"))
 
 
 class TestGorselIsleyiciEdgeCases:

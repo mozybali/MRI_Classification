@@ -22,6 +22,8 @@ ON_ISLEME_VARSAYILAN_GIRIS_KLASORU = ORIGINAL_VERI_SETI_KLASORU
 
 # İşlenmiş görüntülerin ve CSV dosyalarının kaydedileceği klasör
 CIKTI_KLASORU = PROJE_KOK / "goruntu_isleme" / "cikti"
+ISLENMIS_TRAINVAL_DIZINI = CIKTI_KLASORU / "trainval"
+ISLENMIS_TEST_DIZINI = CIKTI_KLASORU / "test"
 
 # ==================== SINIF AYARLARI ====================
 # MRI veri setindeki demans seviye sınıfları (klasör isimleri)
@@ -144,10 +146,11 @@ RASTGELE_TOHUM = 42        # Tekrarlanabilirlik için sabit tohum
 # ==================== CSV AYARLARI ====================
 # Özelliklerin kaydedileceği CSV dosya isimleri
 CSV_DOSYA_ADI = "goruntu_ozellikleri.csv"          # Ham özellikler
+TEST_CSV_DOSYA_ADI = "test_goruntu_ozellikleri.csv"
 CSV_SCALED_DOSYA_ADI = "goruntu_ozellikleri_scaled.csv"  # Ölçeklendirilmiş özellikler
 EGITIM_CSV_DOSYA_ADI = "egitim.csv"
 DOGRULAMA_CSV_DOSYA_ADI = "dogrulama.csv"
-TEST_CSV_DOSYA_ADI = "test.csv"
+TEST_SPLIT_CSV_DOSYA_ADI = "test.csv"
 EGITIM_SCALED_CSV_DOSYA_ADI = "egitim_scaled.csv"
 DOGRULAMA_SCALED_CSV_DOSYA_ADI = "dogrulama_scaled.csv"
 TEST_SCALED_CSV_DOSYA_ADI = "test_scaled.csv"

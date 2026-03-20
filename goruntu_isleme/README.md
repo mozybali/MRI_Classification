@@ -19,8 +19,8 @@ python -m goruntu_isleme.ana_islem --action menu
 ## Aksiyonlar
 
 - `menu`: Interaktif menu
-- `preprocess`: Goruntuleri on isler
-- `extract`: Islenmis goruntulerden ozellik CSV'si uretir
+- `preprocess`: Goruntuleri leak-free `trainval/test` yapisinda on isler
+- `extract`: Islenmis `trainval/test` goruntulerinden ozellik CSV'leri uretir
 - `clean-nan`: CSV icindeki NaN degerleri temizler
 - `scale`: Veriyi boler ve scaler'i egitim setine gore fit eder
 - `report`: CSV uzerinden istatistik raporu gosterir
@@ -72,7 +72,7 @@ mri-preprocess --action split --csv-path goruntu_isleme/cikti/goruntu_ozellikler
 - `--input-dir`: Girdi klasoru
 - `--output-dir`: Cikti klasoru
 - `--csv-path`: Islem yapilacak CSV dosyasi
-- `--test-csv-path`: Original test ozellik CSV yolu
+- `--test-csv-path`: Harici/original test ozellik CSV yolu. Belirtilmezse `goruntu_isleme/cikti/test_goruntu_ozellikleri.csv` otomatik aranir
 - `--method`: `clean-nan` icin `drop|mean|median|zero`, `scale|all` icin `minmax|robust|standard|maxabs`
 - `--yes`: `all` aksiyonunda onayi atlar
 
@@ -95,10 +95,19 @@ Desteklenen veri yapilari:
 Veri_Seti/OriginalDataset/<SinifAdi>/
 ```
 
+Preprocess sonrasi uretilen varsayilan goruntu yapisi:
+
+```text
+goruntu_isleme/cikti/
+|-- trainval/<SinifAdi>/
+`-- test/<SinifAdi>/
+```
+
 ## Uretilen Ciktilar
 
-- Islenmis goruntuler
+- Islenmis `trainval/` ve `test/` goruntuleri
 - `goruntu_ozellikleri.csv`
+- `test_goruntu_ozellikleri.csv`
 - `goruntu_ozellikleri_scaled.csv`
 - `egitim.csv`, `dogrulama.csv`, `test.csv`
 - `egitim_scaled.csv`, `dogrulama_scaled.csv`, `test_scaled.csv`
@@ -106,7 +115,7 @@ Veri_Seti/OriginalDataset/<SinifAdi>/
 
 ## Veri Sizintisi Notu
 
-Split mantigi, ayni kaynaktan tureyen dosyalari mumkun oldugunca ayni grupta tutar. Guncel varsayimda validation ve test satirlari yalnizca original goruntulerden uretilir; augmentasyon yalnizca train tarafinda kalir.
+Split mantigi, ayni kaynaktan tureyen dosyalari mumkun oldugunca ayni grupta tutar. `preprocess` adimi ham veriyi once `trainval/test` olarak ayirir. Test split'i yalnizca original goruntulerden olusur; augmentasyon yalnizca `trainval` tarafinda kalir. Daha sonra `scale/split` adimlari validation ve test CSV'lerini original-only olarak uretir.
 
 ## Yardimci Komutlar
 

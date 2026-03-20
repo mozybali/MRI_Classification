@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 from PIL import Image
 import random
+import re
+import math
 from scipy import ndimage
 from tqdm import tqdm
 from multiprocessing import Pool, cpu_count, current_process
@@ -115,6 +117,14 @@ class GorselIsleyici:
         """Cikti dosya kokunu giris adini benzersiz koruyacak sekilde uret."""
         kaynak = Path(dosya_yolu)
         return kaynak.stem
+
+    @staticmethod
+    def kaynak_id_belirle(dosya_yolu: str) -> str:
+        """Ayni kaynaktan tureyen dosyalari leak-free split icin grupla."""
+        stem = Path(str(dosya_yolu)).stem
+        stem = re.sub(r"_aug\d+$", "", stem, flags=re.IGNORECASE)
+        stem = re.sub(r"\s*\(\d+\)$", "", stem)
+        return stem
     
     @staticmethod
     def klasor_olustur(yol: Path):
@@ -125,6 +135,14 @@ class GorselIsleyici:
     def _sinif_klasorleri_var_mi(klasor_yolu: Path) -> bool:
         """Verilen klasörde en az bir bilinen sınıf klasörü var mı?"""
         return any((klasor_yolu / sinif).exists() for sinif in SINIF_KLASORLERI)
+
+    @classmethod
+    def _split_klasorleri_var_mi(cls, klasor_yolu: Path) -> bool:
+        """Girdi kokunde trainval/test alt klasorleri var mi?"""
+        return all(
+            cls._sinif_klasorleri_var_mi(klasor_yolu / split_adi)
+            for split_adi in ("trainval", "test")
+        )
 
     def _giris_klasoru_cozumle(self, klasor_yolu: Path) -> Path:
         """
@@ -179,13 +197,77 @@ class GorselIsleyici:
             for dosya in sinif_klasoru.iterdir():
                 # Sadece görüntü dosyalarını işle (.jpg, .png, vb.)
                 if dosya.suffix.lower() in GORUNTU_UZANTILARI:
+                    kaynak_id = self.kaynak_id_belirle(dosya.name)
                     dosyalar.append({
                         "yol": str(dosya),
                         "sinif": sinif_adi,
-                        "etiket": SINIF_ETIKETI[sinif_adi]
+                        "etiket": SINIF_ETIKETI[sinif_adi],
+                        "kaynak_id": kaynak_id,
+                        "kaynak_grup": f"{sinif_adi}::{kaynak_id}",
                     })
         
         return dosyalar
+
+    def veri_dosyalarini_bol(self, dosyalar: List[Dict], test_orani: float = TEST_ORANI) -> Tuple[List[Dict], List[Dict]]:
+        """Ham/original goruntuleri leak-free trainval ve test olarak bol."""
+        from sklearn.model_selection import train_test_split
+
+        if test_orani <= 0 or test_orani >= 1.0:
+            raise ValueError("test_orani 0 ile 1 arasinda olmali.")
+
+        grup_kayitlari: Dict[str, int] = {}
+        for dosya_info in dosyalar:
+            kaynak_grup = dosya_info["kaynak_grup"]
+            etiket = int(dosya_info["etiket"])
+            mevcut = grup_kayitlari.get(kaynak_grup)
+            if mevcut is not None and mevcut != etiket:
+                raise ValueError(
+                    f"Tutarsiz etiket bulundu: {kaynak_grup} hem {mevcut} hem {etiket} ile eslendi."
+                )
+            grup_kayitlari[kaynak_grup] = etiket
+
+        grup_anahtarlari = sorted(grup_kayitlari)
+        grup_etiketleri = [grup_kayitlari[grup] for grup in grup_anahtarlari]
+        benzersiz_etiketler = sorted(set(grup_etiketleri))
+        sinif_sayisi = len(benzersiz_etiketler)
+
+        if len(grup_anahtarlari) < sinif_sayisi * 2:
+            raise ValueError(
+                "Trainval/test bolmesi icin yeterli kaynak grup yok. "
+                f"Bulunan grup: {len(grup_anahtarlari)}, gereken minimum: {sinif_sayisi * 2}"
+            )
+
+        sinif_grup_sayilari: Dict[int, int] = {}
+        for etiket in grup_etiketleri:
+            sinif_grup_sayilari[etiket] = sinif_grup_sayilari.get(etiket, 0) + 1
+        yetersiz = sorted(etiket for etiket, sayi in sinif_grup_sayilari.items() if sayi < 2)
+        if yetersiz:
+            raise ValueError(
+                "Harici test split'i olusturmak icin her sinifta en az 2 farkli kaynak grup gerekli. "
+                f"Eksik etiketler: {yetersiz}"
+            )
+
+        toplam_grup = len(grup_anahtarlari)
+        test_grup_sayisi = max(math.ceil(toplam_grup * test_orani), sinif_sayisi)
+        trainval_grup_sayisi = toplam_grup - test_grup_sayisi
+        if test_grup_sayisi >= toplam_grup or trainval_grup_sayisi < sinif_sayisi:
+            raise ValueError(
+                "Trainval/test bolmesi icin yeterli kaynak grup yok. "
+                f"Toplam grup: {toplam_grup}, trainval grup: {trainval_grup_sayisi}, test grup: {test_grup_sayisi}"
+            )
+
+        trainval_gruplari, test_gruplari = train_test_split(
+            grup_anahtarlari,
+            test_size=test_grup_sayisi,
+            stratify=grup_etiketleri,
+            random_state=RASTGELE_TOHUM,
+        )
+
+        trainval_gruplari = set(trainval_gruplari)
+        test_gruplari = set(test_gruplari)
+        trainval_dosyalar = [d for d in dosyalar if d["kaynak_grup"] in trainval_gruplari]
+        test_dosyalar = [d for d in dosyalar if d["kaynak_grup"] in test_gruplari]
+        return trainval_dosyalar, test_dosyalar
     
     def goruntu_kalite_kontrol(self, goruntu: np.ndarray) -> Tuple[bool, str]:
         """
@@ -1248,8 +1330,13 @@ class GorselIsleyici:
         
         return artirma_carpanlari
     
-    def tum_gorselleri_isle(self, cikti_klasoru: Path = CIKTI_KLASORU,
-                            giris_klasoru: Path = None) -> Dict:
+    def tum_gorselleri_isle(
+        self,
+        cikti_klasoru: Path = CIKTI_KLASORU,
+        giris_klasoru: Path = None,
+        dosyalar: Optional[List[Dict]] = None,
+        artirma_carpanlari: Optional[Dict[str, int]] = None,
+    ) -> Dict:
         """
         Tüm MRI görüntülerini toplu olarak işle ve kaydet.
         
@@ -1284,9 +1371,12 @@ class GorselIsleyici:
             Dict: İstatistikler (toplam, başarılı, atlanan, kalite hatası sayıları)
         """
         self.klasor_olustur(cikti_klasoru)
-        if giris_klasoru is None:
-            giris_klasoru = ON_ISLEME_VARSAYILAN_GIRIS_KLASORU
-        dosyalar = self.gorselleri_listele(giris_klasoru)
+        if dosyalar is None:
+            if giris_klasoru is None:
+                giris_klasoru = ON_ISLEME_VARSAYILAN_GIRIS_KLASORU
+            dosyalar = self.gorselleri_listele(giris_klasoru)
+        else:
+            dosyalar = list(dosyalar)
         
         if not dosyalar:
             print("[HATA] Hiç görüntü bulunamadı!")
@@ -1301,8 +1391,8 @@ class GorselIsleyici:
             "kalite_hatasi": 0
         }
         
-        # Sınıf bazlı augmentation çarpanlarını hesapla ⭐ YENİ
-        artirma_carpanlari = self.sinif_bazli_artirma_carpani_hesapla(dosyalar)
+        if artirma_carpanlari is None:
+            artirma_carpanlari = self.sinif_bazli_artirma_carpani_hesapla(dosyalar)
         
         basarili = 0
         basarisiz = 0
@@ -1364,3 +1454,45 @@ class GorselIsleyici:
         print(f"{'='*60}\n")
         
         return istatistikler
+
+    def tum_gorselleri_isle_ve_bol(
+        self,
+        cikti_klasoru: Path = CIKTI_KLASORU,
+        giris_klasoru: Path = None,
+    ) -> Dict[str, Dict]:
+        """Goruntuleri leak-free trainval/test yapisina ayirip isle."""
+        self.klasor_olustur(cikti_klasoru)
+        giris_klasoru = Path(giris_klasoru) if giris_klasoru else ON_ISLEME_VARSAYILAN_GIRIS_KLASORU
+        giris_klasoru = self._giris_klasoru_cozumle(giris_klasoru)
+
+        if self._split_klasorleri_var_mi(giris_klasoru):
+            print("[BILGI] Girdi klasorunde trainval/test yapisi algilandi; mevcut split korunacak.")
+            trainval_dosyalar = self.gorselleri_listele(giris_klasoru / "trainval")
+            test_dosyalar = self.gorselleri_listele(giris_klasoru / "test")
+        else:
+            tum_dosyalar = self.gorselleri_listele(giris_klasoru)
+            if not tum_dosyalar:
+                print("[HATA] Hic goruntu bulunamadi!")
+                return {}
+            trainval_dosyalar, test_dosyalar = self.veri_dosyalarini_bol(tum_dosyalar)
+
+        sifir_aug = {sinif: 0 for sinif in SINIF_KLASORLERI}
+        print(
+            "\n[BILGI] Islenmis goruntuler split bazinda kaydedilecek: "
+            f"trainval={len(trainval_dosyalar)} goruntu, test={len(test_dosyalar)} goruntu"
+        )
+
+        trainval_istatistik = self.tum_gorselleri_isle(
+            cikti_klasoru=Path(cikti_klasoru) / "trainval",
+            dosyalar=trainval_dosyalar,
+        )
+        test_istatistik = self.tum_gorselleri_isle(
+            cikti_klasoru=Path(cikti_klasoru) / "test",
+            dosyalar=test_dosyalar,
+            artirma_carpanlari=sifir_aug,
+        )
+
+        return {
+            "trainval": trainval_istatistik,
+            "test": test_istatistik,
+        }
