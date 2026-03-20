@@ -131,8 +131,8 @@ class GorselIsleyici:
         Girdi klasörünü veri yapısına göre otomatik çöz.
 
         Desteklenen yapılar:
-        1) Veri_Seti/<SinifAdi>/
-        2) Veri_Seti/OriginalDataset/<SinifAdi>/
+        1) Veri_Seti/OriginalDataset/<SinifAdi>/
+        2) Özel bir klasörde doğrudan <SinifAdi>/
         """
         klasor_yolu = Path(klasor_yolu)
 
@@ -151,7 +151,9 @@ class GorselIsleyici:
 
         return klasor_yolu
     
-    def gorselleri_listele(self, klasor_yolu: Path = VERI_SETI_KLASORU) -> List[Dict]:
+    def gorselleri_listele(
+        self, klasor_yolu: Path = ON_ISLEME_VARSAYILAN_GIRIS_KLASORU
+    ) -> List[Dict]:
         """
         Veri setindeki tüm görüntüleri listele.
         

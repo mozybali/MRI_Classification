@@ -85,7 +85,6 @@ mri-preprocess --action split --csv-path goruntu_isleme/cikti/goruntu_ozellikler
 ## Varsayilanlar
 
 - Varsayilan giris klasoru: `Veri_Seti/OriginalDataset`
-- Geri uyumluluk icin `Veri_Seti/` de desteklenir
 - Varsayilan cikti klasoru: `goruntu_isleme/cikti`
 - Varsayilan scaling metodu: `robust`
 - Varsayilan akis 2D'dir; 3D ancak opsiyonel modul mevcutsa kullanilabilir
@@ -94,7 +93,6 @@ Desteklenen veri yapilari:
 
 ```text
 Veri_Seti/OriginalDataset/<SinifAdi>/
-Veri_Seti/<SinifAdi>/
 ```
 
 ## Uretilen Ciktilar

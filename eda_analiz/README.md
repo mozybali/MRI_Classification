@@ -26,7 +26,7 @@ python -m eda_analiz.eda_calistir --interactive
 Etkilesimsiz ornekler:
 
 ```bash
-mri-eda --data-dir Veri_Seti/AugmentedAlzheimerDataset --output-dir eda_analiz/eda_ciktilar
+mri-eda --data-dir Veri_Seti/OriginalDataset --output-dir eda_analiz/eda_ciktilar
 mri-eda --data-dir Veri_Seti/OriginalDataset --jobs 1
 ```
 
@@ -39,16 +39,13 @@ mri-eda --data-dir Veri_Seti/OriginalDataset --jobs 1
 
 ## Varsayilanlar
 
-- Varsayilan veri klasoru: `Veri_Seti/AugmentedAlzheimerDataset`
-- Augmented veri yoksa geri uyumluluk icin `Veri_Seti/`
+- Varsayilan veri klasoru: `Veri_Seti/OriginalDataset`
 - Varsayilan cikti klasoru: `eda_analiz/eda_ciktilar`
 - `--jobs` verilmezse cekirdek sayisi otomatik secilir
 
 Desteklenen veri yapilari:
 
 ```text
-Veri_Seti/<SinifAdi>/
-Veri_Seti/AugmentedAlzheimerDataset/<SinifAdi>/
 Veri_Seti/OriginalDataset/<SinifAdi>/
 ```
 

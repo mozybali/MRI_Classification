@@ -17,13 +17,8 @@ VERI_SETI_KLASORU = PROJE_KOK / "Veri_Seti"
 ORIGINAL_VERI_SETI_KLASORU = VERI_SETI_KLASORU / "OriginalDataset"
 
 # Ön işleme için varsayılan giriş:
-# - Dogru metodoloji geregi original veri kullan
-# - Original yoksa yalnizca kok Veri_Seti klasorune dus
-ON_ISLEME_VARSAYILAN_GIRIS_KLASORU = (
-    ORIGINAL_VERI_SETI_KLASORU
-    if ORIGINAL_VERI_SETI_KLASORU.exists()
-    else VERI_SETI_KLASORU
-)
+# - Proje akisi yalnizca OriginalDataset uzerinden calisir
+ON_ISLEME_VARSAYILAN_GIRIS_KLASORU = ORIGINAL_VERI_SETI_KLASORU
 
 # İşlenmiş görüntülerin ve CSV dosyalarının kaydedileceği klasör
 CIKTI_KLASORU = PROJE_KOK / "goruntu_isleme" / "cikti"
@@ -101,40 +96,40 @@ MORFOLOJIK_KERNEL_BOYUTU = 3
 # ==================== VERİ ARTIRMA AYARLARI ====================
 # Veri artırma (Data Augmentation) - Yapay veri üretimi
 # Mevcut görüntülerden döndürme, aynalama vb. ile yeni varyasyonlar oluşturur
-VERI_ARTIRMA_AKTIF = False
+VERI_ARTIRMA_AKTIF = True
 ARTIRMA_CARPANI = 2  # Her orijinal görüntüden kaç artırılmış versiyon üretilecek
 
 # Sınıf bazlı dengesiz augmentation - Az örnekli sınıfları daha fazla artır
 SINIF_BAZLI_ARTIRMA_AKTIF = True
 SINIF_BAZLI_CARPANLAR = {
     "NonDemented": 0,        # Sadece orijinal örnekleri kullan
-    "VeryMildDemented": 1,   # Hafif artır
-    "MildDemented": 1,       # Hafif artır
-    "ModerateDemented": 3,   # En az örnekli sınıf - daha fazla artır
+    "VeryMildDemented": 0,   # Mevcut sayi yeterli, ek augmentation uygulama
+    "MildDemented": 1,       # Orta seviyede artır
+    "ModerateDemented": 11,  # Ciddi azinlik sinifi - kontrollu sekilde artır
 }
 
 # Artırma parametreleri (basit)
 YATAY_AYNA_AKTIF = False
 YATAY_AYNA_OLASILIK = 0.15
 ROTASYON_AKTIF = True
-ROTASYON_MAKS_ACI = 10.0      # 90/180 derece yerine küçük açılı rotasyon
+ROTASYON_MAKS_ACI = 7.0       # Anatomik yapıyı korumak için daha küçük açı
 PARLAKLIK_ARALIK = (-20, 20)     # Parlaklık değişimi aralığı (piksel)
 KONTRAST_ARALIK = (0.9, 1.1)     # Kontrast çarpanı aralığı
 
 # Gelişmiş medikal-spesifik artırma parametreleri
 ELASTIC_DEFORMATION_AKTIF = True
-ELASTIC_ALPHA = 25               # Deformasyon şiddeti
+ELASTIC_ALPHA = 15               # Daha yumuşak deformasyon
 ELASTIC_SIGMA = 8                # Deformasyon yumuşaklığı
 
 RANDOM_CROP_AKTIF = True
-RANDOM_CROP_RATIO = 0.95         # Kırpma oranı (0.95 = %95'ini al)
+RANDOM_CROP_RATIO = 0.97         # Beyin dokusunu korumak için daha hafif kırpma
 
 GAUSSIAN_NOISE_AKTIF = False
 GAUSSIAN_NOISE_MEAN = 0
 GAUSSIAN_NOISE_SIGMA = 5         # Gürültü şiddeti
 
 INTENSITY_SHIFT_AKTIF = True
-INTENSITY_SHIFT_LIMIT = 0.05      # Yogunluk kaymasi limiti (%5)
+INTENSITY_SHIFT_LIMIT = 0.03      # Yogunluk kaymasi limiti (%3)
 
 # ==================== VERİ BÖLÜMLEME AYARLARI ====================
 # Veri seti üç parçaya bölünür:

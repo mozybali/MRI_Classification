@@ -28,12 +28,6 @@ Asagidaki klasor adlari proje boyunca sabit kabul edilir:
 - `train`, `validation` ve `test`: ayni original veri kaynagindan uretilir
 - Train tarafinda yalnizca transform tabanli augmentation kullanilir
 
-## Geri Uyumluluk
+## Not
 
-Bazi araclar asagidaki yapilari da kabul eder:
-
-```text
-Veri_Seti/<SinifAdi>/
-```
-
-Ancak repo icindeki guncel beklenti, `Veri_Seti/OriginalDataset/<SinifAdi>/` yapisinin kullanilmasidir.
+Repo icindeki guncel beklenti `Veri_Seti/OriginalDataset/<SinifAdi>/` yapisidir ve proje akisi bu yol uzerine sabitlenmistir.

@@ -25,9 +25,7 @@ from tqdm import tqdm
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 VERI_SETI_KLASORU = PROJECT_ROOT / "Veri_Seti"
 ORIGINAL_VERI_KLASORU = VERI_SETI_KLASORU / "OriginalDataset"
-DEFAULT_VERI_KLASORU = (
-    ORIGINAL_VERI_KLASORU if ORIGINAL_VERI_KLASORU.exists() else VERI_SETI_KLASORU
-)
+DEFAULT_VERI_KLASORU = ORIGINAL_VERI_KLASORU
 DEFAULT_CIKTI_KLASORU = Path(__file__).resolve().parent / "eda_ciktilar"
 
 
@@ -155,8 +153,8 @@ class EDAAnaLiz:
         Veri klasörünü veri yapısına göre otomatik çöz.
 
         Desteklenen yapılar:
-        1) Veri_Seti/<SinifAdi>/
-        2) Veri_Seti/OriginalDataset/<SinifAdi>/
+        1) Veri_Seti/OriginalDataset/<SinifAdi>/
+        2) Özel bir klasörde doğrudan <SinifAdi>/ yapısı
         """
         if self._sinif_klasorleri_var_mi(giris_klasoru, self.sinif_klasorleri):
             return giris_klasoru
@@ -173,8 +171,8 @@ class EDAAnaLiz:
         raise FileNotFoundError(
             "Veri klasörü beklenen sınıf klasörlerini içermiyor. "
             f"Verilen yol: {giris_klasoru}. "
-            "Beklenen yapılar: Veri_Seti/<SinifAdi> veya "
-            "Veri_Seti/OriginalDataset/<SinifAdi>."
+            "Beklenen yapılar: Veri_Seti/OriginalDataset/<SinifAdi> "
+            "veya özel bir klasorde dogrudan <SinifAdi>."
         )
 
     def veri_yukle(self) -> pd.DataFrame:
