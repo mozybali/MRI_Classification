@@ -46,7 +46,7 @@ Ornekler:
   python -m model.hpo --model resnet --trials 20 --epochs 12
   python -m model.hpo --model unet --trials 30 --metric loss --skip-final-train
   python -m model.hpo --model resnet --search-pretrained --batch-size-choices 16 32
-  python -m model.hpo --model resnet --use-processed-trainval --trainval-dir goruntu_isleme/cikti
+  python -m model.hpo --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
         """,
     )
     parser.add_argument("--model", choices=["resnet", "unet"], default="resnet")
@@ -97,12 +97,12 @@ Ornekler:
     parser.add_argument(
         "--use-processed-trainval",
         action="store_true",
-        help="Train+validation icin islenmis goruntu dizinini varsayilan kaynak yapar.",
+        help="Geriye donuk uyumluluk bayragi. Varsayilan kaynak zaten islenmis trainval dizinidir.",
     )
     parser.add_argument(
         "--use-processed-test",
         action="store_true",
-        help="Test icin islenmis goruntu dizinini varsayilan kaynak yapar.",
+        help="Geriye donuk uyumluluk bayragi. Varsayilan kaynak zaten islenmis test dizinidir.",
     )
     parser.add_argument(
         "--batch-size-choices",

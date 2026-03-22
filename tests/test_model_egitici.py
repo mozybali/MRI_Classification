@@ -25,7 +25,14 @@ import torch.nn.functional as F
 from model.dl.dataset import kaynak_id_belirle, _group_stratified_train_val_split
 from model.dl.losses import FocalLoss, compute_class_weights
 from model.dl.models.resnet_classifier import ResNetClassifier
-from model.dl.utils import load_checkpoint, plot_confusion_matrix
+from model.dl.utils import (
+    load_checkpoint,
+    plot_classification_summary,
+    plot_confusion_matrix,
+    plot_multiclass_roc_pr_curves,
+    plot_prediction_confidence,
+    plot_training_curves,
+)
 from model import hpo, training_runner
 from model.train import build_model, parse_args as parse_train_args
 
@@ -149,6 +156,87 @@ def test_confusion_matrix_eksik_sinifta_da_cizer(tmp_path):
     plot_confusion_matrix(labels, preds, class_names, out_path)
 
     assert out_path.exists()
+
+
+def test_detayli_degerlendirme_grafikleri_olusturulur(tmp_path):
+    labels = np.array([0, 1, 2, 3, 0, 1, 2, 3])
+    preds = np.array([0, 1, 2, 2, 0, 0, 2, 3])
+    probs = np.array(
+        [
+            [0.92, 0.03, 0.03, 0.02],
+            [0.10, 0.80, 0.07, 0.03],
+            [0.04, 0.06, 0.84, 0.06],
+            [0.08, 0.12, 0.60, 0.20],
+            [0.88, 0.05, 0.04, 0.03],
+            [0.52, 0.28, 0.10, 0.10],
+            [0.05, 0.08, 0.79, 0.08],
+            [0.06, 0.08, 0.12, 0.74],
+        ],
+        dtype=np.float32,
+    )
+    confidences = probs.max(axis=1)
+    class_names = ["NonDemented", "VeryMildDemented", "MildDemented", "ModerateDemented"]
+
+    plot_confusion_matrix(labels, preds, class_names, tmp_path / "cm_norm.png", normalize=True)
+    plot_classification_summary(labels, preds, class_names, tmp_path / "class_summary.png")
+    plot_prediction_confidence(confidences, labels, preds, tmp_path / "confidence.png")
+    plot_multiclass_roc_pr_curves(labels, probs, class_names, tmp_path / "roc_pr.png")
+    plot_training_curves(
+        [1.0, 0.7, 0.4],
+        [1.1, 0.8, 0.5],
+        [0.5, 0.7, 0.9],
+        [0.4, 0.65, 0.82],
+        tmp_path / "training_dashboard.png",
+        train_precisions=[0.45, 0.68, 0.91],
+        val_precisions=[0.38, 0.62, 0.84],
+        train_recalls=[0.44, 0.69, 0.90],
+        val_recalls=[0.40, 0.63, 0.81],
+        train_f1s=[0.44, 0.68, 0.90],
+        val_f1s=[0.39, 0.62, 0.82],
+        best_epoch=3,
+    )
+
+    assert (tmp_path / "cm_norm.png").exists()
+    assert (tmp_path / "class_summary.png").exists()
+    assert (tmp_path / "confidence.png").exists()
+    assert (tmp_path / "roc_pr.png").exists()
+    assert (tmp_path / "training_dashboard.png").exists()
+
+
+def test_prediction_confidence_bos_veride_placeholder_cizer(tmp_path):
+    labels = np.array([0, 1, 1, 0])
+    preds = np.array([0, 1, 0, 0])
+    out_path = tmp_path / "confidence_placeholder.png"
+
+    plot_prediction_confidence(np.array([], dtype=np.float32), labels, preds, out_path)
+
+    assert out_path.exists()
+
+
+def test_detayli_rapor_auc_ap_ortalamasinda_eksik_siniflari_atlar():
+    labels = np.array([0, 0, 1, 1])
+    preds = np.array([0, 0, 1, 1])
+    probs = np.array(
+        [
+            [0.95, 0.05, 0.00, 0.00],
+            [0.90, 0.10, 0.00, 0.00],
+            [0.05, 0.90, 0.05, 0.00],
+            [0.10, 0.85, 0.05, 0.00],
+        ],
+        dtype=np.float32,
+    )
+
+    report = training_runner._build_detailed_eval_report(
+        labels,
+        preds,
+        probs,
+        ["NonDemented", "VeryMildDemented", "MildDemented", "ModerateDemented"],
+    )
+
+    assert report["macro_auc_ovr"] == pytest.approx(1.0)
+    assert report["macro_average_precision"] == pytest.approx(1.0)
+    assert report["per_class"]["MildDemented"]["support"] == 0
+    assert report["per_class"]["ModerateDemented"]["support"] == 0
 
 
 def test_build_model_resnet_cpu_olusturur():
@@ -356,17 +444,17 @@ def test_resolve_data_dirs_test_root_verilince_test_alt_dizinini_cozer():
     assert test_dir == processed_root / "test"
 
 
-def test_resolve_data_dirs_varsayilanda_ham_veriyi_korur(monkeypatch):
-    monkeypatch.setattr(training_runner, "TRAINVAL_VERI_DIZINI", Path("Veri_Seti/OriginalDataset"))
-    monkeypatch.setattr(training_runner, "VARSAYILAN_VERI_DIZINI", Path("Veri_Seti/OriginalDataset"))
+def test_resolve_data_dirs_varsayilanda_islenmis_splitleri_kullanir(monkeypatch):
+    monkeypatch.setattr(training_runner, "TRAINVAL_VERI_DIZINI", Path("goruntu_isleme/cikti/trainval"))
+    monkeypatch.setattr(training_runner, "VARSAYILAN_VERI_DIZINI", Path("goruntu_isleme/cikti/trainval"))
     monkeypatch.setattr(training_runner, "ISLENMIS_TRAINVAL_VERI_DIZINI", Path("goruntu_isleme/cikti/trainval"))
     monkeypatch.setattr(training_runner, "ISLENMIS_TEST_VERI_DIZINI", Path("goruntu_isleme/cikti/test"))
-    monkeypatch.setattr(training_runner, "TEST_VERI_DIZINI", Path("Veri_Seti/OriginalDataset"))
+    monkeypatch.setattr(training_runner, "TEST_VERI_DIZINI", Path("goruntu_isleme/cikti/test"))
 
     trainval_dir, test_dir = training_runner.resolve_data_dirs(training_runner.TrainingConfig())
 
-    assert trainval_dir == Path("Veri_Seti/OriginalDataset")
-    assert test_dir is None
+    assert trainval_dir == Path("goruntu_isleme/cikti/trainval")
+    assert test_dir == Path("goruntu_isleme/cikti/test")
 
 
 def test_resolve_data_dirs_varsayilan_veri_dizinini_onceliklendirir(monkeypatch):
@@ -488,6 +576,13 @@ def test_run_training_hedef_metrige_gore_best_epoch_secer(monkeypatch):
                 "recall": 0.65,
                 "f1": 0.60,
             },
+            {
+                "loss": 0.40,
+                "accuracy": 0.75,
+                "precision": 0.75,
+                "recall": 0.75,
+                "f1": 0.90,
+            },
         ]
     )
     create_calls = {}
@@ -570,6 +665,7 @@ def test_run_training_hedef_metrige_gore_best_epoch_secer(monkeypatch):
     assert result["best_val_loss"] == pytest.approx(0.40)
     assert result["lowest_val_loss"] == pytest.approx(0.20)
     assert result["selected_epoch_val_loss"] == pytest.approx(0.40)
+    assert "train_f1" in result["history"]
 
 
 def test_hpo_main_storage_varken_trials_hedef_toplam_olarak_yorumlanir(monkeypatch):

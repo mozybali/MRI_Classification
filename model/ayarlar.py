@@ -16,10 +16,9 @@ ISLENMIS_TRAINVAL_VERI_DIZINI = ISLENMIS_VERI_KLASORU / "trainval"
 ISLENMIS_TEST_VERI_DIZINI = ISLENMIS_VERI_KLASORU / "test"
 
 # Varsayilan veri dizinleri
-# Dogru metodoloji geregi varsayilan kaynak original veri uzerinden train/val/test split'tir.
-# Islenmis veri dizinleri yalnizca ilgili CLI flag'leri ile secilir.
-TRAINVAL_VERI_DIZINI = PROJE_KOK / "Veri_Seti" / "OriginalDataset"
-TEST_VERI_DIZINI = PROJE_KOK / "Veri_Seti" / "OriginalDataset"
+# Model egitimi varsayilan olarak leak-free sekilde uretilmis islenmis split'leri kullanir.
+TRAINVAL_VERI_DIZINI = ISLENMIS_TRAINVAL_VERI_DIZINI
+TEST_VERI_DIZINI = ISLENMIS_TEST_VERI_DIZINI
 
 # Geriye donuk uyumluluk
 VARSAYILAN_VERI_DIZINI = TRAINVAL_VERI_DIZINI

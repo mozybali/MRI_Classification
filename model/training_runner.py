@@ -16,7 +16,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Literal
 
+import numpy as np
 import torch
+from sklearn.metrics import average_precision_score, precision_recall_fscore_support, roc_auc_score
+from sklearn.preprocessing import label_binarize
 
 from .ayarlar import (
     CIKTI_KLASORU,
@@ -36,7 +39,15 @@ from .dl.engine import EarlyStopping, evaluate, train_one_epoch
 from .dl.losses import FocalLoss, compute_class_weights
 from .dl.models.resnet_classifier import ResNetClassifier
 from .dl.models.unet_classifier import UNetClassifier
-from .dl.utils import get_device, plot_confusion_matrix, plot_training_curves, set_seed
+from .dl.utils import (
+    get_device,
+    plot_classification_summary,
+    plot_confusion_matrix,
+    plot_multiclass_roc_pr_curves,
+    plot_prediction_confidence,
+    plot_training_curves,
+    set_seed,
+)
 
 SUPPORTED_SELECTION_METRICS = {"loss", "accuracy", "precision", "recall", "f1"}
 
@@ -257,6 +268,106 @@ def _scalar_metrics(metrics: dict[str, Any]) -> dict[str, float]:
     }
 
 
+def _round_or_none(value: float | None, digits: int = 4) -> float | None:
+    if value is None:
+        return None
+    return round(float(value), digits)
+
+
+def _compute_valid_multiclass_auc_ap(
+    labels: np.ndarray,
+    probs: np.ndarray,
+    class_names: list[str],
+) -> tuple[float | None, float | None]:
+    """Yalnizca gecerli siniflari kullanarak macro ROC-AUC ve AP hesapla."""
+    labels_bin = label_binarize(labels, classes=np.arange(len(class_names)))
+    auc_scores: list[float] = []
+    ap_scores: list[float] = []
+
+    for class_idx in range(len(class_names)):
+        positives = labels_bin[:, class_idx]
+        if positives.size == 0 or positives.max() == 0 or positives.min() == 1:
+            continue
+
+        class_probs = probs[:, class_idx]
+        try:
+            auc_scores.append(float(roc_auc_score(positives, class_probs)))
+        except ValueError:
+            pass
+        try:
+            ap_scores.append(float(average_precision_score(positives, class_probs)))
+        except ValueError:
+            pass
+
+    macro_auc_ovr = _round_or_none(float(np.mean(auc_scores)), 4) if auc_scores else None
+    macro_average_precision = _round_or_none(float(np.mean(ap_scores)), 4) if ap_scores else None
+    return macro_auc_ovr, macro_average_precision
+
+
+def _build_detailed_eval_report(
+    labels: np.ndarray,
+    preds: np.ndarray,
+    probs: np.ndarray | None,
+    class_names: list[str],
+) -> dict[str, Any]:
+    """Derinlemesine degerlendirme metriklerini JSON uyumlu sekilde ozetle."""
+    labels = np.asarray(labels)
+    preds = np.asarray(preds)
+    probs = np.asarray(probs) if probs is not None else np.empty((len(labels), 0), dtype=np.float32)
+
+    precision, recall, f1, support = precision_recall_fscore_support(
+        labels,
+        preds,
+        labels=list(range(len(class_names))),
+        zero_division=0,
+    )
+    per_class = {
+        class_name: {
+            "precision": round(float(precision[idx]), 4),
+            "recall": round(float(recall[idx]), 4),
+            "f1": round(float(f1[idx]), 4),
+            "support": int(support[idx]),
+        }
+        for idx, class_name in enumerate(class_names)
+    }
+
+    confidences = probs.max(axis=1) if probs.size else np.array([], dtype=np.float32)
+    correct_mask = labels == preds
+    confidence_summary = {
+        "mean_confidence": _round_or_none(float(confidences.mean()), 4) if confidences.size else None,
+        "mean_confidence_correct": (
+            _round_or_none(float(confidences[correct_mask].mean()), 4)
+            if confidences.size and np.any(correct_mask)
+            else None
+        ),
+        "mean_confidence_incorrect": (
+            _round_or_none(float(confidences[~correct_mask].mean()), 4)
+            if confidences.size and np.any(~correct_mask)
+            else None
+        ),
+        "high_confidence_error_count": (
+            int(np.sum((~correct_mask) & (confidences >= 0.9)))
+            if confidences.size
+            else 0
+        ),
+    }
+
+    summary = {
+        "per_class": per_class,
+        "confidence": confidence_summary,
+        "macro_auc_ovr": None,
+        "macro_average_precision": None,
+    }
+
+    if probs.size:
+        (
+            summary["macro_auc_ovr"],
+            summary["macro_average_precision"],
+        ) = _compute_valid_multiclass_auc_ap(labels, probs, class_names)
+
+    return summary
+
+
 def _checkpoint_payload(
     config: TrainingConfig,
     epoch: int,
@@ -298,6 +409,8 @@ def run_training(
     set_seed(config.seed)
     device = get_device(verbose=verbose)
     trainval_dir, test_dir = resolve_data_dirs(config, require_test_dir=evaluate_test_set)
+    if not evaluate_test_set:
+        test_dir = None
 
     if verbose:
         print("\n[INFO] Veri yukleniyor:")
@@ -371,6 +484,12 @@ def run_training(
     val_losses: list[float] = []
     train_accs: list[float] = []
     val_accs: list[float] = []
+    train_precisions: list[float] = []
+    val_precisions: list[float] = []
+    train_recalls: list[float] = []
+    val_recalls: list[float] = []
+    train_f1s: list[float] = []
+    val_f1s: list[float] = []
     lowest_val_loss = float("inf")
     best_epoch = 0
     best_val_metrics: dict[str, float] | None = None
@@ -397,6 +516,12 @@ def run_training(
         val_losses.append(val_scalars["loss"])
         train_accs.append(train_scalars["accuracy"])
         val_accs.append(val_scalars["accuracy"])
+        train_precisions.append(train_scalars["precision"])
+        val_precisions.append(val_scalars["precision"])
+        train_recalls.append(train_scalars["recall"])
+        val_recalls.append(val_scalars["recall"])
+        train_f1s.append(train_scalars["f1"])
+        val_f1s.append(val_scalars["f1"])
 
         lr_current = optimizer.param_groups[0]["lr"]
         if verbose:
@@ -457,7 +582,18 @@ def run_training(
 
     model.load_state_dict(best_state_dict)
 
+    best_val_eval = evaluate(model, val_loader, criterion, device)
+    best_val_detailed_metrics = None
+    if {"labels", "preds"}.issubset(best_val_eval):
+        best_val_detailed_metrics = _build_detailed_eval_report(
+            best_val_eval["labels"],
+            best_val_eval["preds"],
+            best_val_eval.get("probs"),
+            SINIF_ISIMLERI,
+        )
+
     test_metrics = None
+    test_detailed_metrics = None
     if evaluate_test_set:
         if verbose:
             print(f"\n{'=' * 70}")
@@ -466,20 +602,70 @@ def run_training(
 
         test_eval = evaluate(model, test_loader, criterion, device)
         test_metrics = _scalar_metrics(test_eval)
+        if {"labels", "preds"}.issubset(test_eval):
+            test_detailed_metrics = _build_detailed_eval_report(
+                test_eval["labels"],
+                test_eval["preds"],
+                test_eval.get("probs"),
+                SINIF_ISIMLERI,
+            )
 
         if verbose:
             print(f"  Accuracy : {test_metrics['accuracy']:.4f}")
             print(f"  Precision: {test_metrics['precision']:.4f}")
             print(f"  Recall   : {test_metrics['recall']:.4f}")
             print(f"  F1 (macro): {test_metrics['f1']:.4f}")
+            if test_detailed_metrics is not None and test_detailed_metrics["macro_auc_ovr"] is not None:
+                print(f"  ROC-AUC (macro OVR): {test_detailed_metrics['macro_auc_ovr']:.4f}")
+            if (
+                test_detailed_metrics is not None
+                and test_detailed_metrics["macro_average_precision"] is not None
+            ):
+                print(
+                    "  Avg Precision (macro): "
+                    f"{test_detailed_metrics['macro_average_precision']:.4f}"
+                )
 
-        if output_dirs is not None:
+        if output_dirs is not None and {"labels", "preds"}.issubset(test_eval):
+            test_confidences = np.asarray(
+                test_eval.get("confidences", np.array([], dtype=np.float32)),
+                dtype=np.float32,
+            )
+            if not test_confidences.size and np.asarray(test_eval.get("probs")).size:
+                test_confidences = np.asarray(test_eval["probs"], dtype=np.float32).max(axis=1)
+
             plot_confusion_matrix(
                 test_eval["labels"],
                 test_eval["preds"],
                 SINIF_ISIMLERI,
                 output_dirs["visuals"] / f"confusion_matrix_{artifact_stem}.png",
             )
+            plot_confusion_matrix(
+                test_eval["labels"],
+                test_eval["preds"],
+                SINIF_ISIMLERI,
+                output_dirs["visuals"] / f"confusion_matrix_normalized_{artifact_stem}.png",
+                normalize=True,
+            )
+            plot_classification_summary(
+                test_eval["labels"],
+                test_eval["preds"],
+                SINIF_ISIMLERI,
+                output_dirs["visuals"] / f"classification_summary_{artifact_stem}.png",
+            )
+            plot_prediction_confidence(
+                test_confidences,
+                test_eval["labels"],
+                test_eval["preds"],
+                output_dirs["visuals"] / f"prediction_confidence_{artifact_stem}.png",
+            )
+            if np.asarray(test_eval.get("probs")).size:
+                plot_multiclass_roc_pr_curves(
+                    test_eval["labels"],
+                    test_eval["probs"],
+                    SINIF_ISIMLERI,
+                    output_dirs["visuals"] / f"roc_pr_curves_{artifact_stem}.png",
+                )
 
     if output_dirs is not None:
         plot_training_curves(
@@ -488,6 +674,13 @@ def run_training(
             train_accs,
             val_accs,
             output_dirs["visuals"] / f"training_curves_{artifact_stem}.png",
+            train_precisions=train_precisions,
+            val_precisions=val_precisions,
+            train_recalls=train_recalls,
+            val_recalls=val_recalls,
+            train_f1s=train_f1s,
+            val_f1s=val_f1s,
+            best_epoch=best_epoch,
         )
 
     report_path = None
@@ -512,6 +705,7 @@ def run_training(
                 "recall": round(best_val_metrics["recall"], 4),
                 "f1_macro": round(best_val_metrics["f1"], 4),
             },
+            "best_val_detailed_metrics": best_val_detailed_metrics,
             "test_metrics": (
                 {
                     "accuracy": round(test_metrics["accuracy"], 4),
@@ -522,6 +716,7 @@ def run_training(
                 if test_metrics is not None
                 else None
             ),
+            "test_detailed_metrics": test_detailed_metrics,
             "data_split": {
                 "strategy": info["split_strategy"],
                 "trainval_dir": str(trainval_dir),
@@ -541,6 +736,45 @@ def run_training(
                 "val_loss": val_losses,
                 "train_accuracy": train_accs,
                 "val_accuracy": val_accs,
+                "train_precision": train_precisions,
+                "val_precision": val_precisions,
+                "train_recall": train_recalls,
+                "val_recall": val_recalls,
+                "train_f1": train_f1s,
+                "val_f1": val_f1s,
+            },
+            "artifacts": {
+                "training_dashboard": str(
+                    output_dirs["visuals"] / f"training_curves_{artifact_stem}.png"
+                ),
+                "confusion_matrix": (
+                    str(output_dirs["visuals"] / f"confusion_matrix_{artifact_stem}.png")
+                    if test_metrics is not None
+                    else None
+                ),
+                "confusion_matrix_normalized": (
+                    str(
+                        output_dirs["visuals"]
+                        / f"confusion_matrix_normalized_{artifact_stem}.png"
+                    )
+                    if test_metrics is not None
+                    else None
+                ),
+                "classification_summary": (
+                    str(output_dirs["visuals"] / f"classification_summary_{artifact_stem}.png")
+                    if test_metrics is not None
+                    else None
+                ),
+                "prediction_confidence": (
+                    str(output_dirs["visuals"] / f"prediction_confidence_{artifact_stem}.png")
+                    if test_metrics is not None
+                    else None
+                ),
+                "roc_pr_curves": (
+                    str(output_dirs["visuals"] / f"roc_pr_curves_{artifact_stem}.png")
+                    if test_metrics is not None
+                    else None
+                ),
             },
         }
         if extra_report:
@@ -572,6 +806,12 @@ def run_training(
             "val_loss": val_losses,
             "train_accuracy": train_accs,
             "val_accuracy": val_accs,
+            "train_precision": train_precisions,
+            "val_precision": val_precisions,
+            "train_recall": train_recalls,
+            "val_recall": val_recalls,
+            "train_f1": train_f1s,
+            "val_f1": val_f1s,
         },
         "data_info": info,
         "checkpoint_path": best_checkpoint_path,
@@ -580,4 +820,6 @@ def run_training(
         "trainval_dir": trainval_dir,
         "test_dir": test_dir,
         "config": config_to_dict(config),
+        "best_val_detailed_metrics": best_val_detailed_metrics,
+        "test_detailed_metrics": test_detailed_metrics,
     }

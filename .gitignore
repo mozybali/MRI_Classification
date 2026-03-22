@@ -99,11 +99,7 @@ logs/
 goruntu_isleme/cikti/
 eda_analiz/eda_ciktilar/
 
-model/ciktilar/modeller/*.pkl
-model/ciktilar/modeller/*.json
-model/ciktilar/raporlar/*.txt
-model/ciktilar/raporlar/*.json
-model/ciktilar/gorseller/*.png
+model/ciktilar/
 _review_tmp/
 
 # Model weights

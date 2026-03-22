@@ -39,8 +39,8 @@ Ornekler:
   python model/train.py --model resnet --weight-decay 1e-3 --scheduler-factor 0.3
   python model/train.py --model resnet --pretrained
   python model/train.py --model resnet --trainval-dir Veri_Seti/OriginalDataset
-  python model/train.py --model resnet --use-processed-trainval --trainval-dir goruntu_isleme/cikti
-  python model/train.py --model resnet --use-processed-trainval --use-processed-test
+  python model/train.py --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
+  python model/train.py --model resnet --trainval-dir Veri_Seti/OriginalDataset
   python model/train.py --model unet --val-ratio 0.2
         """,
     )
@@ -91,17 +91,16 @@ Ornekler:
         "--use-processed-trainval",
         action="store_true",
         help=(
-            "Train+validation icin islenmis goruntuleri kullan. "
-            "--trainval-dir verilmezse once goruntu_isleme/cikti/trainval, "
-            "yoksa sinif klasorleri varsa goruntu_isleme/cikti kullanilir."
+            "Geriye donuk uyumluluk bayragi. Varsayilan akista train+validation "
+            "icin zaten islenmis goruntuler kullanilir."
         ),
     )
     parser.add_argument(
         "--use-processed-test",
         action="store_true",
         help=(
-            "Test icin islenmis goruntuleri kullan. "
-            "--test-dir verilmezse goruntu_isleme/cikti/test beklenir."
+            "Geriye donuk uyumluluk bayragi. Varsayilan akista test icin zaten "
+            "islenmis goruntuler kullanilir."
         ),
     )
     parser.add_argument(

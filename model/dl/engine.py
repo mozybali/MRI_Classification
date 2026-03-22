@@ -4,7 +4,7 @@
 """
 engine.py
 ---------
-Eğitim ve değerlendirme döngüleri, early stopping mekanizması.
+Egitim ve degerlendirme donguleri, early stopping mekanizmasi.
 """
 
 from typing import Dict
@@ -12,7 +12,7 @@ from typing import Dict
 import numpy as np
 import torch
 import torch.nn as nn
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 
 
 def train_one_epoch(
@@ -22,7 +22,7 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     device: torch.device,
 ) -> Dict[str, float]:
-    """Tek epoch eğitim döngüsü."""
+    """Tek epoch egitim dongusu."""
     model.train()
     running_loss = 0.0
     all_preds, all_labels = [], []
@@ -58,23 +58,28 @@ def evaluate(
     criterion: nn.Module,
     device: torch.device,
 ) -> Dict[str, object]:
-    """Değerlendirme döngüsü. Metrikler + tahmin/etiket dizileri döndürür."""
+    """Degerlendirme dongusu. Metrikler ve tahmin/prob dizi bilgisi dondurur."""
     model.eval()
     running_loss = 0.0
     all_preds, all_labels = [], []
+    all_probs = []
 
     for images, labels in loader:
         images, labels = images.to(device), labels.to(device)
 
         outputs = model(images)
         loss = criterion(outputs, labels)
+        probs = torch.softmax(outputs, dim=1)
 
         running_loss += loss.item() * images.size(0)
-        preds = outputs.argmax(dim=1).cpu().numpy()
+        preds = probs.argmax(dim=1).cpu().numpy()
         all_preds.extend(preds)
         all_labels.extend(labels.cpu().numpy())
+        all_probs.extend(probs.cpu().numpy())
 
     n = len(all_labels)
+    probs_arr = np.array(all_probs, dtype=np.float32)
+    confidences = probs_arr.max(axis=1) if probs_arr.size else np.array([], dtype=np.float32)
     return {
         "loss": running_loss / n,
         "accuracy": accuracy_score(all_labels, all_preds),
@@ -83,11 +88,13 @@ def evaluate(
         "f1": f1_score(all_labels, all_preds, average="macro", zero_division=0),
         "preds": np.array(all_preds),
         "labels": np.array(all_labels),
+        "probs": probs_arr,
+        "confidences": confidences,
     }
 
 
 class EarlyStopping:
-    """Overfitting'i önlemek için early stopping mekanizması."""
+    """Overfitting'i onlemek icin early stopping mekanizmasi."""
 
     def __init__(self, patience: int = 10, min_delta: float = 1e-4):
         self.patience = patience

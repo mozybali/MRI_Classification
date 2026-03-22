@@ -11,8 +11,9 @@ Bu modul, MRI goruntulerinden demans seviyesi siniflandirmak icin PyTorch tabanl
 
 ## Varsayilan Veri Politikasi
 
-- `Veri_Seti/OriginalDataset`: tek train/validation/test split kaynagi
-- `goruntu_isleme` islenmis goruntuleri `trainval/test` olarak uretir
+- Varsayilan egitim kaynagi: `goruntu_isleme/cikti/trainval`
+- Varsayilan test kaynagi: `goruntu_isleme/cikti/test`
+- `Veri_Seti/OriginalDataset`: ham/original kaynak veri
 - `validation` ve `test`: original-only
 - `augmentation`: yalnizca train transform'u uzerinde
 
@@ -24,7 +25,7 @@ Repo kokunden onerilen komutlar:
 mri-train --model resnet --epochs 50 --batch-size 32
 mri-train --model unet --epochs 50 --batch-size 16
 mri-train --model resnet --trainval-dir Veri_Seti/OriginalDataset
-mri-train --model resnet --use-processed-trainval
+mri-train --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
 ```
 
 Dogrudan Python ile:
@@ -40,9 +41,8 @@ mri-train --model resnet --loss focal --lr 3e-4
 mri-train --model resnet --loss focal --focal-gamma 2.5
 mri-train --model resnet --weight-decay 1e-3 --scheduler-factor 0.3
 mri-train --model resnet --pretrained
-mri-train --model resnet --use-processed-trainval
-mri-train --model resnet --use-processed-trainval --use-processed-test
 mri-train --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
+mri-train --model resnet --trainval-dir Veri_Seti/OriginalDataset
 mri-train --model unet --val-ratio 0.2
 ```
 
@@ -50,7 +50,7 @@ Islenmis goruntulerle egitim icin onerilen akis:
 
 ```bash
 mri-preprocess --action preprocess --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti
-mri-train --model resnet --use-processed-trainval
+mri-train --model resnet
 ```
 
 ## Temel Parametreler
@@ -63,8 +63,8 @@ mri-train --model resnet --use-processed-trainval
 - `--image-size`: Giris goruntu boyutu
 - `--trainval-dir`: Split kaynagi veya train+validation veri dizini
 - `--test-dir`: Opsiyonel harici test veri dizini
-- `--use-processed-trainval`: Varsayilan train+validation kaynagini `goruntu_isleme/cikti/trainval` olarak cozer
-- `--use-processed-test`: Varsayilan test kaynagini `goruntu_isleme/cikti/test` olarak cozer
+- `--use-processed-trainval`: Geriye donuk uyumluluk bayragi; varsayilan train+validation kaynagi zaten `goruntu_isleme/cikti/trainval`
+- `--use-processed-test`: Geriye donuk uyumluluk bayragi; varsayilan test kaynagi zaten `goruntu_isleme/cikti/test`
 - `--val-ratio`: Validation orani
 - `--test-ratio`: Harici test dizini yoksa internal test orani
 - `--loss`: `ce` veya `focal`
@@ -153,6 +153,10 @@ model/
 - `model/ciktilar/modeller/best_unet.pt`
 - `model/ciktilar/raporlar/rapor_<model>_<timestamp>.json`
 - `model/ciktilar/gorseller/confusion_matrix_<model>.png`
+- `model/ciktilar/gorseller/confusion_matrix_normalized_<model>.png`
+- `model/ciktilar/gorseller/classification_summary_<model>.png`
+- `model/ciktilar/gorseller/prediction_confidence_<model>.png`
+- `model/ciktilar/gorseller/roc_pr_curves_<model>.png`
 - `model/ciktilar/gorseller/training_curves_<model>.png`
 
 ## Ozellikler
@@ -162,4 +166,5 @@ model/
 - Class weights veya focal loss ile sinif dengesizligi yonetimi
 - Grup bilgisi cikartilabiliyorsa leak-free split, aksi durumda uyari ile fallback stratejisi
 - Accuracy, precision, recall ve F1 macro raporlamasi
+- Normalize confusion matrix, sinif bazli performans, guven dagilimi ve ROC/PR egirileri
 - CUDA varsa GPU, yoksa CPU fallback
