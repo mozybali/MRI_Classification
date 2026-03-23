@@ -116,7 +116,10 @@ class GorselIsleyici:
     def _cikti_dosya_koku(dosya_yolu: str) -> str:
         """Cikti dosya kokunu giris adini benzersiz koruyacak sekilde uret."""
         kaynak = Path(dosya_yolu)
-        return kaynak.stem
+        uzanti = kaynak.suffix.lower().lstrip(".")
+        if not uzanti:
+            return kaynak.stem
+        return f"{kaynak.stem}_{uzanti}"
 
     @staticmethod
     def kaynak_id_belirle(dosya_yolu: str) -> str:
@@ -125,6 +128,22 @@ class GorselIsleyici:
         stem = re.sub(r"_aug\d+$", "", stem, flags=re.IGNORECASE)
         stem = re.sub(r"\s*\(\d+\)$", "", stem)
         return stem
+
+    @staticmethod
+    def _sinif_kapsamini_dogrula(
+        istatistikler: Dict[str, int],
+        beklenen_siniflar: List[str],
+        split_adi: str,
+    ):
+        """Kalite kontrol sonrasi split'in beklenen tum siniflari korudugunu dogrula."""
+        eksik = sorted(
+            sinif for sinif in beklenen_siniflar if int(istatistikler.get(sinif, 0)) <= 0
+        )
+        if eksik:
+            raise ValueError(
+                f"{split_adi} split'inde sinif kapsami eksik. "
+                f"Kalite kontrol veya on isleme sonrasi goruntu kalmayan siniflar: {eksik}"
+            )
     
     @staticmethod
     def klasor_olustur(yol: Path):
@@ -194,7 +213,7 @@ class GorselIsleyici:
                 continue
             
             # Klasördeki tüm dosyaları tara
-            for dosya in sinif_klasoru.iterdir():
+            for dosya in sorted(sinif_klasoru.iterdir(), key=lambda p: (p.name.lower(), p.name)):
                 # Sadece görüntü dosyalarını işle (.jpg, .png, vb.)
                 if dosya.suffix.lower() in GORUNTU_UZANTILARI:
                     kaynak_id = self.kaynak_id_belirle(dosya.name)
@@ -1481,6 +1500,8 @@ class GorselIsleyici:
             "\n[BILGI] Islenmis goruntuler split bazinda kaydedilecek: "
             f"trainval={len(trainval_dosyalar)} goruntu, test={len(test_dosyalar)} goruntu"
         )
+        beklenen_trainval_siniflari = sorted({dosya["sinif"] for dosya in trainval_dosyalar})
+        beklenen_test_siniflari = sorted({dosya["sinif"] for dosya in test_dosyalar})
 
         trainval_istatistik = self.tum_gorselleri_isle(
             cikti_klasoru=Path(cikti_klasoru) / "trainval",
@@ -1491,6 +1512,8 @@ class GorselIsleyici:
             dosyalar=test_dosyalar,
             artirma_carpanlari=sifir_aug,
         )
+        self._sinif_kapsamini_dogrula(trainval_istatistik, beklenen_trainval_siniflari, "TrainVal")
+        self._sinif_kapsamini_dogrula(test_istatistik, beklenen_test_siniflari, "Test")
 
         return {
             "trainval": trainval_istatistik,

@@ -342,6 +342,34 @@ class TestVeriBoluntule:
         )
         assert sonuc is None
 
+    def test_veri_boluntule_sabit_sinif_listesine_gore_kapsam_dogrular(self, temp_output_dir):
+        csv_path = temp_output_dir / "missing_class.csv"
+        df = _grouped_features_df(prefix="missing", per_class=4)
+        df = df[df["sinif"] != "ModerateDemented"].copy()
+        df.to_csv(csv_path, index=False)
+
+        with pytest.raises(ValueError, match="TrainVal split'inde sinif kapsami eksik"):
+            veri_boluntule(csv_dosyasi=csv_path, cikti_klasoru=temp_output_dir)
+
+    def test_veri_setini_bol_ve_olceklendir_eksik_sinifta_csvleri_uretmez(self, temp_output_dir):
+        csv_path = temp_output_dir / "missing_class_scale.csv"
+        df = _grouped_features_df(prefix="missing_scale", per_class=4)
+        df = df[df["sinif"] != "ModerateDemented"].copy()
+        df.to_csv(csv_path, index=False)
+
+        sonuc = veri_setini_bol_ve_olceklendir(
+            csv_dosyasi=csv_path,
+            cikti_klasoru=temp_output_dir,
+        )
+
+        assert sonuc is None
+        assert not (temp_output_dir / "egitim.csv").exists()
+        assert not (temp_output_dir / "dogrulama.csv").exists()
+        assert not (temp_output_dir / "test.csv").exists()
+        assert not (temp_output_dir / "egitim_scaled.csv").exists()
+        assert not (temp_output_dir / "dogrulama_scaled.csv").exists()
+        assert not (temp_output_dir / "test_scaled.csv").exists()
+
     def test_veri_boluntule_augmented_trainval_ve_original_test_stratejisini_destekler(self, temp_output_dir):
         trainval_csv = temp_output_dir / "augmented.csv"
         test_csv = temp_output_dir / "original.csv"

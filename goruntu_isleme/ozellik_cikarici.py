@@ -755,7 +755,8 @@ def veri_boluntule(csv_dosyasi: Optional[Path] = None,
         return None
 
     group_df = trainval_df[['kaynak_grup', 'etiket']].drop_duplicates().reset_index(drop=True)
-    beklenen_etiketler = sorted(group_df['etiket'].dropna().astype(int).unique().tolist())
+    beklenen_etiketler = sorted({int(etiket) for etiket in SINIF_ETIKETI.values()})
+    _sinif_kapsamini_dogrula(trainval_df, beklenen_etiketler, "TrainVal")
 
     if test_csv_dosyasi is not None:
         test_df = _csv_oku_ve_hazirla(Path(test_csv_dosyasi), "Test")

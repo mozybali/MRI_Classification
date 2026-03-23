@@ -48,10 +48,10 @@ class TestGorselIsleyici:
         assert test_klasor.exists()
         assert test_klasor.is_dir()
 
-    def test_cikti_dosya_koku_kaynak_grubu_korur(self):
-        """Cikti dosya adi, kaynak grup cikarimini bozmayacak sekilde korunmali."""
-        assert GorselIsleyici._cikti_dosya_koku("26 (1).jpg") == "26 (1)"
-        assert GorselIsleyici._cikti_dosya_koku("26_aug2.png") == "26_aug2"
+    def test_cikti_dosya_koku_uzantiyi_koruyarak_benzersizlesir(self):
+        """Ayni stem'e sahip farkli kaynaklar ayri cikti kokleri uretmeli."""
+        assert GorselIsleyici._cikti_dosya_koku("26 (1).jpg") == "26 (1)_jpg"
+        assert GorselIsleyici._cikti_dosya_koku("26 (1).png") == "26 (1)_png"
 
     def test_goruntu_yukle_valid(self, test_image_path):
         """Geçerli görüntü dosyası başarıyla yüklenmeli."""
@@ -218,6 +218,29 @@ class TestGorselIsleyici:
         assert all('etiket' in d for d in dosyalar)
         assert all('kaynak_grup' in d for d in dosyalar)
 
+    def test_gorselleri_listele_dosya_sirasini_sabitleyerek_deterministik_kalir(self, tmp_path, monkeypatch):
+        isleyici = GorselIsleyici()
+        dataset = tmp_path / "dataset"
+        sinif_klasoru = dataset / "NonDemented"
+        sinif_klasoru.mkdir(parents=True)
+        Image.fromarray(np.full((8, 8), 100, dtype=np.uint8), mode="L").save(sinif_klasoru / "b.jpg")
+        Image.fromarray(np.full((8, 8), 120, dtype=np.uint8), mode="L").save(sinif_klasoru / "a.jpg")
+
+        orijinal_iterdir = Path.iterdir
+
+        def ters_iterdir(path_obj):
+            oge_listesi = list(orijinal_iterdir(path_obj))
+            if path_obj == sinif_klasoru:
+                return iter(sorted(oge_listesi, key=lambda p: p.name, reverse=True))
+            return iter(oge_listesi)
+
+        monkeypatch.setattr(Path, "iterdir", ters_iterdir)
+
+        dosyalar = isleyici.gorselleri_listele(dataset)
+        adlar = [Path(d["yol"]).name for d in dosyalar if d["sinif"] == "NonDemented"]
+
+        assert adlar == ["a.jpg", "b.jpg"]
+
     def test_veri_dosyalarini_bol_kaynak_gruplarini_ayirir(self, tmp_path):
         isleyici = GorselIsleyici()
         dataset = tmp_path / "dataset"
@@ -330,6 +353,29 @@ class TestGorselIsleyici:
         assert any((cikti / "trainval").rglob("*.png"))
         assert any((cikti / "test").rglob("*.png"))
         assert all("_aug" not in path.name for path in (cikti / "test").rglob("*.png"))
+
+    def test_tum_gorselleri_isle_ve_bol_sinif_kapsami_dusunce_hata_verir(self, tmp_path, monkeypatch):
+        isleyici = GorselIsleyici()
+        isleyici.n_jobs = 1
+
+        dataset = tmp_path / "dataset"
+        for class_name in gi.SINIF_KLASORLERI:
+            class_dir = dataset / class_name
+            class_dir.mkdir(parents=True, exist_ok=True)
+            for idx in range(2):
+                Image.fromarray(
+                    np.random.randint(80, 180, (32, 32), dtype=np.uint8), mode='L'
+                ).save(class_dir / f"{class_name}_{idx}.jpg")
+
+        def sahte_goruntu_isle(yol):
+            if "ModerateDemented" in str(yol):
+                return None
+            return np.tile(np.arange(32, dtype=np.uint8), (32, 1))
+
+        monkeypatch.setattr(isleyici, "goruntu_isle", sahte_goruntu_isle)
+
+        with pytest.raises(ValueError, match="sinif kapsami eksik"):
+            isleyici.tum_gorselleri_isle_ve_bol(tmp_path / "cikti", giris_klasoru=dataset)
 
 
 class TestGorselIsleyiciEdgeCases:
