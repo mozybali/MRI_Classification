@@ -252,30 +252,39 @@ def validate_search_args(args: argparse.Namespace) -> None:
     if args.pruner_warmup_epochs < 0:
         raise ValueError("--pruner-warmup-epochs negatif olamaz.")
 
-    validate_training_config(
-        TrainingConfig(
-            model=args.model,
-            epochs=args.epochs,
-            patience=args.patience,
-            val_ratio=args.val_ratio,
-            test_ratio=args.test_ratio,
-            seed=args.seed,
-            num_workers=args.num_workers,
-            trainval_dir=args.trainval_dir,
-            test_dir=args.test_dir,
-            use_processed_trainval=args.use_processed_trainval,
-            use_processed_test=args.use_processed_test,
-            batch_size=min(args.batch_size_choices),
-            image_size=min(args.image_size_choices),
-            lr=args.lr_min,
-            weight_decay=args.weight_decay_min,
-            scheduler_factor=args.scheduler_factor_min,
-            scheduler_patience=args.scheduler_patience_min,
-            loss=args.loss_choices[0],
-            focal_gamma=args.focal_gamma_min,
-        ),
-        require_test_dir=not args.skip_final_train,
+    base_config = TrainingConfig(
+        model=args.model,
+        epochs=args.epochs,
+        patience=args.patience,
+        val_ratio=args.val_ratio,
+        test_ratio=args.test_ratio,
+        seed=args.seed,
+        num_workers=args.num_workers,
+        trainval_dir=args.trainval_dir,
+        test_dir=args.test_dir,
+        use_processed_trainval=args.use_processed_trainval,
+        use_processed_test=args.use_processed_test,
+        batch_size=min(args.batch_size_choices),
+        image_size=min(args.image_size_choices),
+        lr=args.lr_min,
+        weight_decay=args.weight_decay_min,
+        scheduler_factor=args.scheduler_factor_min,
+        scheduler_patience=args.scheduler_patience_min,
+        loss=args.loss_choices[0],
+        focal_gamma=args.focal_gamma_min,
     )
+
+    validate_training_config(
+        base_config,
+        require_test_dir=False,
+        full_trainval=False,
+    )
+    if not args.skip_final_train:
+        validate_training_config(
+            base_config,
+            require_test_dir=True,
+            full_trainval=True,
+        )
 
 
 def _sample_params(trial, args: argparse.Namespace) -> dict[str, Any]:
@@ -447,10 +456,11 @@ def _run_final_training(
     best_params: dict[str, Any],
     study_name: str,
     best_trial_number: int,
+    best_epoch: int | None,
 ) -> dict[str, Any]:
     final_config = TrainingConfig(
         model=args.model,
-        epochs=args.epochs,
+        epochs=int(best_epoch) if best_epoch is not None else args.epochs,
         batch_size=int(best_params["batch_size"]),
         lr=float(best_params["lr"]),
         patience=args.patience,
@@ -477,11 +487,13 @@ def _run_final_training(
         artifact_tag=f"{args.model}_tuned",
         save_artifacts=True,
         evaluate_test_set=True,
+        full_trainval=True,
         verbose=True,
         selection_metric=args.metric,
         extra_report={
             "study_name": study_name,
             "best_trial_number": best_trial_number,
+            "best_trial_epoch_count": int(best_epoch) if best_epoch is not None else args.epochs,
             "optimized_metric": args.metric,
             "search_type": "bayesian_tpe",
         },
@@ -589,7 +601,7 @@ def main(argv: list[str] | None = None) -> int:
         print(
             "[INFO] En iyi trial bulundu: "
             f"#{study.best_trial.number} ({args.metric}={study.best_value:.4f}). "
-            "Final egitim baslatiliyor."
+            "Tum trainval uzerinde final egitim baslatiliyor."
         )
         final_run = _run_final_training(
             args=args,
@@ -597,6 +609,7 @@ def main(argv: list[str] | None = None) -> int:
             best_params=study.best_trial.params,
             study_name=study_name,
             best_trial_number=study.best_trial.number,
+            best_epoch=study.best_trial.user_attrs.get("best_epoch"),
         )
 
     _save_study_artifacts(

@@ -20,6 +20,7 @@ from model.dl.dataset import (
     MRIDataset,
     SINIF_ISIMLERI,
     create_dataloaders,
+    create_full_train_test_loaders,
     get_transforms,
     kaynak_id_belirle,
     _validate_class_match,
@@ -234,6 +235,31 @@ def test_create_dataloaders_warns_when_grouping_cannot_be_inferred(tmp_path):
     assert info["split_strategy"] == "stratified_without_groups"
     assert info["trainval_grouping"]["grouping_reliable"] is False
     assert info["split_warnings"] == []
+
+
+def test_create_full_train_test_loaders_trainvalin_tamamini_ve_harici_testi_kullanir(tmp_path):
+    trainval_dir = tmp_path / "trainval"
+    test_dir = tmp_path / "test"
+    _create_grouped_class_dataset(trainval_dir, groups_per_class=4, copies_per_group=2, prefix="train")
+    _create_grouped_class_dataset(test_dir, groups_per_class=2, copies_per_group=2, prefix="test")
+
+    train_loader, test_loader, info = create_full_train_test_loaders(
+        trainval_dir=trainval_dir,
+        test_dir=test_dir,
+        batch_size=2,
+        image_size=32,
+        seed=42,
+        num_workers=0,
+    )
+
+    assert info["split_strategy"] == "full_trainval_external_test"
+    assert info["train_size"] == 32
+    assert info["val_size"] == 0
+    assert info["test_size"] == 8
+    assert len(train_loader.dataset) == info["train_size"]
+    assert len(test_loader.dataset) == info["test_size"]
+    assert any("(" in path.name for path in train_loader.dataset.image_paths)
+    assert all("(" not in path.name for path in test_loader.dataset.image_paths)
 
 
 def test_create_dataloaders_rejects_trainval_test_source_overlap(tmp_path):

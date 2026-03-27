@@ -132,6 +132,14 @@ Ornekler:
         default=2.0,
         help="Loss=focal iken gamma parametresi",
     )
+    parser.add_argument(
+        "--full-trainval",
+        action="store_true",
+        help=(
+            "Final model icin validation ayirmadan tum trainval uzerinde egit; "
+            "test icin harici test dizini gerekir."
+        ),
+    )
     return parser
 
 
@@ -165,7 +173,11 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     try:
-        run_training(config, artifact_tag=args.model)
+        run_training(
+            config,
+            artifact_tag=args.model,
+            full_trainval=args.full_trainval,
+        )
     except (FileNotFoundError, RuntimeError, ValueError) as exc:
         print(f"[HATA] {exc}")
         return 1

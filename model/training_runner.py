@@ -34,7 +34,7 @@ from .ayarlar import (
     TRAINVAL_VERI_DIZINI,
     VARSAYILAN_VERI_DIZINI,
 )
-from .dl.dataset import SINIF_ISIMLERI, create_dataloaders
+from .dl.dataset import SINIF_ISIMLERI, create_dataloaders, create_full_train_test_loaders
 from .dl.engine import EarlyStopping, evaluate, train_one_epoch
 from .dl.losses import FocalLoss, compute_class_weights
 from .dl.models.resnet_classifier import ResNetClassifier
@@ -181,6 +181,7 @@ def validate_training_config(
     config: TrainingConfig,
     *,
     require_test_dir: bool = True,
+    full_trainval: bool = False,
 ) -> None:
     """Validate training config before starting a run."""
     if config.epochs < 1:
@@ -193,7 +194,7 @@ def validate_training_config(
         raise ValueError("--patience en az 1 olmali.")
     if config.image_size < 32:
         raise ValueError("--image-size en az 32 olmali.")
-    if not 0.0 < config.val_ratio < 1.0:
+    if not full_trainval and not 0.0 < config.val_ratio < 1.0:
         raise ValueError("--val-ratio 0 ile 1 arasinda olmali.")
     if config.test_ratio < 0.0 or config.test_ratio >= 1.0:
         raise ValueError("--test-ratio 0 ile 1 arasinda olmali.")
@@ -211,7 +212,7 @@ def validate_training_config(
         raise ValueError("--focal-gamma negatif olamaz.")
 
     trainval_dir, test_dir = resolve_data_dirs(config, require_test_dir=require_test_dir)
-    if test_dir is None and config.val_ratio + config.test_ratio >= 1.0:
+    if not full_trainval and test_dir is None and config.val_ratio + config.test_ratio >= 1.0:
         raise ValueError("--val-ratio + --test-ratio 1'den kucuk olmali.")
     if require_test_dir and test_dir is None and config.test_ratio <= 0.0:
         raise ValueError("Harici test dizini yoksa --test-ratio pozitif olmali.")
@@ -219,6 +220,16 @@ def validate_training_config(
         raise FileNotFoundError(f"TrainVal veri dizini bulunamadi: {trainval_dir}")
     if test_dir is not None and not test_dir.exists():
         raise FileNotFoundError(f"Test veri dizini bulunamadi: {test_dir}")
+    if full_trainval and require_test_dir:
+        if test_dir is None:
+            raise ValueError(
+                "Full-trainval final egitim icin harici test dizini gerekli. "
+                "--test-dir verin veya once preprocess ile trainval/test ayirin."
+            )
+        if test_dir.resolve() == trainval_dir.resolve():
+            raise ValueError(
+                "Full-trainval final egitim icin test dizini trainval'den farkli olmali."
+            )
 
 
 def _selection_mode_for_metric(metric: str) -> Literal["minimize", "maximize"]:
@@ -397,6 +408,7 @@ def run_training(
     artifact_tag: str | None = None,
     save_artifacts: bool = True,
     evaluate_test_set: bool = True,
+    full_trainval: bool = False,
     verbose: bool = True,
     selection_metric: str = "loss",
     on_epoch_end: Callable[[int, dict[str, float], dict[str, float]], None] | None = None,
@@ -404,7 +416,11 @@ def run_training(
 ) -> dict[str, Any]:
     """Run a single training experiment and optionally persist artifacts."""
     selection_mode = _selection_mode_for_metric(selection_metric)
-    validate_training_config(config, require_test_dir=evaluate_test_set)
+    validate_training_config(
+        config,
+        require_test_dir=evaluate_test_set,
+        full_trainval=full_trainval,
+    )
 
     set_seed(config.seed)
     device = get_device(verbose=verbose)
@@ -416,20 +432,38 @@ def run_training(
         print("\n[INFO] Veri yukleniyor:")
         print(f"  Veri dizini     : {trainval_dir}")
         print(f"  Test dizini     : {test_dir}")
-        print(f"  Val orani       : {config.val_ratio}")
+        if full_trainval:
+            print("  Mod             : full-trainval final egitim")
+        else:
+            print(f"  Val orani       : {config.val_ratio}")
         print(f"  Test orani      : {config.test_ratio}")
 
-    train_loader, val_loader, test_loader, info = create_dataloaders(
-        trainval_dir=trainval_dir,
-        test_dir=test_dir,
-        batch_size=config.batch_size,
-        image_size=config.image_size,
-        val_ratio=config.val_ratio,
-        test_ratio=config.test_ratio,
-        seed=config.seed,
-        num_workers=config.num_workers,
-        include_test=evaluate_test_set,
-    )
+    if full_trainval:
+        if test_dir is None:
+            raise ValueError(
+                "Full-trainval final egitim icin harici test dizini gerekli."
+            )
+        train_loader, test_loader, info = create_full_train_test_loaders(
+            trainval_dir=trainval_dir,
+            test_dir=test_dir,
+            batch_size=config.batch_size,
+            image_size=config.image_size,
+            seed=config.seed,
+            num_workers=config.num_workers,
+        )
+        val_loader = None
+    else:
+        train_loader, val_loader, test_loader, info = create_dataloaders(
+            trainval_dir=trainval_dir,
+            test_dir=test_dir,
+            batch_size=config.batch_size,
+            image_size=config.image_size,
+            val_ratio=config.val_ratio,
+            test_ratio=config.test_ratio,
+            seed=config.seed,
+            num_workers=config.num_workers,
+            include_test=evaluate_test_set,
+        )
 
     if verbose:
         print(f"\n  Train: {info['train_size']}, Val: {info['val_size']}, Test: {info['test_size']}")
@@ -493,9 +527,11 @@ def run_training(
     lowest_val_loss = float("inf")
     best_epoch = 0
     best_val_metrics: dict[str, float] | None = None
+    best_train_metrics: dict[str, float] | None = None
     best_state_dict: dict[str, Any] | None = None
     best_selection_value: float | None = None
     selected_epoch_val_loss: float | None = None
+    selected_epoch_train_loss: float | None = None
 
     if verbose:
         print(f"\n{'=' * 70}")
@@ -508,22 +544,38 @@ def run_training(
     epoch = 0
     for epoch in range(1, config.epochs + 1):
         train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, device)
-        val_metrics = evaluate(model, val_loader, criterion, device)
         train_scalars = _scalar_metrics(train_metrics)
-        val_scalars = _scalar_metrics(val_metrics)
 
         train_losses.append(train_scalars["loss"])
-        val_losses.append(val_scalars["loss"])
         train_accs.append(train_scalars["accuracy"])
-        val_accs.append(val_scalars["accuracy"])
         train_precisions.append(train_scalars["precision"])
-        val_precisions.append(val_scalars["precision"])
         train_recalls.append(train_scalars["recall"])
-        val_recalls.append(val_scalars["recall"])
         train_f1s.append(train_scalars["f1"])
-        val_f1s.append(val_scalars["f1"])
 
         lr_current = optimizer.param_groups[0]["lr"]
+        if full_trainval:
+            if verbose:
+                print(
+                    f"Epoch {epoch:3d}/{config.epochs} | "
+                    f"Train Loss: {train_scalars['loss']:.4f} Acc: {train_scalars['accuracy']:.4f} "
+                    f"F1: {train_scalars['f1']:.4f} | LR: {lr_current:.2e}"
+                )
+            scheduler.step(train_scalars["loss"])
+            if on_epoch_end is not None:
+                on_epoch_end(epoch, train_scalars, {})
+            best_train_metrics = dict(train_scalars)
+            best_epoch = epoch
+            selected_epoch_train_loss = train_scalars["loss"]
+            continue
+
+        val_metrics = evaluate(model, val_loader, criterion, device)
+        val_scalars = _scalar_metrics(val_metrics)
+        val_losses.append(val_scalars["loss"])
+        val_accs.append(val_scalars["accuracy"])
+        val_precisions.append(val_scalars["precision"])
+        val_recalls.append(val_scalars["recall"])
+        val_f1s.append(val_scalars["f1"])
+
         if verbose:
             print(
                 f"Epoch {epoch:3d}/{config.epochs} | "
@@ -573,7 +625,25 @@ def run_training(
                 )
             break
 
-    if best_state_dict is None:
+    if full_trainval:
+        best_state_dict = copy.deepcopy(model.state_dict())
+        if best_train_metrics is not None:
+            best_selection_value = float(best_train_metrics[selection_metric])
+        if best_checkpoint_path is not None and selected_epoch_train_loss is not None:
+            torch.save(
+                _checkpoint_payload(
+                    config=config,
+                    epoch=best_epoch,
+                    best_val_loss=selected_epoch_train_loss,
+                    model=model,
+                    optimizer=optimizer,
+                    num_classes=num_classes,
+                ),
+                best_checkpoint_path,
+            )
+            if verbose:
+                print("  [OK] Final checkpoint kaydedildi (full-trainval)")
+    elif best_state_dict is None:
         best_state_dict = copy.deepcopy(model.state_dict())
         best_val_metrics = dict(val_scalars)
         best_epoch = epoch
@@ -582,15 +652,16 @@ def run_training(
 
     model.load_state_dict(best_state_dict)
 
-    best_val_eval = evaluate(model, val_loader, criterion, device)
     best_val_detailed_metrics = None
-    if {"labels", "preds"}.issubset(best_val_eval):
-        best_val_detailed_metrics = _build_detailed_eval_report(
-            best_val_eval["labels"],
-            best_val_eval["preds"],
-            best_val_eval.get("probs"),
-            SINIF_ISIMLERI,
-        )
+    if not full_trainval:
+        best_val_eval = evaluate(model, val_loader, criterion, device)
+        if {"labels", "preds"}.issubset(best_val_eval):
+            best_val_detailed_metrics = _build_detailed_eval_report(
+                best_val_eval["labels"],
+                best_val_eval["preds"],
+                best_val_eval.get("probs"),
+                SINIF_ISIMLERI,
+            )
 
     test_metrics = None
     test_detailed_metrics = None
@@ -670,16 +741,16 @@ def run_training(
     if output_dirs is not None:
         plot_training_curves(
             train_losses,
-            val_losses,
+            val_losses if not full_trainval else None,
             train_accs,
-            val_accs,
+            val_accs if not full_trainval else None,
             output_dirs["visuals"] / f"training_curves_{artifact_stem}.png",
             train_precisions=train_precisions,
-            val_precisions=val_precisions,
+            val_precisions=val_precisions if not full_trainval else None,
             train_recalls=train_recalls,
-            val_recalls=val_recalls,
+            val_recalls=val_recalls if not full_trainval else None,
             train_f1s=train_f1s,
-            val_f1s=val_f1s,
+            val_f1s=val_f1s if not full_trainval else None,
             best_epoch=best_epoch,
         )
 
@@ -694,17 +765,38 @@ def run_training(
             "best_epoch": best_epoch,
             "pretrained": config.pretrained,
             "selection_metric": selection_metric,
-            "selection_mode": selection_mode,
-            "best_selection_value": round(best_selection_value, 6),
-            "lowest_val_loss": round(lowest_val_loss, 6),
-            "selected_epoch_val_loss": round(selected_epoch_val_loss, 6),
-            "best_val_loss": round(selected_epoch_val_loss, 6),
-            "best_val_metrics": {
-                "accuracy": round(best_val_metrics["accuracy"], 4),
-                "precision": round(best_val_metrics["precision"], 4),
-                "recall": round(best_val_metrics["recall"], 4),
-                "f1_macro": round(best_val_metrics["f1"], 4),
-            },
+            "selection_mode": "fixed_epoch_full_trainval" if full_trainval else selection_mode,
+            "best_selection_value": round(best_selection_value, 6) if best_selection_value is not None else None,
+            "lowest_val_loss": round(lowest_val_loss, 6) if best_val_metrics is not None else None,
+            "selected_epoch_val_loss": (
+                round(selected_epoch_val_loss, 6) if selected_epoch_val_loss is not None else None
+            ),
+            "selected_epoch_train_loss": (
+                round(selected_epoch_train_loss, 6) if selected_epoch_train_loss is not None else None
+            ),
+            "best_val_loss": (
+                round(selected_epoch_val_loss, 6) if selected_epoch_val_loss is not None else None
+            ),
+            "best_val_metrics": (
+                {
+                    "accuracy": round(best_val_metrics["accuracy"], 4),
+                    "precision": round(best_val_metrics["precision"], 4),
+                    "recall": round(best_val_metrics["recall"], 4),
+                    "f1_macro": round(best_val_metrics["f1"], 4),
+                }
+                if best_val_metrics is not None
+                else None
+            ),
+            "best_train_metrics": (
+                {
+                    "accuracy": round(best_train_metrics["accuracy"], 4),
+                    "precision": round(best_train_metrics["precision"], 4),
+                    "recall": round(best_train_metrics["recall"], 4),
+                    "f1_macro": round(best_train_metrics["f1"], 4),
+                }
+                if best_train_metrics is not None
+                else None
+            ),
             "best_val_detailed_metrics": best_val_detailed_metrics,
             "test_metrics": (
                 {
@@ -721,7 +813,7 @@ def run_training(
                 "strategy": info["split_strategy"],
                 "trainval_dir": str(trainval_dir),
                 "test_dir": str(test_dir) if test_dir is not None else None,
-                "val_ratio": config.val_ratio,
+                "val_ratio": config.val_ratio if not full_trainval else None,
                 "test_ratio": config.test_ratio,
                 "train_size": info["train_size"],
                 "val_size": info["val_size"],
@@ -729,6 +821,7 @@ def run_training(
                 "trainval_grouping": info["trainval_grouping"],
                 "test_grouping": info["test_grouping"],
                 "warnings": info["split_warnings"],
+                "full_trainval_run": full_trainval,
             },
             "config": config_to_dict(config),
             "history": {
@@ -794,12 +887,14 @@ def run_training(
     return {
         "best_epoch": best_epoch,
         "best_val_loss": selected_epoch_val_loss,
-        "lowest_val_loss": lowest_val_loss,
+        "lowest_val_loss": lowest_val_loss if best_val_metrics is not None else None,
         "best_val_metrics": best_val_metrics,
+        "best_train_metrics": best_train_metrics,
         "best_selection_value": best_selection_value,
         "selection_metric": selection_metric,
-        "selection_mode": selection_mode,
+        "selection_mode": "fixed_epoch_full_trainval" if full_trainval else selection_mode,
         "selected_epoch_val_loss": selected_epoch_val_loss,
+        "selected_epoch_train_loss": selected_epoch_train_loss,
         "test_metrics": test_metrics,
         "history": {
             "train_loss": train_losses,
@@ -822,4 +917,5 @@ def run_training(
         "config": config_to_dict(config),
         "best_val_detailed_metrics": best_val_detailed_metrics,
         "test_detailed_metrics": test_detailed_metrics,
+        "full_trainval": full_trainval,
     }

@@ -708,3 +708,110 @@ def create_dataloaders(
     }
 
     return train_loader, val_loader, test_loader, info
+
+
+def create_full_train_test_loaders(
+    trainval_dir: Path,
+    test_dir: Path,
+    batch_size: int = 32,
+    image_size: int = 224,
+    seed: int = 42,
+    num_workers: int = 0,
+) -> Tuple[DataLoader, DataLoader, Dict]:
+    """
+    Final model egitimi icin trainval'in tamami ve harici/original test diziniyle
+    DataLoader'lar olustur.
+    """
+    _validate_expected_classes(trainval_dir, "Trainval")
+    if test_dir.resolve() == trainval_dir.resolve():
+        raise ValueError(
+            "Full-trainval final egitim icin test dizini trainval'den farkli olmali."
+        )
+    _validate_class_match(trainval_dir, test_dir)
+
+    tv_paths, tv_labels, tv_groups, tv_augmented = collect_images(trainval_dir)
+    if len(tv_paths) == 0:
+        raise FileNotFoundError(f"Trainval verisi bulunamadi: {trainval_dir}")
+    tv_group_stats = _summarize_grouping(tv_groups, tv_augmented)
+
+    test_paths, test_labels, test_groups, test_augmented = collect_images(test_dir)
+    if len(test_paths) == 0:
+        raise FileNotFoundError(f"Test verisi bulunamadi: {test_dir}")
+    test_group_stats = _summarize_grouping(test_groups, test_augmented)
+    _validate_dataset_separation(tv_groups, test_groups, trainval_dir, test_dir)
+
+    train_idxs = _indices_for_groups(tv_groups, tv_augmented, set(tv_groups), original_only=False)
+    test_idxs = _indices_for_groups(test_groups, test_augmented, set(test_groups), original_only=True)
+
+    paths_train = [tv_paths[i] for i in train_idxs]
+    labels_train = [tv_labels[i] for i in train_idxs]
+    paths_test = [test_paths[i] for i in test_idxs]
+    labels_test = [test_labels[i] for i in test_idxs]
+
+    train_missing_classes = _missing_class_names(labels_train, len(SINIF_ISIMLERI))
+    test_missing_classes = _missing_class_names(labels_test, len(SINIF_ISIMLERI))
+    if train_missing_classes:
+        raise RuntimeError(f"Train split'inde eksik siniflar: {', '.join(train_missing_classes)}")
+    if test_missing_classes:
+        raise RuntimeError(f"Test split'inde eksik siniflar: {', '.join(test_missing_classes)}")
+
+    print(f"  [TrainVal] Kaynak: {trainval_dir}")
+    print(f"  [TrainVal] Toplam goruntu: {len(paths_train)}")
+    for name, lbl in SINIF_ETIKETI.items():
+        print(f"    {name}: {labels_train.count(lbl)}")
+    print(f"  [TrainVal] Kaynak grup sayisi: {tv_group_stats['unique_groups']}")
+    print(f"  [Test] Kaynak: {test_dir}")
+    print(f"  [Test] Toplam goruntu: {len(paths_test)}")
+    for name, lbl in SINIF_ETIKETI.items():
+        print(f"    {name}: {labels_test.count(lbl)}")
+    print("  [Split] Strateji: full_trainval_external_test")
+
+    train_ds = MRIDataset(paths_train, labels_train, get_transforms(image_size, is_train=True))
+    test_ds = MRIDataset(paths_test, labels_test, get_transforms(image_size, is_train=False))
+
+    pin_memory = torch.cuda.is_available()
+    train_generator = torch.Generator().manual_seed(seed)
+    test_generator = torch.Generator().manual_seed(seed + 2)
+
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        worker_init_fn=_seed_worker,
+        generator=train_generator,
+    )
+    test_loader = DataLoader(
+        test_ds,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        worker_init_fn=_seed_worker,
+        generator=test_generator,
+    )
+
+    info = {
+        "num_classes": len(SINIF_ISIMLERI),
+        "class_names": SINIF_ISIMLERI,
+        "train_size": len(train_ds),
+        "val_size": 0,
+        "test_size": len(test_ds),
+        "train_labels": labels_train,
+        "val_labels": [],
+        "test_labels": labels_test,
+        "train_groups": len(set(tv_groups)),
+        "val_groups": 0,
+        "trainval_dir": str(trainval_dir),
+        "test_dir": str(test_dir),
+        "val_ratio": None,
+        "test_ratio": None,
+        "split_strategy": "full_trainval_external_test",
+        "trainval_grouping": tv_group_stats,
+        "test_grouping": test_group_stats,
+        "split_warnings": [],
+        "uses_external_test_dir": True,
+        "full_trainval_run": True,
+    }
+    return train_loader, test_loader, info

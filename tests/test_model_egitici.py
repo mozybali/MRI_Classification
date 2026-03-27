@@ -361,6 +361,12 @@ def test_train_parse_args_islenmis_goruntu_flaglerini_cozer():
     assert args.use_processed_test is True
 
 
+def test_train_parse_args_full_trainval_flagini_cozer():
+    args = parse_train_args(["--full-trainval"])
+
+    assert args.full_trainval is True
+
+
 def test_resolve_data_dirs_islenmis_trainval_kokunu_otomatik_kullanir(monkeypatch):
     processed_root = Path("tmp_test_artifacts") / f"processed_trainval_{uuid4().hex}"
     for class_name in training_runner.SINIF_ISIMLERI:
@@ -540,8 +546,9 @@ def test_hpo_skip_final_train_icin_test_dizini_zorunlu_degildir(monkeypatch):
     class FakeOptuna:
         pass
 
-    def fake_validate_training_config(config, require_test_dir=True):
+    def fake_validate_training_config(config, require_test_dir=True, full_trainval=False):
         calls["require_test_dir"] = require_test_dir
+        calls["full_trainval"] = full_trainval
 
     monkeypatch.setattr(hpo, "optuna", FakeOptuna())
     monkeypatch.setattr(hpo, "validate_training_config", fake_validate_training_config)
@@ -550,6 +557,7 @@ def test_hpo_skip_final_train_icin_test_dizini_zorunlu_degildir(monkeypatch):
     hpo.validate_search_args(args)
 
     assert calls["require_test_dir"] is False
+    assert calls["full_trainval"] is False
 
 
 def test_run_training_hedef_metrige_gore_best_epoch_secer(monkeypatch):
@@ -666,6 +674,127 @@ def test_run_training_hedef_metrige_gore_best_epoch_secer(monkeypatch):
     assert result["lowest_val_loss"] == pytest.approx(0.20)
     assert result["selected_epoch_val_loss"] == pytest.approx(0.40)
     assert "train_f1" in result["history"]
+
+
+def test_run_training_full_trainval_modunda_validation_atlamaz(monkeypatch):
+    create_calls = {}
+    eval_metrics = iter(
+        [
+            {
+                "loss": 0.25,
+                "accuracy": 0.80,
+                "precision": 0.80,
+                "recall": 0.80,
+                "f1": 0.80,
+            }
+        ]
+    )
+
+    def fake_create_full_train_test_loaders(**kwargs):
+        create_calls.update(kwargs)
+        info = {
+            "num_classes": 4,
+            "train_size": 12,
+            "val_size": 0,
+            "test_size": 4,
+            "train_groups": 8,
+            "val_groups": 0,
+            "split_strategy": "full_trainval_external_test",
+            "split_warnings": [],
+            "train_labels": [0, 1, 2, 3],
+            "val_labels": [],
+            "test_labels": [0, 1, 2, 3],
+            "trainval_grouping": {"grouping_reliable": True},
+            "test_grouping": {"grouping_reliable": True},
+        }
+        return object(), object(), info
+
+    monkeypatch.setattr(training_runner, "set_seed", lambda seed: None)
+    monkeypatch.setattr(training_runner, "get_device", lambda verbose=True: torch.device("cpu"))
+    monkeypatch.setattr(training_runner, "create_full_train_test_loaders", fake_create_full_train_test_loaders)
+    monkeypatch.setattr(
+        training_runner,
+        "create_dataloaders",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("create_dataloaders cagrilmamali")),
+    )
+    monkeypatch.setattr(training_runner, "build_model", lambda *args, **kwargs: torch.nn.Linear(1, 1))
+    monkeypatch.setattr(
+        training_runner,
+        "compute_class_weights",
+        lambda labels, num_classes: torch.ones(num_classes, dtype=torch.float32),
+    )
+    monkeypatch.setattr(
+        training_runner,
+        "train_one_epoch",
+        lambda *_args, **_kwargs: {
+            "loss": 0.4,
+            "accuracy": 0.6,
+            "precision": 0.6,
+            "recall": 0.6,
+            "f1": 0.6,
+        },
+    )
+    monkeypatch.setattr(training_runner, "evaluate", lambda *_args, **_kwargs: dict(next(eval_metrics)))
+
+    trainval_dir = Path("tmp_test_artifacts") / f"full_train_{uuid4().hex}"
+    test_dir = Path("tmp_test_artifacts") / f"full_test_{uuid4().hex}"
+    trainval_dir.mkdir(parents=True, exist_ok=True)
+    test_dir.mkdir(parents=True, exist_ok=True)
+
+    result = training_runner.run_training(
+        training_runner.TrainingConfig(
+            model="resnet",
+            epochs=3,
+            batch_size=2,
+            trainval_dir=trainval_dir,
+            test_dir=test_dir,
+        ),
+        save_artifacts=False,
+        evaluate_test_set=True,
+        full_trainval=True,
+        verbose=False,
+    )
+
+    assert create_calls["trainval_dir"] == trainval_dir
+    assert create_calls["test_dir"] == test_dir
+    assert result["best_epoch"] == 3
+    assert result["best_val_metrics"] is None
+    assert result["best_train_metrics"]["f1"] == pytest.approx(0.6)
+    assert result["selection_mode"] == "fixed_epoch_full_trainval"
+    assert result["test_metrics"]["f1"] == pytest.approx(0.80)
+
+
+def test_run_final_training_en_iyi_epoch_ve_full_trainval_kullanir(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_run_training(config, **kwargs):
+        captured["config"] = config
+        captured["kwargs"] = kwargs
+        return {"output_root": tmp_path / "best_run", "report_path": tmp_path / "report.json"}
+
+    monkeypatch.setattr(hpo, "run_training", fake_run_training)
+
+    result = hpo._run_final_training(
+        args=hpo.parse_args(["--model", "resnet", "--epochs", "12"]),
+        study_dir=tmp_path,
+        best_params={
+            "batch_size": 16,
+            "lr": 1e-4,
+            "image_size": 224,
+            "loss": "ce",
+            "weight_decay": 1e-4,
+            "scheduler_factor": 0.5,
+            "scheduler_patience": 4,
+        },
+        study_name="demo_study",
+        best_trial_number=7,
+        best_epoch=5,
+    )
+
+    assert result["output_root"] == tmp_path / "best_run"
+    assert captured["config"].epochs == 5
+    assert captured["kwargs"]["full_trainval"] is True
+    assert captured["kwargs"]["evaluate_test_set"] is True
 
 
 def test_hpo_main_storage_varken_trials_hedef_toplam_olarak_yorumlanir(monkeypatch):

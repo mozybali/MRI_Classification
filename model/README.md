@@ -42,6 +42,7 @@ mri-train --model resnet --loss focal --focal-gamma 2.5
 mri-train --model resnet --weight-decay 1e-3 --scheduler-factor 0.3
 mri-train --model resnet --pretrained
 mri-train --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
+mri-train --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test --full-trainval
 mri-train --model resnet --trainval-dir Veri_Seti/OriginalDataset
 mri-train --model unet --val-ratio 0.2
 ```
@@ -75,6 +76,7 @@ mri-train --model resnet
 - `--scheduler-factor`: Plateau durumunda LR azaltma carpani
 - `--scheduler-patience`: LR scheduler sabir degeri
 - `--focal-gamma`: Focal loss gamma parametresi
+- `--full-trainval`: Validation ayirmadan tum trainval ile final model egitir; harici test dizini gerekir
 
 ## Inference
 
@@ -105,6 +107,13 @@ mri-tune --model resnet --trials 20 --epochs 12 --metric f1
 python -m model.hpo --model unet --trials 30 --metric loss --skip-final-train
 ```
 
+Onerilen akis:
+
+1. `preprocess` ile veriyi `trainval/test` olarak ayir.
+2. HPO trial'larini sadece `trainval` uzerinde train+validation ile sec.
+3. `--skip-final-train` verilmediginde en iyi trial'in `best_epoch` degeriyle tum `trainval` uzerinde yeniden egit.
+4. Test degerlendirmesini yalnizca en sonda harici `test` dizini uzerinde bir kez yap.
+
 Aranan baslica hiperparametreler:
 
 - `batch_size`
@@ -122,7 +131,7 @@ Bayes search ciktilari varsayilan olarak `model/ciktilar/hiperparametre_arama/<s
 - `trial_history.csv`
 - `study_summary.json`
 - `trials/trial_XXX/trial_summary.json`
-- `best_run/` (final egitim kapatilmazsa)
+- `best_run/` (final egitim kapatilmazsa; tum `trainval` uzerinde yeniden egitim + tek seferlik test)
 
 ## Dosya Yapisi
 

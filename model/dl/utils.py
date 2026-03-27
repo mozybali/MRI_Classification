@@ -128,9 +128,9 @@ def plot_confusion_matrix(
 
 def plot_training_curves(
     train_losses: List[float],
-    val_losses: List[float],
+    val_losses: List[float] | None,
     train_accs: List[float],
-    val_accs: List[float],
+    val_accs: List[float] | None,
     save_path: Path,
     *,
     train_precisions: List[float] | None = None,
@@ -144,11 +144,13 @@ def plot_training_curves(
     """Loss ve temel performans trendlerini tek dashboard'ta ciz."""
     save_path = _prepare_save_path(save_path)
     epochs = np.arange(1, len(train_losses) + 1)
+    has_val_curves = bool(val_losses) and bool(val_accs)
     fig, axes = plt.subplots(2, 2, figsize=(16, 10))
     ax_loss, ax_acc, ax_f1, ax_pr = axes.flatten()
 
     ax_loss.plot(epochs, train_losses, label="Train Loss", linewidth=2)
-    ax_loss.plot(epochs, val_losses, label="Val Loss", linewidth=2)
+    if has_val_curves:
+        ax_loss.plot(epochs, val_losses, label="Val Loss", linewidth=2)
     ax_loss.set_xlabel("Epoch")
     ax_loss.set_ylabel("Loss")
     ax_loss.set_title("Loss Egrisi")
@@ -156,19 +158,24 @@ def plot_training_curves(
     ax_loss.grid(True, alpha=0.3)
 
     ax_acc.plot(epochs, train_accs, label="Train Acc", linewidth=2)
-    ax_acc.plot(epochs, val_accs, label="Val Acc", linewidth=2)
+    if has_val_curves:
+        ax_acc.plot(epochs, val_accs, label="Val Acc", linewidth=2)
     ax_acc.set_xlabel("Epoch")
     ax_acc.set_ylabel("Accuracy")
     ax_acc.set_title("Accuracy Egrisi")
     ax_acc.legend()
     ax_acc.grid(True, alpha=0.3)
 
-    if train_f1s is not None and val_f1s is not None:
+    if train_f1s is not None and val_f1s is not None and has_val_curves:
         ax_f1.plot(epochs, train_f1s, label="Train F1", linewidth=2)
         ax_f1.plot(epochs, val_f1s, label="Val F1", linewidth=2)
-    else:
+    elif train_f1s is not None:
+        ax_f1.plot(epochs, train_f1s, label="Train F1", linewidth=2)
+    elif has_val_curves:
         gap = np.array(train_accs) - np.array(val_accs)
         ax_f1.plot(epochs, gap, label="Acc Gap", linewidth=2, color="#d62728")
+    else:
+        ax_f1.plot(epochs, train_accs, label="Train Acc", linewidth=2, color="#d62728")
     ax_f1.set_xlabel("Epoch")
     ax_f1.set_ylabel("Skor")
     ax_f1.set_title("F1 / Genel Ayrisım")
@@ -176,16 +183,21 @@ def plot_training_curves(
     ax_f1.grid(True, alpha=0.3)
 
     plotted_pr = False
-    if train_precisions is not None and val_precisions is not None:
+    if train_precisions is not None:
         ax_pr.plot(epochs, train_precisions, label="Train Precision", linewidth=2)
+        plotted_pr = True
+    if train_precisions is not None and val_precisions is not None and has_val_curves:
         ax_pr.plot(epochs, val_precisions, label="Val Precision", linewidth=2)
-        plotted_pr = True
-    if train_recalls is not None and val_recalls is not None:
+    if train_recalls is not None:
         ax_pr.plot(epochs, train_recalls, label="Train Recall", linewidth=2, linestyle="--")
-        ax_pr.plot(epochs, val_recalls, label="Val Recall", linewidth=2, linestyle="--")
         plotted_pr = True
+    if train_recalls is not None and val_recalls is not None and has_val_curves:
+        ax_pr.plot(epochs, val_recalls, label="Val Recall", linewidth=2, linestyle="--")
     if not plotted_pr:
-        ax_pr.plot(epochs, np.array(train_losses) - np.array(val_losses), label="Loss Gap", linewidth=2)
+        if has_val_curves:
+            ax_pr.plot(epochs, np.array(train_losses) - np.array(val_losses), label="Loss Gap", linewidth=2)
+        else:
+            ax_pr.plot(epochs, train_losses, label="Train Loss", linewidth=2)
     ax_pr.set_xlabel("Epoch")
     ax_pr.set_ylabel("Skor")
     ax_pr.set_title("Precision / Recall")
