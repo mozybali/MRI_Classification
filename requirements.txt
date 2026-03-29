@@ -1,10 +1,13 @@
 # ==================== MRI Classification Project ====================
-# Main dependency file for running the full project.
+# Base dependency file for running the project except PyTorch.
 #
 # Install:
 #   pip install -r requirements.txt
+#   pip install -r requirements-torch-cu128.txt   # NVIDIA GPU / CUDA 12.8
+#   pip install -r requirements-torch-cpu.txt     # CPU-only
 #
-# Note: This file includes the base dependencies plus test tools.
+# Note: PyTorch is kept in a dedicated file because plain `torch` resolution
+# can otherwise pick a CPU build depending on the active package index.
 # ====================================================================
 
 # -------------------- Core Python Libraries --------------------
@@ -18,9 +21,7 @@ opencv-python>=4.5.0
 scikit-image>=0.19.0
 SimpleITK>=2.0.0
 
-# -------------------- Deep Learning (PyTorch) --------------------
-torch>=2.0.0
-torchvision>=0.15.0
+# -------------------- Deep Learning Utilities --------------------
 optuna>=3.5.0
 
 # -------------------- ML Utilities --------------------

@@ -167,6 +167,7 @@ def main():
     print("\n[HATA] Bazi testler basarisiz. Lutfen eksikleri giderin.")
     print("\nEksik paketleri yuklemek icin:")
     print("  pip install -r requirements.txt")
+    print("  pip install -r requirements-torch-cu128.txt  # veya requirements-torch-cpu.txt")
     return 1
 
 

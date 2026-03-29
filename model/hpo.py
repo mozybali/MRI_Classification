@@ -215,7 +215,8 @@ def validate_search_args(args: argparse.Namespace) -> None:
     if optuna is None:
         raise ModuleNotFoundError(
             "Bayes search icin 'optuna' gerekli. "
-            "Kurulum: .\\.venv\\Scripts\\python.exe -m pip install -e .[dev]"
+            "Kurulum: once requirements.txt ve uygun PyTorch requirements dosyasini "
+            "yukleyin, sonra .\\.venv\\Scripts\\python.exe -m pip install -e .[dev] --no-deps calistirin."
         )
     if args.trials < 1:
         raise ValueError("--trials en az 1 olmali.")

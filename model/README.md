@@ -22,6 +22,14 @@ Bu modul, MRI goruntulerinden demans seviyesi siniflandirmak icin PyTorch tabanl
 Repo kokunden onerilen komutlar:
 
 ```bash
+pip install -r requirements.txt
+pip install -r requirements-torch-cu128.txt
+pip install -e .[dev] --no-deps
+```
+
+CPU ile calisacaksaniz ikinci satir yerine `requirements-torch-cpu.txt` kullanin.
+
+```bash
 mri-train --model resnet --epochs 50 --batch-size 32
 mri-train --model unet --epochs 50 --batch-size 16
 mri-train --model resnet --trainval-dir Veri_Seti/OriginalDataset

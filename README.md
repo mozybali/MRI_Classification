@@ -57,14 +57,24 @@ Onerilen kurulum:
 python -m venv .venv
 .venv\Scripts\activate
 pip install -U pip
-pip install -e .[dev]
+pip install -r requirements.txt
+pip install -r requirements-torch-cu128.txt
+pip install -e .[dev] --no-deps
 ```
 
-Alternatif:
+CPU-only kurulum:
 
 ```bash
 pip install -r requirements.txt
+pip install -r requirements-torch-cpu.txt
+pip install -e .[dev] --no-deps
 ```
+
+Not:
+
+- `requirements.txt` artik PyTorch disindaki ortak bagimliliklari icerir.
+- PyTorch wheel'i ayrica kurulur; boylece `torch` paketinin CPU build'e kaymasi engellenir.
+- CUDA surumunu degistirmeniz gerekirse `requirements-torch-cu128.txt` icindeki PyTorch index dosyasini, resmi PyTorch kurulum sayfasindaki komuta gore guncelleyin.
 
 `pip install -e .` veya `pip install -e .[dev]` sonrasinda su komutlar aktif olur:
 
