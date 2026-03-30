@@ -557,6 +557,7 @@ def main(argv: list[str] | None = None) -> int:
         seed=args.seed,
         n_startup_trials=args.n_startup_trials,
         multivariate=True,
+        warn_independent_sampling=False, #Mevcut durumda rastgele degerlerin denenmesini istedigimiz icin bu uyari kapatildi.
     )
     pruner = optuna.pruners.MedianPruner(
         n_startup_trials=args.pruner_startup_trials,
