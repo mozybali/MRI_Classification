@@ -156,8 +156,7 @@ model/
 |   |-- losses.py
 |   |-- utils.py
 |   `-- models/
-|       |-- resnet_classifier.py
-|       `-- unet_classifier.py
+|       `-- resnet_classifier.py
 `-- ciktilar/
     |-- modeller/
     |-- raporlar/

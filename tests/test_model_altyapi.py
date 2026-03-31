@@ -26,7 +26,6 @@ from model.dl.dataset import (
     _validate_class_match,
 )
 from model.dl.engine import EarlyStopping, evaluate, train_one_epoch
-from model.dl.models.unet_classifier import UNetClassifier
 from model.inference import collect_batch_images, load_model, main as inference_main, predict_image
 
 
@@ -278,15 +277,6 @@ def test_create_dataloaders_rejects_trainval_test_source_overlap(tmp_path):
             seed=42,
             num_workers=0,
         )
-
-
-def test_unet_classifier_forward_shape():
-    model = UNetClassifier(num_classes=4)
-    batch = torch.randn(2, 3, 64, 64)
-
-    output = model(batch)
-
-    assert output.shape == (2, 4)
 
 
 def test_load_model_uses_checkpoint_metadata(monkeypatch, tmp_path):

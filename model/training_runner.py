@@ -34,7 +34,6 @@ from .dl.dataset import SINIF_ISIMLERI, create_dataloaders, create_full_train_te
 from .dl.engine import EarlyStopping, evaluate, train_one_epoch
 from .dl.losses import FocalLoss, compute_class_weights
 from .dl.models.resnet_classifier import ResNetClassifier
-from .dl.models.unet_classifier import UNetClassifier
 from .dl.utils import (
     get_device,
     plot_classification_summary,
@@ -109,8 +108,6 @@ def build_model(
     """Build a model instance by name."""
     if name == "resnet":
         model = ResNetClassifier(num_classes=num_classes, pretrained=pretrained)
-    elif name == "unet":
-        model = UNetClassifier(num_classes=num_classes)
     else:
         raise ValueError(f"Bilinmeyen model: {name}")
     return model.to(device)
