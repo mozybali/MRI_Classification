@@ -23,18 +23,27 @@ if __package__ in {None, ""}:
         sys.path.insert(0, str(PROJECT_ROOT))
 
     from model.ayarlar import HPO_KLASORU, RASTGELE_TOHUM
-    from model.training_runner import TrainingConfig, run_training, validate_training_config
+    from model.training_runner import (
+        SUPPORTED_SELECTION_METRICS,
+        TrainingConfig,
+        _selection_mode_for_metric,
+        run_training,
+        validate_training_config,
+    )
 else:
     from .ayarlar import HPO_KLASORU, RASTGELE_TOHUM
-    from .training_runner import TrainingConfig, run_training, validate_training_config
+    from .training_runner import (
+        SUPPORTED_SELECTION_METRICS,
+        TrainingConfig,
+        _selection_mode_for_metric,
+        run_training,
+        validate_training_config,
+    )
 
 try:
     import optuna
 except ModuleNotFoundError:
     optuna = None
-
-
-SUPPORTED_METRICS = ("loss", "accuracy", "precision", "recall", "f1")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -64,7 +73,7 @@ Ornekler:
     )
     parser.add_argument(
         "--metric",
-        choices=SUPPORTED_METRICS,
+        choices=sorted(SUPPORTED_SELECTION_METRICS),
         default="f1",
         help="Optimize edilecek validation metrik",
     )
@@ -163,10 +172,6 @@ Ornekler:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return build_parser().parse_args(argv)
-
-
-def _metric_direction(metric: str) -> str:
-    return "minimize" if metric == "loss" else "maximize"
 
 
 def _remaining_trials_to_run(requested_total_trials: int, existing_trial_count: int) -> int:
@@ -518,7 +523,7 @@ def _save_study_artifacts(
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "search_type": "bayesian_tpe",
         "metric": args.metric,
-        "direction": _metric_direction(args.metric),
+        "direction": _selection_mode_for_metric(args.metric),
         "trials_requested": args.trials,
         "timeout_seconds": args.timeout,
         "existing_trials_before_run": existing_trial_count,
@@ -563,7 +568,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     study = optuna.create_study(
         study_name=study_name,
-        direction=_metric_direction(args.metric),
+        direction=_selection_mode_for_metric(args.metric),
         sampler=sampler,
         pruner=pruner,
         storage=args.storage,
