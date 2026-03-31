@@ -35,7 +35,7 @@ MODELE_DAHIL_EDILMEYEN_SAYISAL_SUTUNLAR = [
 
 
 def _ozellik_cikar_wrapper(goruntu_yolu: str, sinif_adi: str) -> Optional[Dict]:
-    """⚡ Paralel özellik çıkarma için wrapper fonksiyon."""
+    """Paralel özellik çıkarma için wrapper fonksiyon."""
     try:
         cikarici = OzellikCikarici()
         ozellikler = cikarici.tek_goruntu_ozellikleri(str(goruntu_yolu))
@@ -313,7 +313,6 @@ class OzellikCikarici:
                 "kontrast": round(kontrast, 2),
                 "homojenlik": round(homojenlik, 4),
                 "enerji": round(enerji, 4),
-                # Yeni gelişmiş özellikler
                 "carpiklik": round(carpiklik, 4),
                 "basiklik": round(basiklik, 4),
                 "ortalama_gradyan": round(ortalama_gradyan, 2),
@@ -555,15 +554,9 @@ class OzellikCikarici:
             print(f"\n[UYARI] CSV'de {total_nan} adet NaN deger bulundu!")
             nan_cols = df.isnull().sum()
             nan_cols = nan_cols[nan_cols > 0]
-            print(f"   NaN iceren sutunlar:")
             for col, count in nan_cols.items():
                 print(f"   * {col}: {count} NaN ({count/len(df)*100:.2f}%)")
-            
-            print(f"\n   [SECENEKLER]")
-            print(f"   1. NaN degerleri koruyarak devam et (scaler NaN'lari atlar)")
-            print(f"   2. NaN iceren satirlari cikar (onerilen)")
-            print(f"   3. NaN degerleri sutun ortalamasiyla doldur")
-            print(f"\n   Simdilik devam ediliyor... (NaN'lar korunacak)")
+            print(f"   NaN'lar korunarak devam ediliyor (scaler NaN'lari atlar).")
         
         # Ölçeklendirilecek sütunları belirle (sayısal olanlar)
         df = self.kaynak_kolonlarini_hazirla(df)
@@ -576,12 +569,7 @@ class OzellikCikarici:
                 sabit_sutunlar.append(col)
         
         if sabit_sutunlar:
-            print(f"\n[UYARI] {len(sabit_sutunlar)} sabit sutun bulundu (tum degerler ayni):")
-            for col in sabit_sutunlar[:5]:
-                print(f"   * {col} = {df[col].iloc[0]}")
-            if len(sabit_sutunlar) > 5:
-                print(f"   ... ve {len(sabit_sutunlar) - 5} tane daha")
-            print(f"   Bu sutunlar model egitiminde kullanissiz olabilir.")
+            print(f"\n[UYARI] {len(sabit_sutunlar)} sabit sutun bulundu (tum degerler ayni), model icin kullanissiz olabilir.")
         
         # Scaling seçimi
         try:
@@ -609,36 +597,12 @@ class OzellikCikarici:
         # Kaydet
         try:
             df_scaled.to_csv(cikti_csv, index=False, encoding='utf-8')
-            print(f"\n[BASARILI] Olceklendirilmis CSV kaydedildi!")
-            print(f"   Dosya: {cikti_csv}")
-            print(f"   Metod: {metod}")
-            print(f"   Islenen ozellik sayisi: {len(sayisal_sutunlar)}")
-            print(f"   Toplam satir sayisi: {len(df_scaled)}")
+            print(f"\n[BASARILI] Olceklendirilmis CSV kaydedildi: {cikti_csv}")
+            print(f"   Metod: {metod}, Ozellik sayisi: {len(sayisal_sutunlar)}, Satir sayisi: {len(df_scaled)}")
         except Exception as e:
             print(f"\n[HATA] CSV kaydedilemedi: {e}")
             return df
-        
-        # Scaling istatistikleri göster
-        print(f"\n[ISTATISTIK] Olceklendirme sonrasi deger araliklari:")
-        
-        # Değişken sütunları filtrele (sabit olmayanlar)
-        degisken_sutunlar = [col for col in sayisal_sutunlar if col not in sabit_sutunlar]
-        
-        if degisken_sutunlar:
-            for col in degisken_sutunlar[:5]:  # İlk 5 değişken özelliği göster
-                min_val = df_scaled[col].min()
-                max_val = df_scaled[col].max()
-                ort_val = df_scaled[col].mean()
-                print(f"   * {col}: [{min_val:.4f}, {max_val:.4f}] (ort: {ort_val:.4f})")
-            if len(degisken_sutunlar) > 5:
-                print(f"   ... ve {len(degisken_sutunlar) - 5} degisken ozellik daha")
-        else:
-            print(f"   [UYARI] Hic degisken ozellik yok (tum sutunlar sabit)")
-        
-        if sabit_sutunlar:
-            print(f"\n[IPUCU] Sabit sutunlar ({len(sabit_sutunlar)} adet) model egitiminde")
-            print(f"   cikarilebilir cunku bilgi icermiyorlar.")
-        
+
         return df_scaled
     
     def istatistik_raporu(self, csv_dosyasi: Optional[Path] = None):

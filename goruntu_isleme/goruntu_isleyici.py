@@ -5,7 +5,6 @@ MRI görüntülerini işleme ve özellik çıkarma modülü.
 Tüm ön işleme, normalizasyon ve veri artırma işlevlerini içerir.
 """
 
-import os
 import numpy as np
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
@@ -16,7 +15,6 @@ import math
 from scipy import ndimage
 from tqdm import tqdm
 from multiprocessing import Pool, cpu_count, current_process
-from functools import lru_cache
 from itertools import count
 import warnings
 warnings.filterwarnings('ignore')
@@ -105,12 +103,6 @@ class GorselIsleyici:
         """Rastgelelik tohumu ayarla."""
         random.seed(tohum)
         np.random.seed(tohum)
-
-    @staticmethod
-    @lru_cache(maxsize=128)  # ⚡ Caching: Aynı yol için tekrar hesaplama önlenir
-    def _cached_path_check(yol_str: str) -> bool:
-        """Dosya yolu kontrolü için cache'lenmiş fonksiyon."""
-        return Path(yol_str).exists()
 
     @staticmethod
     def _cikti_dosya_koku(dosya_yolu: str) -> str:
@@ -672,32 +664,19 @@ class GorselIsleyici:
     
     def bias_field_correction(self, goruntu: np.ndarray) -> np.ndarray:
         """
-        N4ITK bias field correction uygula.
-
-        MRI görüntülerinde, manyetik alan düzensizlikleri nedeniyle
-        görüntünün farklı bölgelerinde yoğunluk sapmaları olabilir.
-        Bu fonksiyon bu sapmaları düzeltir ve daha homojen bir görüntü sağlar.
-
-        Args:
-            goruntu: Girdi görüntüsü (numpy array)
-
-        Returns:
-            Bias düzeltmesi yapılmış görüntü
-        """
-        """
         Bias field correction (MRI yoğunluk düzensizliği düzeltme).
-        
+
         MRI cihazındaki manyetik alan düzensizlikleri yüzünden, aynı doku tipinde
         farklı yoğunluk değerleri görülebilir. Bu düzeltme, smooth varying intensity
         düzensizliklerini giderir.
-        
+
         İki metod desteklenir:
         1. "n4itk": N4ITK algoritması (profesyonel, yavaş) - SimpleITK gerekli
-        2. "simple": Basit polynomial fitting (hızlı) - varsayılan fallback
-        
+        2. "simple": Basit Gaussian blur tabanlı (hızlı) - varsayılan fallback
+
         Args:
             goruntu: Girdi MRI görüntüsü
-            
+
         Returns:
             Düzeltilmiş görüntü
         """
@@ -939,25 +918,25 @@ class GorselIsleyici:
     def goruntu_isle(self, dosya_yolu: str) -> Optional[np.ndarray]:
         """
         Tek bir görüntüye tam ön işleme pipeline uygula.
-        
+
         Pipeline stratejileri (NORMALIZASYON_STRATEJISI ayarından):
         - "minimal": Sadece percentile clipping + resize
         - "standard": percentile + CLAHE + resize (önerilen)
         - "aggressive": percentile + CLAHE + z-score + resize
-        
+
         Pipeline sırası:
         1. Görüntü yükle
-        2. Kalite kontrol ⭐ YENİ
+        2. Kalite kontrol
         3. Gürültü giderme (erken aşama)
-        4. Bias field correction (N4ITK veya simple) ⭐ GELİŞTİRİLDİ
-        5. Skull stripping (advanced veya simple) ⭐ GELİŞTİRİLDİ
-        6. Registration (affine/rigid/simple) ⭐ GELİŞTİRİLDİ
-        7. Strateji bazlı normalizasyon ⭐ YENİ
+        4. Bias field correction (N4ITK veya simple)
+        5. Skull stripping (advanced veya simple)
+        6. Registration (affine/rigid/simple)
+        7. Strateji bazlı normalizasyon
         8. Boyutlandırma
-        
+
         Args:
             dosya_yolu: Görüntü dosyasının yolu
-            
+
         Returns:
             İşlenmiş görüntü veya None (kalite kontrolden geçmezse)
         """
@@ -966,28 +945,28 @@ class GorselIsleyici:
         if goruntu is None:
             return None
         
-        # 2. Kalite kontrol ⭐ YENİ
+        # 2. Kalite kontrol
         kalite_ok, hata_mesaji = self.goruntu_kalite_kontrol(goruntu)
         if not kalite_ok:
             print(f"[KALITE HATASI] {dosya_yolu}: {hata_mesaji}")
             self.kalite_istatistikleri["kalite_hatasi"] += 1
             return None
-        
-        # 3. Gürültü giderme (erken aşama)
+
+        # 3. Gürültü giderme
         goruntu = self.gurultu_gider(goruntu, metod='auto')
-        
-        # 4. Bias field correction (geliştirilmiş)
+
+        # 4. Bias field correction
         goruntu = self.bias_field_correction(goruntu)
-        
-        # 5. Skull stripping (geliştirilmiş)
+
+        # 5. Skull stripping
         goruntu = self.skull_strip(goruntu)
-        
-        # 6. Registration (geliştirilmiş)
+
+        # 6. Registration
         goruntu = self.center_of_mass_alignment(goruntu)
-        
-        # 7. Strateji bazlı normalizasyon ⭐ YENİ
+
+        # 7. Strateji bazlı normalizasyon
         goruntu = self._apply_normalization_strategy(goruntu)
-        
+
         # 8. Boyutlandırma
         goruntu = self.boyutlandir(goruntu)
         
@@ -1240,7 +1219,7 @@ class GorselIsleyici:
     def _tek_goruntu_isle(self, dosya_info: Dict, cikti_klasoru: Path,
                           artirma_carpanlari: Dict[str, int]) -> Optional[Dict]:
         """
-        ⚡ Tek bir görüntüyü işle (paralel işlem için).
+        Tek bir görüntüyü işle (paralel işlem için).
 
         Args:
             dosya_info: Dosya bilgileri sözlüğü
@@ -1358,36 +1337,18 @@ class GorselIsleyici:
     ) -> Dict:
         """
         Tüm MRI görüntülerini toplu olarak işle ve kaydet.
-        
-        ⭐ Bu proje için ana işlem fonksiyonudur! ⭐
-        
-        Uygulanan işlem pipeline'ı (sıralı):
-        1. Görüntü yükleme ve gri tonlamaya çevirme
-        2. Kalite kontrol (çok karanlık/aydınlık/düz görüntüleri filtrele)
-        3. Yoğunluk normalizasyonu (kontrast iyileştirme)
-        4. Bias field correction (N4ITK) - MRI alan düzensizliklerini düzelt
-        5. Skull stripping - Kafatasını ve deri dokularını kaldır
-        6. Histogram eşitleme (CLAHE) - Adaptif kontrast iyileştirme
-        7. Yeniden boyutlandırma (standart boyuta getirme, 256x256)
-        8. Veri artırma (augmentation) - Sınıf dengesizliğini gidermek için
-        
-        Sınıf bazlı augmentation:
-        - Az olan sınıflar (ModerateDemented) daha fazla artırılır
-        - Çok olan sınıflar (NonDemented) daha az artırılır
-        - SINIF_CARPANLARI dict'inden çarpan okunur
-        
-        Çıktı yapısı:
-        cikti_klasoru/
-        ├── NonDemented/           (işlenmiş + augmented)
-        ├── VeryMildDemented/
-        ├── MildDemented/
-        └── ModerateDemented/
-        
+
+        Her görüntüye goruntu_isle() pipeline'ı uygulanır, ardından
+        sınıf bazlı augmentation ile veri artırma yapılır.
+
         Args:
             cikti_klasoru: İşlenmiş görüntülerin kaydedileceği klasör
-            
+            giris_klasoru: Ham görüntülerin bulunduğu klasör
+            dosyalar: Önceden listelenmiş dosya bilgileri (None ise otomatik taranır)
+            artirma_carpanlari: Sınıf bazlı augmentation çarpanları
+
         Returns:
-            Dict: İstatistikler (toplam, başarılı, atlanan, kalite hatası sayıları)
+            Dict: Sınıf bazlı istatistikler
         """
         self.klasor_olustur(cikti_klasoru)
         if dosyalar is None:
@@ -1430,7 +1391,7 @@ class GorselIsleyici:
 
         sonuclar = []
         if paralel_kullan and self.n_jobs > 1:
-            # ⚡ PERFORMANS İYİLEŞTİRMESİ: Paralel işleme ile hızlandırma
+            # Paralel işleme ile hızlandırma
             print(f"[BILGI] Paralel isleme aktif: {self.n_jobs} cekirdek kullaniliyor")
             try:
                 with Pool(processes=self.n_jobs, initializer=_islem_worker_init) as pool:
