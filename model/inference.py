@@ -13,8 +13,8 @@ Kullanim:
 """
 
 import argparse
-from collections import Counter
 import sys
+from collections import Counter
 from pathlib import Path
 
 import torch
@@ -27,14 +27,12 @@ if __package__ in {None, ""}:
         sys.path.insert(0, str(PROJECT_ROOT))
 
     from model.dl.dataset import GORUNTU_UZANTILARI, SINIF_ISIMLERI
-    from model.dl.models.resnet_classifier import ResNetClassifier
-    from model.dl.models.unet_classifier import UNetClassifier
     from model.dl.utils import get_device, load_checkpoint
+    from model.training_runner import build_model
 else:
     from .dl.dataset import GORUNTU_UZANTILARI, SINIF_ISIMLERI
-    from .dl.models.resnet_classifier import ResNetClassifier
-    from .dl.models.unet_classifier import UNetClassifier
     from .dl.utils import get_device, load_checkpoint
+    from .training_runner import build_model
 
 
 def load_model(model_path: Path, device: torch.device):
@@ -43,15 +41,8 @@ def load_model(model_path: Path, device: torch.device):
     model_name = checkpoint.get("model_name", "resnet")
     num_classes = checkpoint.get("num_classes", 4)
 
-    if model_name == "resnet":
-        model = ResNetClassifier(num_classes=num_classes, pretrained=False)
-    elif model_name == "unet":
-        model = UNetClassifier(num_classes=num_classes)
-    else:
-        raise ValueError(f"Bilinmeyen model: {model_name}")
-
+    model = build_model(model_name, num_classes, device, pretrained=False)
     model.load_state_dict(checkpoint["model_state_dict"])
-    model.to(device)
     model.eval()
 
     image_size = checkpoint.get("image_size", 224)

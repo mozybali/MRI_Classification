@@ -95,16 +95,6 @@ Ornekler:
     parser.add_argument("--trainval-dir", type=str, default=None, help="Train+Val icin veri dizini")
     parser.add_argument("--test-dir", type=str, default=None, help="Test icin veri dizini")
     parser.add_argument(
-        "--use-processed-trainval",
-        action="store_true",
-        help="Geriye donuk uyumluluk bayragi. Varsayilan kaynak zaten islenmis trainval dizinidir.",
-    )
-    parser.add_argument(
-        "--use-processed-test",
-        action="store_true",
-        help="Geriye donuk uyumluluk bayragi. Varsayilan kaynak zaten islenmis test dizinidir.",
-    )
-    parser.add_argument(
         "--batch-size-choices",
         type=int,
         nargs="+",
@@ -211,6 +201,43 @@ def _search_space_summary(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def _build_config_from_args(
+    args: argparse.Namespace,
+    *,
+    batch_size: int = 32,
+    image_size: int = 224,
+    lr: float = 1e-4,
+    weight_decay: float = 1e-4,
+    scheduler_factor: float = 0.5,
+    scheduler_patience: int = 5,
+    loss: str = "ce",
+    focal_gamma: float = 2.0,
+    pretrained: bool = False,
+    epochs: int | None = None,
+) -> TrainingConfig:
+    """HPO argumanlari ve trial/final parametrelerinden TrainingConfig olustur."""
+    return TrainingConfig(
+        model=args.model,
+        epochs=epochs if epochs is not None else args.epochs,
+        batch_size=batch_size,
+        lr=lr,
+        patience=args.patience,
+        image_size=image_size,
+        trainval_dir=args.trainval_dir,
+        test_dir=args.test_dir,
+        val_ratio=args.val_ratio,
+        test_ratio=args.test_ratio,
+        loss=loss,
+        seed=args.seed,
+        num_workers=args.num_workers,
+        pretrained=pretrained,
+        weight_decay=weight_decay,
+        scheduler_factor=scheduler_factor,
+        scheduler_patience=scheduler_patience,
+        focal_gamma=focal_gamma,
+    )
+
+
 def validate_search_args(args: argparse.Namespace) -> None:
     if optuna is None:
         raise ModuleNotFoundError(
@@ -253,18 +280,8 @@ def validate_search_args(args: argparse.Namespace) -> None:
     if args.pruner_warmup_epochs < 0:
         raise ValueError("--pruner-warmup-epochs negatif olamaz.")
 
-    base_config = TrainingConfig(
-        model=args.model,
-        epochs=args.epochs,
-        patience=args.patience,
-        val_ratio=args.val_ratio,
-        test_ratio=args.test_ratio,
-        seed=args.seed,
-        num_workers=args.num_workers,
-        trainval_dir=args.trainval_dir,
-        test_dir=args.test_dir,
-        use_processed_trainval=args.use_processed_trainval,
-        use_processed_test=args.use_processed_test,
+    base_config = _build_config_from_args(
+        args,
         batch_size=min(args.batch_size_choices),
         image_size=min(args.image_size_choices),
         lr=args.lr_min,
@@ -352,27 +369,17 @@ def _objective_factory(args: argparse.Namespace, study_dir: Path):
         trial_dir = _trial_dir(study_dir, trial.number)
         trial_dir.mkdir(parents=True, exist_ok=True)
 
-        config = TrainingConfig(
-            model=args.model,
-            epochs=args.epochs,
+        config = _build_config_from_args(
+            args,
             batch_size=params["batch_size"],
-            lr=params["lr"],
-            patience=args.patience,
             image_size=params["image_size"],
-            trainval_dir=args.trainval_dir,
-            test_dir=args.test_dir,
-            val_ratio=args.val_ratio,
-            test_ratio=args.test_ratio,
-            loss=params["loss"],
-            seed=args.seed,
-            num_workers=args.num_workers,
-            use_processed_trainval=args.use_processed_trainval,
-            use_processed_test=args.use_processed_test,
-            pretrained=params["pretrained"],
+            lr=params["lr"],
             weight_decay=params["weight_decay"],
             scheduler_factor=params["scheduler_factor"],
             scheduler_patience=params["scheduler_patience"],
+            loss=params["loss"],
             focal_gamma=params["focal_gamma"],
+            pretrained=params["pretrained"],
         )
 
         try:
@@ -459,22 +466,13 @@ def _run_final_training(
     best_trial_number: int,
     best_epoch: int | None,
 ) -> dict[str, Any]:
-    final_config = TrainingConfig(
-        model=args.model,
+    final_config = _build_config_from_args(
+        args,
         epochs=int(best_epoch) if best_epoch is not None else args.epochs,
         batch_size=int(best_params["batch_size"]),
         lr=float(best_params["lr"]),
-        patience=args.patience,
         image_size=int(best_params["image_size"]),
-        trainval_dir=args.trainval_dir,
-        test_dir=args.test_dir,
-        val_ratio=args.val_ratio,
-        test_ratio=args.test_ratio,
         loss=str(best_params["loss"]),
-        seed=args.seed,
-        num_workers=args.num_workers,
-        use_processed_trainval=args.use_processed_trainval,
-        use_processed_test=args.use_processed_test,
         pretrained=bool(best_params.get("pretrained", False)),
         weight_decay=float(best_params["weight_decay"]),
         scheduler_factor=float(best_params["scheduler_factor"]),

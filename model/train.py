@@ -40,7 +40,6 @@ Ornekler:
   python model/train.py --model resnet --pretrained
   python model/train.py --model resnet --trainval-dir Veri_Seti/OriginalDataset
   python model/train.py --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
-  python model/train.py --model resnet --trainval-dir Veri_Seti/OriginalDataset
   python model/train.py --model unet --val-ratio 0.2
         """,
     )
@@ -87,22 +86,6 @@ Ornekler:
     )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-workers", type=int, default=0)
-    parser.add_argument(
-        "--use-processed-trainval",
-        action="store_true",
-        help=(
-            "Geriye donuk uyumluluk bayragi. Varsayilan akista train+validation "
-            "icin zaten islenmis goruntuler kullanilir."
-        ),
-    )
-    parser.add_argument(
-        "--use-processed-test",
-        action="store_true",
-        help=(
-            "Geriye donuk uyumluluk bayragi. Varsayilan akista test icin zaten "
-            "islenmis goruntuler kullanilir."
-        ),
-    )
     parser.add_argument(
         "--pretrained",
         action="store_true",
@@ -163,8 +146,6 @@ def main(argv: list[str] | None = None) -> int:
         loss=args.loss,
         seed=args.seed,
         num_workers=args.num_workers,
-        use_processed_trainval=args.use_processed_trainval,
-        use_processed_test=args.use_processed_test,
         pretrained=args.pretrained,
         weight_decay=args.weight_decay,
         scheduler_factor=args.scheduler_factor,

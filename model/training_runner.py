@@ -24,15 +24,11 @@ from sklearn.preprocessing import label_binarize
 from .ayarlar import (
     CIKTI_KLASORU,
     GORSELLER_KLASORU,
-    ISLENMIS_TEST_VERI_DIZINI,
-    ISLENMIS_TRAINVAL_VERI_DIZINI,
-    ISLENMIS_VERI_KLASORU,
     MODELS_KLASORU,
     RASTGELE_TOHUM,
     RAPORLAR_KLASORU,
     TEST_VERI_DIZINI,
     TRAINVAL_VERI_DIZINI,
-    VARSAYILAN_VERI_DIZINI,
 )
 from .dl.dataset import SINIF_ISIMLERI, create_dataloaders, create_full_train_test_loaders
 from .dl.engine import EarlyStopping, evaluate, train_one_epoch
@@ -67,8 +63,6 @@ class TrainingConfig:
     loss: str = "ce"
     seed: int = RASTGELE_TOHUM
     num_workers: int = 0
-    use_processed_trainval: bool = False
-    use_processed_test: bool = False
     pretrained: bool = False
     weight_decay: float = 1e-4
     scheduler_factor: float = 0.5
@@ -91,24 +85,8 @@ def _resolve_split_subdir(data_dir: Path, split_name: str) -> Path | None:
     return None
 
 
-def _resolve_processed_trainval_dir() -> Path:
-    if ISLENMIS_TRAINVAL_VERI_DIZINI.exists() and _contains_class_dirs(ISLENMIS_TRAINVAL_VERI_DIZINI):
-        return ISLENMIS_TRAINVAL_VERI_DIZINI
-    if ISLENMIS_VERI_KLASORU.exists() and _contains_class_dirs(ISLENMIS_VERI_KLASORU):
-        return ISLENMIS_VERI_KLASORU
-    return ISLENMIS_TRAINVAL_VERI_DIZINI
-
-
-def _resolve_processed_test_dir() -> Path | None:
-    if ISLENMIS_TEST_VERI_DIZINI.exists() and _contains_class_dirs(ISLENMIS_TEST_VERI_DIZINI):
-        return ISLENMIS_TEST_VERI_DIZINI
-    return None
-
-
 def _resolve_default_trainval_dir() -> Path:
     """Varsayilan train/val kaynagini ayarlardan sec."""
-    if VARSAYILAN_VERI_DIZINI.exists():
-        return VARSAYILAN_VERI_DIZINI
     return TRAINVAL_VERI_DIZINI
 
 
@@ -153,25 +131,15 @@ def resolve_data_dirs(
     require_test_dir: bool = True,
 ) -> tuple[Path, Path | None]:
     """Resolve split source directory and optional external test directory."""
-    explicit_trainval_root: Path | None = None
     if config.trainval_dir:
         explicit_trainval_root = Path(config.trainval_dir)
         trainval_dir = _resolve_split_subdir(explicit_trainval_root, "trainval") or explicit_trainval_root
-    elif config.use_processed_trainval:
-        trainval_dir = _resolve_processed_trainval_dir()
     else:
         trainval_dir = _resolve_default_trainval_dir()
 
     if config.test_dir:
         explicit_test_root = Path(config.test_dir)
         test_dir = _resolve_split_subdir(explicit_test_root, "test") or explicit_test_root
-    elif config.use_processed_test:
-        test_dir = _resolve_processed_test_dir() or ISLENMIS_TEST_VERI_DIZINI
-    elif config.use_processed_trainval:
-        if explicit_trainval_root is not None:
-            test_dir = _resolve_split_subdir(explicit_trainval_root, "test")
-        else:
-            test_dir = _resolve_processed_test_dir()
     else:
         test_dir = _resolve_default_test_dir(trainval_dir)
     return trainval_dir, test_dir
@@ -773,9 +741,6 @@ def run_training(
             ),
             "selected_epoch_train_loss": (
                 round(selected_epoch_train_loss, 6) if selected_epoch_train_loss is not None else None
-            ),
-            "best_val_loss": (
-                round(selected_epoch_val_loss, 6) if selected_epoch_val_loss is not None else None
             ),
             "best_val_metrics": (
                 {

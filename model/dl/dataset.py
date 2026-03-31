@@ -454,17 +454,18 @@ def _split_group_keys(
 
     group_labels, group_keys = _build_group_level_records(labels, groups)
     eval_ratio = val_ratio + test_ratio
+
+    if use_group_split:
+        split_fn_kwargs = dict(labels=group_labels, groups=group_keys)
+        split_strategy = "group_stratified"
+    else:
+        split_fn_kwargs = dict(labels=group_labels)
+        split_strategy = "stratified_without_groups"
+
     split_fn = _group_stratified_train_val_split if use_group_split else _stratified_train_val_split
-    split_strategy = "group_stratified" if use_group_split else "stratified_without_groups"
 
     train_group_idxs, temp_group_idxs = split_fn(
-        labels=group_labels,
-        groups=group_keys,
-        val_ratio=eval_ratio,
-        seed=seed,
-        num_classes=len(SINIF_ISIMLERI),
-    ) if use_group_split else split_fn(
-        labels=group_labels,
+        **split_fn_kwargs,
         val_ratio=eval_ratio,
         seed=seed,
         num_classes=len(SINIF_ISIMLERI),
@@ -480,14 +481,13 @@ def _split_group_keys(
         return train_groups, val_groups, test_groups, split_strategy
 
     temp_test_ratio = test_ratio / eval_ratio
+    if use_group_split:
+        temp_fn_kwargs = dict(labels=temp_labels, groups=temp_keys)
+    else:
+        temp_fn_kwargs = dict(labels=temp_labels)
+
     val_rel_idxs, test_rel_idxs = split_fn(
-        labels=temp_labels,
-        groups=temp_keys,
-        val_ratio=temp_test_ratio,
-        seed=seed + 1,
-        num_classes=len(SINIF_ISIMLERI),
-    ) if use_group_split else split_fn(
-        labels=temp_labels,
+        **temp_fn_kwargs,
         val_ratio=temp_test_ratio,
         seed=seed + 1,
         num_classes=len(SINIF_ISIMLERI),
