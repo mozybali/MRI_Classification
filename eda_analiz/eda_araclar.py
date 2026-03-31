@@ -23,9 +23,7 @@ from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-VERI_SETI_KLASORU = PROJECT_ROOT / "Veri_Seti"
-ORIGINAL_VERI_KLASORU = VERI_SETI_KLASORU / "OriginalDataset"
-DEFAULT_VERI_KLASORU = ORIGINAL_VERI_KLASORU
+DEFAULT_VERI_KLASORU = PROJECT_ROOT / "Veri_Seti" / "OriginalDataset"
 DEFAULT_CIKTI_KLASORU = Path(__file__).resolve().parent / "eda_ciktilar"
 
 
@@ -55,6 +53,7 @@ def _istatistik_hesapla_wrapper(satir_dict: Dict) -> Optional[Dict]:
 
             arr = np.array(goruntu)
             genislik, yukseklik = goruntu.size
+            p1, p25, p50, p75, p99 = np.percentile(arr, [1, 25, 50, 75, 99])
 
             istat = {
                 "id": satir_dict["id"],
@@ -65,11 +64,11 @@ def _istatistik_hesapla_wrapper(satir_dict: Dict) -> Optional[Dict]:
                 "int_std": float(np.std(arr)),
                 "int_min": float(np.min(arr)),
                 "int_max": float(np.max(arr)),
-                "int_p1": float(np.percentile(arr, 1)),
-                "int_p25": float(np.percentile(arr, 25)),
-                "int_p50": float(np.percentile(arr, 50)),
-                "int_p75": float(np.percentile(arr, 75)),
-                "int_p99": float(np.percentile(arr, 99)),
+                "int_p1": float(p1),
+                "int_p25": float(p25),
+                "int_p50": float(p50),
+                "int_p75": float(p75),
+                "int_p99": float(p99),
             }
             return istat
     except Exception as e:
@@ -80,6 +79,18 @@ def _istatistik_hesapla_wrapper(satir_dict: Dict) -> Optional[Dict]:
 
 class EDAAnaLiz:
     """MRI görüntü veri seti için EDA sınıfı."""
+
+    SAYISAL_OZELLIKLER = [
+        "genislik",
+        "yukseklik",
+        "en_boy_orani",
+        "int_ort",
+        "int_std",
+        "int_min",
+        "int_max",
+        "int_p1",
+        "int_p99",
+    ]
 
     def __init__(
         self,
@@ -161,7 +172,7 @@ class EDAAnaLiz:
 
         adaylar = [
             giris_klasoru / "OriginalDataset",
-            ORIGINAL_VERI_KLASORU,
+            DEFAULT_VERI_KLASORU,
         ]
         for aday in adaylar:
             if aday.exists() and self._sinif_klasorleri_var_mi(aday, self.sinif_klasorleri):
@@ -329,17 +340,15 @@ class EDAAnaLiz:
         """
         fig, axes = plt.subplots(2, 2, figsize=(12, 10))
 
-        sns.histplot(df["genislik"], kde=True, ax=axes[0, 0])
-        axes[0, 0].set_title("Genişlik Dağılımı")
-        axes[0, 0].set_xlabel("Genişlik (piksel)")
-
-        sns.histplot(df["yukseklik"], kde=True, ax=axes[0, 1])
-        axes[0, 1].set_title("Yükseklik Dağılımı")
-        axes[0, 1].set_xlabel("Yükseklik (piksel)")
-
-        sns.histplot(df["en_boy_orani"], kde=True, ax=axes[1, 0])
-        axes[1, 0].set_title("En-Boy Oranı Dağılımı")
-        axes[1, 0].set_xlabel("En-Boy Oranı")
+        histplot_ayarlari = [
+            ("genislik", "Genişlik Dağılımı", "Genişlik (piksel)"),
+            ("yukseklik", "Yükseklik Dağılımı", "Yükseklik (piksel)"),
+            ("en_boy_orani", "En-Boy Oranı Dağılımı", "En-Boy Oranı"),
+        ]
+        for ax, (kolon, baslik, xlabel) in zip(axes.flat, histplot_ayarlari):
+            sns.histplot(df[kolon], kde=True, ax=ax)
+            ax.set_title(baslik)
+            ax.set_xlabel(xlabel)
 
         for sinif in self._mevcut_sinif_sirasi(df):
             alt_df = df[df["label_name"] == sinif]
@@ -373,48 +382,25 @@ class EDAAnaLiz:
             int_spread=df["int_p99"] - df["int_p1"],
         )
 
-        sns.boxplot(data=plot_df, x="label_name", y="int_ort", order=sinif_sirasi, ax=axes[0, 0])
-        axes[0, 0].set_title("Ortalama Yoğunluk (Sınıflara Göre)")
-        axes[0, 0].set_xlabel("Sınıf")
-        axes[0, 0].set_ylabel("Ortalama Yoğunluk")
-        plt.setp(axes[0, 0].xaxis.get_majorticklabels(), rotation=45)
-
-        sns.boxplot(data=plot_df, x="label_name", y="int_std", order=sinif_sirasi, ax=axes[0, 1])
-        axes[0, 1].set_title("Yoğunluk Std. Sapması (Sınıflara Göre)")
-        axes[0, 1].set_xlabel("Sınıf")
-        axes[0, 1].set_ylabel("Std. Sapma")
-        plt.setp(axes[0, 1].xaxis.get_majorticklabels(), rotation=45)
-
-        sns.boxplot(data=plot_df, x="label_name", y="int_range", order=sinif_sirasi, ax=axes[1, 0])
-        axes[1, 0].set_title("Yoğunluk Aralığı (Max-Min)")
-        axes[1, 0].set_xlabel("Sınıf")
-        axes[1, 0].set_ylabel("Aralık")
-        plt.setp(axes[1, 0].xaxis.get_majorticklabels(), rotation=45)
-
-        sns.boxplot(data=plot_df, x="label_name", y="int_spread", order=sinif_sirasi, ax=axes[1, 1])
-        axes[1, 1].set_title("Yoğunluk Yayılımı (P99-P1)")
-        axes[1, 1].set_xlabel("Sınıf")
-        axes[1, 1].set_ylabel("Yayılım")
-        plt.setp(axes[1, 1].xaxis.get_majorticklabels(), rotation=45)
+        boxplot_ayarlari = [
+            ("int_ort", "Ortalama Yoğunluk (Sınıflara Göre)", "Ortalama Yoğunluk"),
+            ("int_std", "Yoğunluk Std. Sapması (Sınıflara Göre)", "Std. Sapma"),
+            ("int_range", "Yoğunluk Aralığı (Max-Min)", "Aralık"),
+            ("int_spread", "Yoğunluk Yayılımı (P99-P1)", "Yayılım"),
+        ]
+        for ax, (kolon, baslik, ylabel) in zip(axes.flat, boxplot_ayarlari):
+            sns.boxplot(data=plot_df, x="label_name", y=kolon, order=sinif_sirasi, ax=ax)
+            ax.set_title(baslik)
+            ax.set_xlabel("Sınıf")
+            ax.set_ylabel(ylabel)
+            plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
 
         plt.tight_layout()
         self.grafik_kaydet(fig, "3_yogunluk_analizi.png")
 
     def korelasyon_analizi_ciz(self, df: pd.DataFrame):
         """Özellikler arası korelasyon matrisi."""
-        numerik_kolonlar = [
-            "genislik",
-            "yukseklik",
-            "en_boy_orani",
-            "int_ort",
-            "int_std",
-            "int_min",
-            "int_max",
-            "int_p1",
-            "int_p99",
-        ]
-
-        mevcut_kolonlar = [k for k in numerik_kolonlar if k in df.columns]
+        mevcut_kolonlar = [k for k in self.SAYISAL_OZELLIKLER if k in df.columns]
         if len(mevcut_kolonlar) < 2:
             _guvenli_print("[UYARI] Korelasyon analizi atlandı: en az iki sayısal özellik gerekiyor.")
             return
@@ -453,17 +439,7 @@ class EDAAnaLiz:
             df: Özellik DataFrame'i
             n_ornekler: PCA için kullanılacak maksimum örnek sayısı
         """
-        ozellikler = [
-            "genislik",
-            "yukseklik",
-            "en_boy_orani",
-            "int_ort",
-            "int_std",
-            "int_min",
-            "int_max",
-            "int_p1",
-            "int_p99",
-        ]
+        ozellikler = self.SAYISAL_OZELLIKLER
         if len(df) < 2:
             _guvenli_print("[UYARI] PCA atlandı: En az iki örnek gerekiyor.")
             return
