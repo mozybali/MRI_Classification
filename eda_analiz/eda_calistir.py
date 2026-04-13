@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 """EDA analizi calistirma scripti."""
@@ -62,9 +62,7 @@ def _resolve_paths(args) -> tuple[Path, Path]:
     """Varsayilan ve interaktif seceneklere gore yollari belirle."""
     veri_klasoru = args.data_dir
     cikti_klasoru = args.output_dir
-    should_prompt = args.interactive or (
-        veri_klasoru is None and cikti_klasoru is None and sys.stdin.isatty()
-    )
+    should_prompt = args.interactive
 
     if should_prompt:
         veri_girdi = input(

@@ -2,7 +2,6 @@
 Tests for eda_araclar.py module.
 """
 
-import sys
 from pathlib import Path
 
 import matplotlib
@@ -13,10 +12,8 @@ from PIL import Image
 
 matplotlib.use("Agg")
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "eda_analiz"))
-
-import eda_araclar
-from eda_araclar import EDAAnaLiz
+from eda_analiz import eda_araclar
+from eda_analiz.eda_araclar import EDAAnaLiz
 
 
 SINIFLAR = ["NonDemented", "VeryMildDemented", "MildDemented", "ModerateDemented"]

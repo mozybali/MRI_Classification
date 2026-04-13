@@ -4,7 +4,8 @@ ozellik_cikarici.py
 İşlenmiş görüntülerden özellik çıkarma ve CSV oluşturma modülü.
 """
 
-import os
+import shutil
+
 import pickle
 import re
 import math
@@ -16,9 +17,16 @@ from typing import Dict, List, Optional, Tuple
 from PIL import Image
 from tqdm import tqdm
 from scipy import ndimage
+from scipy.stats import skew, kurtosis
 from sklearn.preprocessing import MinMaxScaler, RobustScaler, StandardScaler, MaxAbsScaler
 from multiprocessing import Pool, cpu_count
 from functools import partial
+
+try:
+    from skimage.filters import threshold_otsu
+    _SKIMAGE_THRESHOLD = True
+except ImportError:
+    _SKIMAGE_THRESHOLD = False
 
 try:
     from .ayarlar import *
@@ -34,17 +42,28 @@ MODELE_DAHIL_EDILMEYEN_SAYISAL_SUTUNLAR = [
 ]
 
 
+_worker_cikarici = None
+
+
+def _ozellik_worker_init():
+    """Worker başına tek OzellikCikarici instance oluştur."""
+    global _worker_cikarici
+    _worker_cikarici = OzellikCikarici()
+
+
 def _ozellik_cikar_wrapper(goruntu_yolu: str, sinif_adi: str) -> Optional[Dict]:
     """Paralel özellik çıkarma için wrapper fonksiyon."""
+    global _worker_cikarici
+    if _worker_cikarici is None:
+        _worker_cikarici = OzellikCikarici()
     try:
-        cikarici = OzellikCikarici()
-        ozellikler = cikarici.tek_goruntu_ozellikleri(str(goruntu_yolu))
+        ozellikler = _worker_cikarici.tek_goruntu_ozellikleri(str(goruntu_yolu))
 
         if ozellikler:
             ozellikler["sinif"] = sinif_adi
             ozellikler["etiket"] = SINIF_ETIKETI[sinif_adi]
             ozellikler["tam_yol"] = str(goruntu_yolu)
-            ozellikler["kaynak_id"] = cikarici.kaynak_id_belirle(Path(goruntu_yolu).name)
+            ozellikler["kaynak_id"] = _worker_cikarici.kaynak_id_belirle(Path(goruntu_yolu).name)
             ozellikler["kaynak_grup"] = f"{sinif_adi}::{ozellikler['kaynak_id']}"
             ozellikler["augmentasyon_mu"] = Path(goruntu_yolu).stem != ozellikler["kaynak_id"]
             return ozellikler
@@ -63,10 +82,11 @@ class OzellikCikarici:
     @staticmethod
     def kaynak_id_belirle(dosya_adi: str) -> str:
         """Augment edilmiş dosyalardan kaynak görüntü kimliğini çıkar."""
-        stem = Path(str(dosya_adi)).stem
-        stem = re.sub(r"_aug\d+$", "", stem, flags=re.IGNORECASE)
-        stem = re.sub(r"\s*\(\d+\)$", "", stem)
-        return stem
+        try:
+            from .goruntu_isleyici import GorselIsleyici
+        except ImportError:
+            from goruntu_isleyici import GorselIsleyici
+        return GorselIsleyici.kaynak_id_belirle(dosya_adi)
 
     @classmethod
     def kaynak_kolonlarini_hazirla(cls, df: pd.DataFrame) -> pd.DataFrame:
@@ -216,8 +236,9 @@ class OzellikCikarici:
         """
         try:
             # 1. DOSYA BİLGİLERİNİ AL
-            dosya_adi = os.path.basename(goruntu_yolu)  # Sadece dosya adı
-            boyut_bayt = os.path.getsize(goruntu_yolu)  # Dosya boyutu (byte)
+            dosya_path = Path(goruntu_yolu)
+            dosya_adi = dosya_path.name              # Sadece dosya adı
+            boyut_bayt = dosya_path.stat().st_size    # Dosya boyutu (byte)
             
             # 2. GÖRÜNTÜYÜ YÜKLE VE GRİ TONLAMAYA ÇEVİR
             goruntu = Image.open(goruntu_yolu)
@@ -268,7 +289,6 @@ class OzellikCikarici:
             # 9. GELİŞMİŞ İSTATİSTİKSEL ÖZELLİKLER
             # Skewness (Çarpıklık): Dağılımın simetrisini ölçer
             # Pozitif = sağa çarpık, negatif = sola çarpık, 0 = simetrik
-            from scipy.stats import skew, kurtosis
             carpiklik = self._sonlu_sayiya_zorla(skew(piksel_array.flatten()))
             
             # Kurtosis (Basıklık): Dağılımın kuyruk kalınlığını ölçer
@@ -285,11 +305,9 @@ class OzellikCikarici:
             # 11. OTSU EŞİĞİ ANALİZİ
             # Otsu yöntemi optimal eşik değerini otomatik bulur
             # Bu değer, beyin-arka plan ayrımı için ipucu verir
-            try:
-                from skimage.filters import threshold_otsu
+            if _SKIMAGE_THRESHOLD:
                 otsu_esik = float(threshold_otsu(piksel_array))
-            except ImportError:
-                # scikit-image yoksa basit hesaplama
+            else:
                 otsu_esik = float(np.mean(piksel_array))
             
             # 12. TÜM ÖZELLİKLERİ SÖZLÜKTE TOPLA VE DÖNDÜR
@@ -383,7 +401,7 @@ class OzellikCikarici:
             partial_func = partial(_ozellik_cikar_wrapper, sinif_adi=sinif_adi)
             if self.n_jobs > 1:
                 try:
-                    with Pool(processes=self.n_jobs) as pool:
+                    with Pool(processes=self.n_jobs, initializer=_ozellik_worker_init) as pool:
                         sonuclar = list(tqdm(
                             pool.imap(partial_func, gorseller),
                             total=len(gorseller),
@@ -485,9 +503,13 @@ class OzellikCikarici:
             print(f"   Gecerli metodlar: drop, mean, median, zero")
             return df
         
-        # Kaydet
+        # Kaydet (orijinali yedekle)
+        csv_dosyasi = Path(csv_dosyasi)
+        yedek_yolu = csv_dosyasi.with_suffix('.csv.bak')
+        shutil.copy2(csv_dosyasi, yedek_yolu)
         df_temiz.to_csv(csv_dosyasi, index=False, encoding='utf-8')
         print(f"\n[BASARILI] Temizlenmis CSV kaydedildi: {csv_dosyasi}")
+        print(f"   Orijinal yedeklendi: {yedek_yolu}")
         
         return df_temiz
     
@@ -556,7 +578,8 @@ class OzellikCikarici:
             nan_cols = nan_cols[nan_cols > 0]
             for col, count in nan_cols.items():
                 print(f"   * {col}: {count} NaN ({count/len(df)*100:.2f}%)")
-            print(f"   NaN'lar korunarak devam ediliyor (scaler NaN'lari atlar).")
+            print(f"   [UYARI] sklearn scaler'lari NaN degerleri ATLAMAZ, oldugu gibi yayar (propagate).")
+            print(f"   Scaling oncesi NaN'lari temizlemeniz onerilir.")
         
         # Ölçeklendirilecek sütunları belirle (sayısal olanlar)
         df = self.kaynak_kolonlarini_hazirla(df)

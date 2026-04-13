@@ -19,8 +19,10 @@ sys.path.insert(0, str(PROJECT_ROOT / "model"))
 @pytest.fixture(autouse=True, scope="session")
 def setup_model_paths():
     """Model test'leri için gerekli path'leri ayarla."""
-    import model.ayarlar as ayarlar
-    # Ayarlar zaten doğru import ediliyor, bu fixture sadece güvence için
+    try:
+        import model.ayarlar as ayarlar
+    except ImportError:
+        pass
 
 
 @pytest.fixture

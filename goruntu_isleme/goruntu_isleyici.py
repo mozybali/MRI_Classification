@@ -5,40 +5,42 @@ MRI görüntülerini işleme ve özellik çıkarma modülü.
 Tüm ön işleme, normalizasyon ve veri artırma işlevlerini içerir.
 """
 
-import numpy as np
-from pathlib import Path
-from typing import List, Dict, Tuple, Optional
-from PIL import Image
+import logging
+import math
 import random
 import re
-import math
+from itertools import count
+from multiprocessing import Pool, cpu_count, current_process
+from pathlib import Path
+from typing import List, Dict, Tuple, Optional
+
+import numpy as np
+from PIL import Image
 from scipy import ndimage
 from tqdm import tqdm
-from multiprocessing import Pool, cpu_count, current_process
-from itertools import count
-import warnings
-warnings.filterwarnings('ignore')
+
+logger = logging.getLogger(__name__)
 
 try:
     import cv2
     CV2_AVAILABLE = True
 except ImportError:
     CV2_AVAILABLE = False
-    print("[UYARI] OpenCV yüklü değil. Bazı özellikler çalışmayabilir.")
+    logger.info("OpenCV yüklü değil. Bazı özellikler çalışmayabilir.")
 
 try:
     from skimage import exposure
     SKIMAGE_AVAILABLE = True
 except ImportError:
     SKIMAGE_AVAILABLE = False
-    print("[UYARI] scikit-image yüklü değil. Histogram eşitleme devre dışı.")
+    logger.info("scikit-image yüklü değil. Histogram eşitleme devre dışı.")
 
 try:
     import SimpleITK as sitk
     SITK_AVAILABLE = True
 except ImportError:
     SITK_AVAILABLE = False
-    print("[UYARI] SimpleITK yüklü değil. N4ITK bias correction ve gelişmiş registration kullanılamayacak.")
+    logger.info("SimpleITK yüklü değil. N4ITK bias correction ve gelişmiş registration kullanılamayacak.")
 
 try:
     from .ayarlar import *
@@ -427,8 +429,11 @@ class GorselIsleyici:
             return clahe.apply(goruntu)
         # Değilse scikit-image kullan
         elif SKIMAGE_AVAILABLE:
-            result = exposure.equalize_adapthist(goruntu, clip_limit=clip_limit / 100.0)
-            # equalize_adapthist float64 [0,1] döner; uint8'e normalize et
+            # OpenCV clipLimit ile scikit-image clip_limit farklı semantiğe sahip.
+            # OpenCV: mutlak kontrast eşiği; skimage: normalize [0,1] aralığında.
+            # OpenCV davranışına yakın sonuç için 0.01-0.03 aralığı kullanılır.
+            sk_clip = min(clip_limit / 200.0, 0.03)
+            result = exposure.equalize_adapthist(goruntu, clip_limit=sk_clip)
             return (result * 255.0).clip(0, 255).astype(np.uint8)
         # Hiçbiri yoksa orijinal görüntüyü dön
         else:
@@ -460,7 +465,7 @@ class GorselIsleyici:
             return cv2.resize(goruntu, (genislik, yukseklik), interpolation=cv2.INTER_LINEAR)
         else:
             pil_img = Image.fromarray(goruntu)
-            pil_img = pil_img.resize((genislik, yukseklik), Image.LANCZOS)
+            pil_img = pil_img.resize((genislik, yukseklik), Image.BILINEAR)
             return np.array(pil_img)
     
     def _bilateral_filtre_uygula(self, goruntu: np.ndarray) -> np.ndarray:
@@ -760,7 +765,8 @@ class GorselIsleyici:
                 return goruntu
             
             # Bias field'ı kaldır (orijinal / bias)
-            corrected = img_float / (bias_field / mean_bias)
+            # Skull-strip sonrası sıfır bölgeler inf üretebilir; epsilon ile koruma
+            corrected = img_float / (bias_field / mean_bias + 1e-6)
             
             # 0-255 aralığına normalize et
             corrected = np.clip(corrected, 0, 255)
@@ -1234,8 +1240,13 @@ class GorselIsleyici:
             sinif_cikti = cikti_klasoru / dosya_info["sinif"]
             self.klasor_olustur(sinif_cikti)
 
+            # Kalite sayacını izle: işlem öncesi değeri kaydet
+            kalite_oncesi = self.kalite_istatistikleri.get('kalite_hatasi', 0)
+
             # Görüntüyü işle (kalite kontrol içinde yapılır)
             goruntu = self.goruntu_isle(dosya_info["yol"])
+
+            kalite_artis = self.kalite_istatistikleri.get('kalite_hatasi', 0) - kalite_oncesi
 
             sonuc = {
                 'basarili': 0,
@@ -1265,9 +1276,7 @@ class GorselIsleyici:
                         sonuc['istatistikler'][dosya_info["sinif"]] += 1
             else:
                 sonuc['basarisiz'] = 1
-                sonuc['kalite_hatasi'] = self.kalite_istatistikleri.get('kalite_hatasi', 0)
-                # Worker'daki sayacı sıfırla (sonraki görüntü için)
-                self.kalite_istatistikleri['kalite_hatasi'] = 0
+                sonuc['kalite_hatasi'] = kalite_artis
 
             return sonuc
 
@@ -1468,6 +1477,10 @@ class GorselIsleyici:
             cikti_klasoru=Path(cikti_klasoru) / "trainval",
             dosyalar=trainval_dosyalar,
         )
+
+        # Template'i sıfırla: test verisi trainval template'inden etkilenmemeli
+        self.template_image = None
+
         test_istatistik = self.tum_gorselleri_isle(
             cikti_klasoru=Path(cikti_klasoru) / "test",
             dosyalar=test_dosyalar,

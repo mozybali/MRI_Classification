@@ -90,7 +90,7 @@ class EDAAnaLiz:
         "int_max",
         "int_p1",
         "int_p99",
-    ]
+    ]  # int_p25/p50/p75 CSV'ye kaydedilir ama korelasyon/PCA'dan çıkarılmıştır (redundancy azaltma).
 
     def __init__(
         self,
@@ -136,7 +136,7 @@ class EDAAnaLiz:
         if n_jobs is None:
             self.n_jobs = max(1, cpu_count() - 1)
         else:
-            self.n_jobs = max(1, int(n_jobs))
+            self.n_jobs = min(max(1, int(n_jobs)), cpu_count())
 
     def _mevcut_sinif_sirasi(self, df: pd.DataFrame) -> list[str]:
         """DataFrame icinde bulunan siniflari sabit sirada dondur."""
@@ -208,8 +208,13 @@ class EDAAnaLiz:
                 _guvenli_print(f"[UYARI] Klasör bulunamadı: {sinif_klasoru}")
                 continue
 
-            for dosya in sorted(sinif_klasoru.iterdir(), key=self._dosya_siralama_anahtari):
-                if dosya.suffix.lower() in [".jpg", ".jpeg", ".png"]:
+            dosyalar = sorted(sinif_klasoru.iterdir(), key=self._dosya_siralama_anahtari)
+            desteklenen = {".jpg", ".jpeg", ".png"}
+            atlanan_uzantilar: set[str] = set()
+
+            for dosya in dosyalar:
+                uzanti = dosya.suffix.lower()
+                if uzanti in desteklenen:
                     kayitlar.append(
                         {
                             "id": idx,
@@ -219,6 +224,14 @@ class EDAAnaLiz:
                         }
                     )
                     idx += 1
+                elif dosya.is_file() and uzanti:
+                    atlanan_uzantilar.add(uzanti)
+
+            if atlanan_uzantilar:
+                _guvenli_print(
+                    f"[UYARI] {sinif_adi} klasöründe desteklenmeyen uzantılar atlandı: "
+                    f"{', '.join(sorted(atlanan_uzantilar))}"
+                )
 
         df = pd.DataFrame(kayitlar)
         if df.empty:
@@ -234,6 +247,12 @@ class EDAAnaLiz:
         Bu fonksiyon, her görüntü için boyut, yoğunluk ve doku özelliklerini
         hesaplayarak DataFrame'e ekler. Bu istatistikler, veri setinin
         genel yapısını anlamamıza yardımcı olur.
+
+        Not:
+            Okunamayan veya bozuk görseller için istatistik kolonları NaN olur
+            (left join). Downstream analizlerde NaN satırlar şu şekilde
+            ele alınır: PCA ``dropna`` ile temizler, korelasyon ``corr()``
+            otomatik çıkarır, boxplot/histplot sessizce atlar.
 
         Args:
             df: Görüntü yollarını içeren DataFrame
@@ -322,13 +341,16 @@ class EDAAnaLiz:
         Her sınıfta kaç görüntü olduğunu gösteren çubuk grafik.
         Dengesiz veri setlerini tespit etmek için önemlidir.
         """
+        if df.empty:
+            _guvenli_print("[UYARI] Sınıf dağılımı atlandı: DataFrame boş.")
+            return
         fig, ax = plt.subplots(figsize=(8, 5))
         sinif_sirasi = self._mevcut_sinif_sirasi(df)
         sns.countplot(data=df, x="label_name", order=sinif_sirasi, ax=ax)
         ax.set_xlabel("Sınıf")
         ax.set_ylabel("Görüntü Sayısı")
         ax.set_title("Sınıf Dağılımı")
-        plt.xticks(rotation=45)
+        ax.tick_params(axis='x', rotation=45)
         self.grafik_kaydet(fig, "1_sinif_dagilimi.png")
 
     def boyut_analizi_ciz(self, df: pd.DataFrame):
@@ -338,6 +360,9 @@ class EDAAnaLiz:
         Görüntülerin genişlik, yükseklik ve en-boy oranı dağılımlarını gösterir.
         Boyut tutarlılığını ve standartlaştırma ihtiyacını anlamak için kullanılır.
         """
+        if df.empty:
+            _guvenli_print("[UYARI] Boyut analizi atlandı: DataFrame boş.")
+            return
         fig, axes = plt.subplots(2, 2, figsize=(12, 10))
 
         histplot_ayarlari = [
@@ -375,6 +400,9 @@ class EDAAnaLiz:
         Sınıflar arası yoğunluk farklarını görmek için kullanılır.
         Ortalama, standart sapma, aralık ve yayılım grafiklerini içerir.
         """
+        if df.empty:
+            _guvenli_print("[UYARI] Yoğunluk analizi atlandı: DataFrame boş.")
+            return
         fig, axes = plt.subplots(2, 2, figsize=(14, 10))
         sinif_sirasi = self._mevcut_sinif_sirasi(df)
         plot_df = df.assign(

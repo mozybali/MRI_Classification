@@ -6,6 +6,46 @@ MRI görüntü işleme için merkezi konfigürasyon dosyası.
 
 from pathlib import Path
 
+__all__ = [
+    # Genel
+    "PROJE_KOK", "VERI_SETI_KLASORU", "ORIGINAL_VERI_SETI_KLASORU",
+    "ON_ISLEME_VARSAYILAN_GIRIS_KLASORU", "CIKTI_KLASORU",
+    "ISLENMIS_TRAINVAL_DIZINI", "ISLENMIS_TEST_DIZINI",
+    # Sınıf
+    "SINIF_KLASORLERI", "SINIF_ETIKETI",
+    # Görüntü işleme
+    "HEDEF_GENISLIK", "HEDEF_YUKSEKLIK", "GORUNTU_UZANTILARI",
+    "KIRPMA_YUZDELERI", "NORMALIZASYON_STRATEJISI",
+    "Z_SCORE_NORMALIZASYON_AKTIF", "HISTOGRAM_ESITLEME_AKTIF", "CLAHE_CLIP_LIMIT",
+    "GELISMIS_FILTRE_AKTIF", "BILATERAL_FILTRE_AKTIF",
+    "GAUSSIAN_BLUR_AKTIF", "GAUSSIAN_BLUR_SIGMA",
+    "MASKE_KENAR_PAYI",
+    "SKULL_STRIPPING_AKTIF", "SKULL_STRIPPING_METHOD",
+    "BIAS_FIELD_CORRECTION_AKTIF", "BIAS_FIELD_METHOD",
+    "REGISTRATION_AKTIF", "REGISTRATION_METHOD",
+    "MORFOLOJIK_OPERASYONLAR_AKTIF", "MORFOLOJIK_KERNEL_BOYUTU",
+    # Veri artırma
+    "VERI_ARTIRMA_AKTIF", "ARTIRMA_CARPANI",
+    "SINIF_BAZLI_ARTIRMA_AKTIF", "SINIF_BAZLI_CARPANLAR",
+    "YATAY_AYNA_AKTIF", "YATAY_AYNA_OLASILIK",
+    "ROTASYON_AKTIF", "ROTASYON_MAKS_ACI",
+    "PARLAKLIK_ARALIK", "KONTRAST_ARALIK",
+    "ELASTIC_DEFORMATION_AKTIF", "ELASTIC_ALPHA", "ELASTIC_SIGMA",
+    "RANDOM_CROP_AKTIF", "RANDOM_CROP_RATIO",
+    "GAUSSIAN_NOISE_AKTIF", "GAUSSIAN_NOISE_MEAN", "GAUSSIAN_NOISE_SIGMA",
+    "INTENSITY_SHIFT_AKTIF", "INTENSITY_SHIFT_LIMIT",
+    # Veri bölümleme
+    "EGITIM_ORANI", "DOGRULAMA_ORANI", "TEST_ORANI", "RASTGELE_TOHUM",
+    # CSV
+    "CSV_DOSYA_ADI", "TEST_CSV_DOSYA_ADI", "CSV_SCALED_DOSYA_ADI",
+    "EGITIM_CSV_DOSYA_ADI", "DOGRULAMA_CSV_DOSYA_ADI", "TEST_SPLIT_CSV_DOSYA_ADI",
+    "EGITIM_SCALED_CSV_DOSYA_ADI", "DOGRULAMA_SCALED_CSV_DOSYA_ADI",
+    "TEST_SCALED_CSV_DOSYA_ADI", "SCALER_DOSYA_ADI", "SCALING_METODU",
+    # Kalite kontrol
+    "KALITE_KONTROL_AKTIF", "MIN_MEAN_INTENSITY", "MAX_MEAN_INTENSITY",
+    "MIN_STD_INTENSITY", "MAX_BLACK_RATIO",
+]
+
 # ==================== GENEL AYARLAR ====================
 # Proje kök dizini - tüm dosya yolları buraya göre belirlenir
 PROJE_KOK = Path(__file__).parent.parent
@@ -107,7 +147,7 @@ SINIF_BAZLI_CARPANLAR = {
     "NonDemented": 0,        # Sadece orijinal örnekleri kullan
     "VeryMildDemented": 0,   # Mevcut sayi yeterli, ek augmentation uygulama
     "MildDemented": 1,       # Orta seviyede artır
-    "ModerateDemented": 11,  # Ciddi azinlik sinifi - kontrollu sekilde artır
+    "ModerateDemented": 5,   # Ciddi azinlik sinifi - kontrollu sekilde artır
 }
 
 # Artırma parametreleri (basit)

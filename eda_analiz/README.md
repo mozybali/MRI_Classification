@@ -49,6 +49,23 @@ Desteklenen veri yapilari:
 Veri_Seti/OriginalDataset/<SinifAdi>/
 ```
 
+### Otomatik Klasor Cozumleme
+
+`--data-dir` olarak ust klasor verildiginde (ornegin `Veri_Seti`), arac
+otomatik olarak `OriginalDataset` alt klasorunu arar ve kullanir.
+Eger sinif klasorleri dogrudan verilen dizinde bulunursa o dizin kullanilir.
+
+### Interaktif Mod
+
+Interaktif soru-cevap modu yalnizca `--interactive` bayragi ile etkinlesir.
+Bayrak verilmezse varsayilan dizinler sessizce kullanilir; CI/CD
+ortamlarinda asili kalma riski yoktur.
+
+### Desteklenen Goruntu Uzantilari
+
+Sadece `.jpg`, `.jpeg` ve `.png` dosyalari yuklenir. Diger uzantilar
+(`.tif`, `.bmp`, `.gif` vb.) varsa konsola uyari basilir ve atlanir.
+
 ## Uretilen Ciktilar
 
 - `0_ozet_istatistikler.txt`
