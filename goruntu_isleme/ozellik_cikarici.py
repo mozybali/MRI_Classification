@@ -289,11 +289,15 @@ class OzellikCikarici:
             # 9. GELİŞMİŞ İSTATİSTİKSEL ÖZELLİKLER
             # Skewness (Çarpıklık): Dağılımın simetrisini ölçer
             # Pozitif = sağa çarpık, negatif = sola çarpık, 0 = simetrik
-            carpiklik = self._sonlu_sayiya_zorla(skew(piksel_array.flatten()))
-            
-            # Kurtosis (Basıklık): Dağılımın kuyruk kalınlığını ölçer
-            # Yüksek = sivri tepe ve kalın kuyruklar, düşük = düz dağılım
-            basiklik = self._sonlu_sayiya_zorla(kurtosis(piksel_array.flatten()))
+            if std_yogunluk <= np.finfo(np.float32).eps:
+                carpiklik = 0.0
+                basiklik = 0.0
+            else:
+                carpiklik = self._sonlu_sayiya_zorla(skew(piksel_array.flatten()))
+
+                # Kurtosis (Basıklık): Dağılımın kuyruk kalınlığını ölçer
+                # Yüksek = sivri tepe ve kalın kuyruklar, düşük = düz dağılım
+                basiklik = self._sonlu_sayiya_zorla(kurtosis(piksel_array.flatten()))
             
             # 10. GRADYAN ÖZELLİKLERİ (Kenar Yoğunluğu)
             # Gradyan, görüntüdeki değişim hızını ölçer (kenarları yakalar)
@@ -642,7 +646,7 @@ class OzellikCikarici:
             df = pd.read_csv(csv_dosyasi)
         except Exception as e:
             print(f"[HATA] CSV okunamadı: {e}")
-            return
+            return False
         
         print("\n" + "="*60)
         print("VERİ SETİ İSTATİSTİK RAPORU")
@@ -664,6 +668,7 @@ class OzellikCikarici:
             print(f"\n\n[BASARILI] Eksik deger yok")
         
         print("\n" + "="*60)
+        return True
 
 
 def veri_boluntule(csv_dosyasi: Optional[Path] = None,
@@ -721,6 +726,62 @@ def veri_boluntule(csv_dosyasi: Optional[Path] = None,
             )
         return original_df
 
+    def _grup_split_sayilarini_hesapla(grup_sayisi: int) -> Tuple[int, int, int]:
+        val_sayisi = max(1, math.ceil(grup_sayisi * DOGRULAMA_ORANI))
+        test_sayisi = max(1, math.ceil(grup_sayisi * TEST_ORANI))
+
+        while val_sayisi + test_sayisi > grup_sayisi - 1:
+            if val_sayisi >= test_sayisi and val_sayisi > 1:
+                val_sayisi -= 1
+            elif test_sayisi > 1:
+                test_sayisi -= 1
+            else:
+                break
+
+        train_sayisi = grup_sayisi - val_sayisi - test_sayisi
+        if train_sayisi < 1 or val_sayisi < 1 or test_sayisi < 1:
+            raise ValueError(
+                f"Veri setinde yeterli benzersiz kaynak grup yok "
+                f"(bulunan: {grup_sayisi}, gereken minimum: 3). "
+                f"Daha fazla veri ekleyin veya bolme oranlarini ayarlayin."
+            )
+        return train_sayisi, val_sayisi, test_sayisi
+
+    def _sinif_bazli_gruplari_bol(
+        gruplar: pd.DataFrame,
+        beklenen_etiketler: List[int],
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        train_parcalari = []
+        val_parcalari = []
+        test_parcalari = []
+
+        for etiket in beklenen_etiketler:
+            sinif_gruplari = (
+                gruplar[gruplar['etiket'].astype(int) == int(etiket)]
+                .sort_values('kaynak_grup')
+                .sample(frac=1, random_state=RASTGELE_TOHUM + int(etiket))
+                .reset_index(drop=True)
+            )
+            if len(sinif_gruplari) < 3:
+                raise ValueError(
+                    "Tum splitlerde sinif kapsamini korumak icin her sinifta en az 3 farkli "
+                    f"kaynak grup gerekli. Eksik etiketler: [{int(etiket)}]"
+                )
+
+            train_sayisi, val_sayisi, _ = _grup_split_sayilarini_hesapla(len(sinif_gruplari))
+            val_baslangic = train_sayisi
+            test_baslangic = train_sayisi + val_sayisi
+
+            train_parcalari.append(sinif_gruplari.iloc[:val_baslangic])
+            val_parcalari.append(sinif_gruplari.iloc[val_baslangic:test_baslangic])
+            test_parcalari.append(sinif_gruplari.iloc[test_baslangic:])
+
+        return (
+            pd.concat(train_parcalari, ignore_index=True),
+            pd.concat(val_parcalari, ignore_index=True),
+            pd.concat(test_parcalari, ignore_index=True),
+        )
+
     # Oran doğrulaması
     oran_toplam = EGITIM_ORANI + DOGRULAMA_ORANI + TEST_ORANI
     if abs(oran_toplam - 1.0) > 1e-6:
@@ -743,6 +804,13 @@ def veri_boluntule(csv_dosyasi: Optional[Path] = None,
 
     group_df = trainval_df[['kaynak_grup', 'etiket']].drop_duplicates().reset_index(drop=True)
     beklenen_etiketler = sorted({int(etiket) for etiket in SINIF_ETIKETI.values()})
+    minimum_grup = len(beklenen_etiketler) * (2 if test_csv_dosyasi is not None else 3)
+    if len(group_df) < minimum_grup:
+        raise ValueError(
+            f"Veri setinde yeterli benzersiz kaynak grup yok "
+            f"(bulunan: {len(group_df)}, gereken minimum: {minimum_grup}). "
+            f"Daha fazla veri ekleyin veya bolme oranlarini ayarlayin."
+        )
     _sinif_kapsamini_dogrula(trainval_df, beklenen_etiketler, "TrainVal")
 
     if test_csv_dosyasi is not None:
@@ -795,12 +863,7 @@ def veri_boluntule(csv_dosyasi: Optional[Path] = None,
         _sinif_kapsamini_dogrula(val_df, beklenen_etiketler, "Dogrulama")
         _sinif_kapsamini_dogrula(test_df, beklenen_etiketler, "Test")
     else:
-        cikarici = OzellikCikarici()
-
         toplam_grup = len(group_df)
-        temp_oran = 1 - EGITIM_ORANI
-        val_oran = DOGRULAMA_ORANI / (DOGRULAMA_ORANI + TEST_ORANI)
-        sinif_sayisi = len(beklenen_etiketler)
         grup_sayilari = group_df['etiket'].value_counts()
         yetersiz = sorted(grup_sayilari[grup_sayilari < 3].index.astype(int).tolist())
         if yetersiz:
@@ -808,53 +871,16 @@ def veri_boluntule(csv_dosyasi: Optional[Path] = None,
                 "Tum splitlerde sinif kapsamini korumak icin her sinifta en az 3 farkli "
                 f"kaynak grup gerekli. Eksik etiketler: {yetersiz}"
             )
-
-        temp_grup_sayisi = math.ceil(toplam_grup * temp_oran)
-        train_grup_sayisi = toplam_grup - temp_grup_sayisi
-        test_grup_sayisi = math.ceil(temp_grup_sayisi * (1 - val_oran))
-        val_grup_sayisi = temp_grup_sayisi - test_grup_sayisi
-
-        if train_grup_sayisi < 1 or val_grup_sayisi < 1 or test_grup_sayisi < 1:
-            min_split_groups = 4
+        if toplam_grup < minimum_grup:
             raise ValueError(
                 f"Veri setinde yeterli benzersiz kaynak grup yok "
-                f"(bulunan: {toplam_grup}, gereken minimum: {min_split_groups}). "
+                f"(bulunan: {toplam_grup}, gereken minimum: {minimum_grup}). "
                 f"Daha fazla veri ekleyin veya bolme oranlarini ayarlayin."
             )
 
-        if (
-            train_grup_sayisi < sinif_sayisi
-            or val_grup_sayisi < sinif_sayisi
-            or test_grup_sayisi < sinif_sayisi
-        ):
-            raise ValueError(
-                "Tum splitlerde tum siniflarin temsil edilebilmesi icin her splitte en az "
-                f"{sinif_sayisi} kaynak grup olmali "
-                f"(egitim={train_grup_sayisi}, dogrulama={val_grup_sayisi}, test={test_grup_sayisi})."
-            )
-
-        stratify_groups = group_df['etiket'] if cikarici._stratify_serisi_uygun_mu(group_df['etiket']) else None
-        if stratify_groups is not None:
-            if train_grup_sayisi < sinif_sayisi or temp_grup_sayisi < sinif_sayisi:
-                stratify_groups = None
-
-        train_groups, temp_groups = train_test_split(
+        train_groups, val_groups, test_groups = _sinif_bazli_gruplari_bol(
             group_df,
-            test_size=(1 - EGITIM_ORANI),
-            stratify=stratify_groups,
-            random_state=RASTGELE_TOHUM
-        )
-
-        temp_stratify = temp_groups['etiket'] if cikarici._stratify_serisi_uygun_mu(temp_groups['etiket']) else None
-        if temp_stratify is not None:
-            temp_sinif_sayisi = int(temp_groups['etiket'].nunique())
-            if val_grup_sayisi < temp_sinif_sayisi or test_grup_sayisi < temp_sinif_sayisi:
-                temp_stratify = None
-        val_groups, test_groups = train_test_split(
-            temp_groups,
-            test_size=(1 - val_oran),
-            stratify=temp_stratify,
-            random_state=RASTGELE_TOHUM
+            beklenen_etiketler,
         )
 
         train_df = trainval_df[trainval_df['kaynak_grup'].isin(train_groups['kaynak_grup'])].copy()

@@ -22,7 +22,6 @@ def test_imports():
         "numpy": "numpy",
         "pandas": "pandas",
         "PIL": "Pillow",
-        "cv2": "opencv-python",
         "scipy": "scipy",
         "skimage": "scikit-image",
         "sklearn": "scikit-learn",
@@ -30,6 +29,7 @@ def test_imports():
     }
 
     optional_packages = {
+        "cv2": "opencv-python",
         "SimpleITK": "SimpleITK",
     }
 

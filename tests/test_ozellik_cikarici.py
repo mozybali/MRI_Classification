@@ -306,7 +306,7 @@ class TestVeriBoluntule:
         with pytest.raises(ValueError, match="gereken minimum"):
             veri_boluntule(csv_dosyasi=csv_path, cikti_klasoru=temp_output_dir)
 
-    def test_veri_boluntule_sinif_kapsami_imkansizsa_anlamli_hata_verir(self, temp_output_dir):
+    def test_veri_boluntule_minimum_sinif_kapsamini_korur(self, temp_output_dir):
         data = []
         for sinif, etiket, sayi in [("A", 0, 3), ("B", 1, 3), ("C", 2, 3), ("D", 3, 3)]:
             for idx in range(sayi):
@@ -321,8 +321,10 @@ class TestVeriBoluntule:
         csv_path = temp_output_dir / "coverage_gap.csv"
         pd.DataFrame(data).to_csv(csv_path, index=False)
 
-        with pytest.raises(ValueError, match="Tum splitlerde tum siniflarin temsil edilebilmesi"):
-            veri_boluntule(csv_dosyasi=csv_path, cikti_klasoru=temp_output_dir)
+        train_df, val_df, test_df = veri_boluntule(csv_dosyasi=csv_path, cikti_klasoru=temp_output_dir)
+
+        for df_split in [train_df, val_df, test_df]:
+            assert sorted(df_split["etiket"].unique().tolist()) == [0, 1, 2, 3]
 
     def test_veri_setini_bol_ve_olceklendir_basarisiz_boluntuleme(self, temp_output_dir):
         """veri_boluntule başarısız olursa veri_setini_bol_ve_olceklendir None dönmeli."""

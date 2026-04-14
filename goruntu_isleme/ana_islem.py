@@ -65,9 +65,15 @@ def _resolve_processed_split_dirs(klasor: Path) -> tuple[Path, Path | None]:
     klasor = Path(klasor)
     trainval_dir = klasor / "trainval"
     test_dir = klasor / "test"
-    if GorselIsleyici._sinif_klasorleri_var_mi(trainval_dir):
-        return trainval_dir, test_dir if GorselIsleyici._sinif_klasorleri_var_mi(test_dir) else None
+    if _sinif_klasorleri_var_mi(trainval_dir):
+        return trainval_dir, test_dir if _sinif_klasorleri_var_mi(test_dir) else None
     return klasor, None
+
+
+def _sinif_klasorleri_var_mi(klasor_yolu: Path) -> bool:
+    """Verilen klasorde en az bir bilinen sinif klasoru var mi?"""
+    klasor_yolu = Path(klasor_yolu)
+    return any((klasor_yolu / sinif).exists() for sinif in SINIF_KLASORLERI)
 
 
 def _resolve_feature_csv_paths(cikti_klasoru: Path, csv_yolu: Path | None = None) -> tuple[Path, Path]:
@@ -363,7 +369,7 @@ def istatistik_goster(csv_dosyasi: Path | None = None):
     print("\n[5] ISTATISTIK RAPORU")
     print("-" * 60)
     cikarici = OzellikCikarici()
-    cikarici.istatistik_raporu(csv_dosyasi=csv_dosyasi)
+    return cikarici.istatistik_raporu(csv_dosyasi=csv_dosyasi)
 
 
 def veri_bol(
@@ -443,12 +449,14 @@ def tum_islemleri_yap(
     print("ADIM 3/4: VERI BOLME + OLCEKLENDIRME")
     print("=" * 60)
     print("[BILGI] Sayisal NaN degerler varsa yalnizca egitim seti medyani ile temizlenecek.")
-    sonuc = veri_setini_bol_ve_olceklendir(
-        csv_dosyasi=ozellik_csv,
-        cikti_klasoru=cikti_klasoru,
-        metod=metod,
-        test_csv_dosyasi=test_ozellik_csv if test_dir is not None else None,
-    )
+    split_kwargs = {
+        "csv_dosyasi": ozellik_csv,
+        "cikti_klasoru": cikti_klasoru,
+        "metod": metod,
+    }
+    if test_dir is not None:
+        split_kwargs["test_csv_dosyasi"] = test_ozellik_csv
+    sonuc = veri_setini_bol_ve_olceklendir(**split_kwargs)
     if sonuc is None:
         print("\n[HATA] Veri bolme ve olceklendirme basarisiz. Islem durduruluyor.")
         return None
