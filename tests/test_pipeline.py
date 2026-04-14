@@ -8,16 +8,26 @@ Güncellenmiş görüntü işleme pipeline'ını test eden script.
 Tek bir görüntü üzerinde tüm adımları gösterir.
 """
 
-import sys
-import numpy as np
-import matplotlib.pyplot as plt
 from pathlib import Path
+import sys
 
-# Modül yolunu ekle
-sys.path.insert(0, str(Path(__file__).parent))
+import matplotlib
+import numpy as np
 
-from ayarlar import *
-from goruntu_isleyici import GorselIsleyici
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+from goruntu_isleme.ayarlar import (
+    CIKTI_KLASORU,
+    GORUNTU_UZANTILARI,
+    ON_ISLEME_VARSAYILAN_GIRIS_KLASORU,
+    SINIF_KLASORLERI,
+)
+from goruntu_isleme.goruntu_isleyici import GorselIsleyici
 
 
 def pipeline_test(goruntu_yolu: str):
@@ -171,6 +181,13 @@ def pipeline_test(goruntu_yolu: str):
     print()
 
 
+def test_pipeline_script_imports():
+    """Script bagimlilikleri pytest koleksiyonunda cozulmeli."""
+    assert callable(pipeline_test)
+    assert CIKTI_KLASORU.name == "cikti"
+    assert ON_ISLEME_VARSAYILAN_GIRIS_KLASORU.name == "OriginalDataset"
+
+
 if __name__ == "__main__":
     # Kullanıcıdan görüntü yolu al
     if len(sys.argv) > 1:
@@ -189,7 +206,7 @@ if __name__ == "__main__":
                 if not sinif_klasoru.exists():
                     continue
                 dosyalar = []
-                for uzanti in (".jpg", ".jpeg", ".png"):
+                for uzanti in GORUNTU_UZANTILARI:
                     dosyalar.extend(sorted(sinif_klasoru.glob(f"*{uzanti}")))
                 if dosyalar:
                     bulunan = dosyalar[0]
@@ -200,7 +217,7 @@ if __name__ == "__main__":
         if bulunan is None:
             print("\n❌ HATA: Veri setinde görüntü bulunamadı!")
             print("Beklenen yapı: Veri_Seti/OriginalDataset/<Sinif>")
-            print("Kullanım: python test_pipeline.py [goruntu_yolu]")
+            print("Kullanım: python tests/test_pipeline.py [goruntu_yolu]")
             sys.exit(1)
         test_goruntu = str(bulunan)
     

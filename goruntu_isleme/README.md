@@ -120,6 +120,6 @@ Split mantigi, ayni kaynaktan tureyen dosyalari mumkun oldugunca ayni grupta tut
 ## Yardimci Komutlar
 
 ```bash
-python goruntu_isleme/pipeline_quick_test.py
-python goruntu_isleme/test_pipeline.py ornek_goruntu.jpg
+python tests/pipeline_quick_test.py
+python tests/test_pipeline.py ornek_goruntu.jpg
 ```

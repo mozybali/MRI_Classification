@@ -6,13 +6,23 @@
 import sys
 from pathlib import Path
 
-if __package__ in {None, ""}:
-    PROJECT_ROOT = Path(__file__).resolve().parents[1]
-    if str(PROJECT_ROOT) not in sys.path:
-        sys.path.insert(0, str(PROJECT_ROOT))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+try:
+    import pytest
+except ImportError:  # pragma: no cover - dogrudan script olarak calistirma destegi
+    pytest = None
 
 
-def test_imports():
+def _requires_data(func):
+    if pytest is None:
+        return func
+    return pytest.mark.requires_data(func)
+
+
+def _check_imports():
     """Gerekli paketlerin yuklu olup olmadigini kontrol et."""
     print("\n" + "=" * 70)
     print("PAKET KONTROLU")
@@ -54,7 +64,7 @@ def test_imports():
     return all_ok
 
 
-def test_veri_seti():
+def _check_veri_seti():
     """Veri setinin varligini kontrol et."""
     print("\n" + "=" * 70)
     print("VERI SETI KONTROLU")
@@ -106,7 +116,7 @@ def test_veri_seti():
     return toplam > 0
 
 
-def test_modul():
+def _check_modul():
     """Modul import'unu test et."""
     print("\n" + "=" * 70)
     print("MODUL KONTROLU")
@@ -138,6 +148,22 @@ def test_modul():
         return False
 
 
+def test_imports():
+    """Gerekli paketlerin yuklu oldugunu pytest ile dogrula."""
+    assert _check_imports()
+
+
+@_requires_data
+def test_veri_seti():
+    """Veri setinin varligini pytest ile dogrula."""
+    assert _check_veri_seti()
+
+
+def test_modul():
+    """Modul import'unu pytest ile dogrula."""
+    assert _check_modul()
+
+
 def main():
     """Ana test fonksiyonu."""
     print("\n" + "=" * 70)
@@ -145,9 +171,9 @@ def main():
     print("=" * 70)
 
     results = {
-        "Paket Kontrolu": test_imports(),
-        "Veri Seti Kontrolu": test_veri_seti(),
-        "Modul Kontrolu": test_modul(),
+        "Paket Kontrolu": _check_imports(),
+        "Veri Seti Kontrolu": _check_veri_seti(),
+        "Modul Kontrolu": _check_modul(),
     }
 
     print("\n" + "=" * 70)

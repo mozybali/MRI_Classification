@@ -8,6 +8,8 @@ Bu klasor, projenin EDA, goruntu isleme, CLI ve model altyapisini dogrulayan `py
 - `test_eda_araclar.py`: EDA sinifi ve analiz ciktilari
 - `test_goruntu_isleyici.py`: On isleme ve goruntu donusumleri
 - `test_ozellik_cikarici.py`: Ozellik cikarma, split ve olceklendirme
+- `pipeline_quick_test.py`: Paket, veri seti ve goruntu isleme modulu hizli kontrolu
+- `test_pipeline.py`: Tek goruntu uzerinde pipeline gorsellestirme script'i
 - `test_model_altyapi.py`: Dataset, loss, utility ve split altyapisi
 - `test_model_egitici.py`: Egitim akisina yonelik birim kontroller
 - `test_akislari_ve_cli.py`: CLI action'lari ve uctan uca akis kontrolleri
@@ -31,6 +33,13 @@ Belirli dosya:
 
 ```bash
 pytest tests/test_akislari_ve_cli.py
+```
+
+Goruntu isleme pipeline yardimci kontrolleri:
+
+```bash
+python tests/pipeline_quick_test.py
+python tests/test_pipeline.py ornek_goruntu.jpg
 ```
 
 ## Marker'lar

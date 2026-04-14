@@ -37,6 +37,7 @@ MRI_Classification/
 |   `-- README.md
 |-- tests/
 |   |-- conftest.py
+|   |-- pipeline_quick_test.py
 |   |-- test_*.py
 |   `-- README.md
 |-- pyproject.toml
