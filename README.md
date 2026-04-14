@@ -23,17 +23,19 @@ MRI_Classification/
 |   `-- README.md
 |-- goruntu_isleme/
 |   |-- ana_islem.py
+|   |-- ayarlar.py
 |   |-- goruntu_isleyici.py
 |   |-- ozellik_cikarici.py
-|   |-- cikti/
 |   `-- README.md
 |-- model/
 |   |-- train.py
+|   |-- hpo.py
 |   |-- inference.py
+|   |-- ayarlar.py
+|   |-- training_runner.py
 |   |-- common/
 |   |-- dl/
 |   |-- sl/
-|   |-- ciktilar/
 |   `-- README.md
 |-- tests/
 |   |-- conftest.py
@@ -42,9 +44,13 @@ MRI_Classification/
 |   `-- README.md
 |-- pyproject.toml
 |-- pytest.ini
+|-- requirements-torch-cpu.txt
+|-- requirements-torch-cu128.txt
 |-- requirements.txt
 `-- README.md
 ```
+
+Not: `goruntu_isleme/cikti/`, `model/ciktilar/` ve `eda_analiz/eda_ciktilar/` calisma sirasinda uretilen cikti dizinleridir.
 
 ## Gereksinimler
 
@@ -149,7 +155,7 @@ mri-infer --model-path model/ciktilar/modeller/best_xgboost.json --image ornek.j
 - `Veri_Seti/OriginalDataset`: ham/original veri dizini
 - `goruntu_isleme` ham veriyi leak-free sekilde `trainval/test` olarak ayirir
 - `validation` ve `test`: original-only olarak uretilir
-- Train tarafinda yalnizca transform tabanli augmentation uygulanir
+- Augmentation train/trainval tarafinda kalir; validation ve test original-only olarak kullanilir
 
 Proje akisi varsayilan olarak preprocess ciktilari uzerinden ilerler. Ham veriyle calismak isterseniz egitim komutunda veri dizinlerini acikca belirtin. Ayrintilar icin [`Veri_Seti/README.md`](Veri_Seti/README.md) dosyasina bakin.
 
