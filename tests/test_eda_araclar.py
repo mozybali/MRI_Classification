@@ -2,6 +2,8 @@
 Tests for eda_araclar.py module.
 """
 
+import subprocess
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -32,6 +34,31 @@ def _dataset_yapisi_olustur(kok: Path):
 
 
 class TestEDAAnaLiz:
+    def test_eda_araclar_bom_ile_baslamaz(self):
+        assert Path(eda_araclar.__file__).read_bytes().startswith(b"#!/")
+
+    def test_import_headless_backend_ile_savefig_yapar(self, tmp_path):
+        cikti = tmp_path / "backend_probe.png"
+        kod = (
+            "import sys; "
+            "from eda_analiz import eda_araclar; "
+            "fig, ax = eda_araclar.plt.subplots(); "
+            "ax.plot([1, 2]); "
+            "fig.savefig(sys.argv[1]); "
+            "print(eda_araclar.plt.get_backend().lower())"
+        )
+
+        sonuc = subprocess.run(
+            [sys.executable, "-c", kod, str(cikti)],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).resolve().parents[1],
+        )
+
+        assert "agg" in sonuc.stdout
+        assert cikti.exists()
+
     def test_guvenli_print_unicode_encode_hatasinda_dusmez(self, monkeypatch):
         class FakeBuffer:
             def __init__(self):
@@ -108,6 +135,14 @@ class TestEDAAnaLiz:
 
         assert len(df) == 12
         assert eda.veri_klasoru == original.resolve()
+
+    def test_veri_yukle_bos_ozel_klasorde_varsayilana_dusmez(self, tmp_path):
+        veri_klasoru = tmp_path / "bos_veri"
+        veri_klasoru.mkdir()
+        eda = EDAAnaLiz(veri_klasoru=veri_klasoru, cikti_klasoru=tmp_path / "out")
+
+        with pytest.raises(FileNotFoundError):
+            eda.veri_yukle()
 
     def test_veri_yukle_invalid_path_raises(self, tmp_path):
         eda = EDAAnaLiz(veri_klasoru=tmp_path / "yok", cikti_klasoru=tmp_path / "out")

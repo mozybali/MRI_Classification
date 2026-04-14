@@ -1,4 +1,6 @@
 import pickle
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -356,6 +358,24 @@ def test_eda_resolve_paths_defaults_noninteractive(monkeypatch, tmp_path):
 
     assert isinstance(data_dir, Path)
     assert isinstance(output_dir, Path)
+
+
+def test_eda_calistir_importu_eda_araclarini_lazy_yukler():
+    kod = (
+        "import sys; "
+        "from eda_analiz import eda_calistir; "
+        "print('eda_analiz.eda_araclar' in sys.modules)"
+    )
+
+    sonuc = subprocess.run(
+        [sys.executable, "-c", kod],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parents[1],
+    )
+
+    assert sonuc.stdout.strip() == "False"
 
 
 def test_eda_parse_args_jobs_degerini_cozer():

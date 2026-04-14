@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 """
@@ -8,11 +8,18 @@ MRI görüntü veri seti için keşifsel veri analizi (EDA) araçları.
 İstatistik hesaplama ve görselleştirme fonksiyonları.
 """
 
+import os
 import sys
+import tempfile
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
 from typing import Dict, Optional, Union
 
+os.environ.setdefault("MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / "mri_classification_mpl"))
+
+import matplotlib
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -170,10 +177,7 @@ class EDAAnaLiz:
         if self._sinif_klasorleri_var_mi(giris_klasoru, self.sinif_klasorleri):
             return giris_klasoru
 
-        adaylar = [
-            giris_klasoru / "OriginalDataset",
-            DEFAULT_VERI_KLASORU,
-        ]
+        adaylar = [giris_klasoru / "OriginalDataset"]
         for aday in adaylar:
             if aday.exists() and self._sinif_klasorleri_var_mi(aday, self.sinif_klasorleri):
                 _guvenli_print(f"[BILGI] Veri klasoru otomatik cozuldu: {aday}")
@@ -183,7 +187,7 @@ class EDAAnaLiz:
             "Veri klasörü beklenen sınıf klasörlerini içermiyor. "
             f"Verilen yol: {giris_klasoru}. "
             "Beklenen yapılar: Veri_Seti/OriginalDataset/<SinifAdi> "
-            "veya özel bir klasorde dogrudan <SinifAdi>."
+            "veya verilen klasorde dogrudan <SinifAdi>."
         )
 
     def veri_yukle(self) -> pd.DataFrame:

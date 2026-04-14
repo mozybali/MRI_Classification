@@ -7,24 +7,46 @@ import argparse
 import sys
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_VERI_KLASORU = PROJECT_ROOT / "Veri_Seti" / "OriginalDataset"
+DEFAULT_CIKTI_KLASORU = Path(__file__).resolve().parent / "eda_ciktilar"
+EDAAnaLiz = None
+
 if __package__ in {None, ""}:
-    PROJECT_ROOT = Path(__file__).resolve().parents[1]
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(PROJECT_ROOT))
 
-    from eda_analiz.eda_araclar import (
-        DEFAULT_CIKTI_KLASORU,
-        DEFAULT_VERI_KLASORU,
-        EDAAnaLiz,
-        _guvenli_print,
-    )
-else:
-    from .eda_araclar import (
-        DEFAULT_CIKTI_KLASORU,
-        DEFAULT_VERI_KLASORU,
-        EDAAnaLiz,
-        _guvenli_print,
-    )
+
+def _guvenli_print(*args, sep: str = " ", end: str = "\n") -> None:
+    """Konsol encoding'i Unicode desteklemese bile yazdırmayı sürdür."""
+    metin = sep.join(str(arg) for arg in args)
+    try:
+        print(metin, end=end)
+    except UnicodeEncodeError:
+        stdout = sys.stdout
+        encoding = getattr(stdout, "encoding", None) or "utf-8"
+        tampon = getattr(stdout, "buffer", None)
+        guvenli_metin = (metin + end).encode(encoding, errors="replace")
+        if tampon is not None:
+            tampon.write(guvenli_metin)
+            tampon.flush()
+        else:
+            print(guvenli_metin.decode(encoding, errors="replace"), end="")
+
+
+def _load_eda_analiz_sinifi():
+    """Ağır EDA bağımlılıklarını sadece analiz çalışırken yükle."""
+    global EDAAnaLiz
+    if EDAAnaLiz is not None:
+        return EDAAnaLiz
+
+    if __package__ in {None, ""}:
+        from eda_analiz.eda_araclar import EDAAnaLiz as analiz_sinifi
+    else:
+        from .eda_araclar import EDAAnaLiz as analiz_sinifi
+
+    EDAAnaLiz = analiz_sinifi
+    return analiz_sinifi
 
 
 def parse_args(argv=None):
@@ -93,7 +115,8 @@ def main(argv=None):
     print("\nMRI Veri Seti EDA Analizi Baslatiliyor...\n")
 
     try:
-        analizci = EDAAnaLiz(
+        analiz_sinifi = _load_eda_analiz_sinifi()
+        analizci = analiz_sinifi(
             veri_klasoru=veri_klasoru,
             cikti_klasoru=cikti_klasoru,
             n_jobs=args.jobs,
