@@ -158,7 +158,7 @@ class TestSLTrainingSmoke:
             trainval_dir=str(synth_dataset),
             test_dir=str(synth_dataset),
             val_ratio=0.25,
-            test_ratio=0.0,
+            test_ratio=0.25,
             seed=42,
         )
         results = run_sl_training(
@@ -184,6 +184,7 @@ class TestSLTrainingSmoke:
 
         # Test metrikleri makul aralıkta mi?
         assert results["test_metrics"] is not None
+        assert results["data_info"]["uses_external_test_dir"] is False
         assert 0.0 <= results["test_metrics"]["accuracy"] <= 1.0
         assert 0.0 <= results["test_metrics"]["f1"] <= 1.0
 

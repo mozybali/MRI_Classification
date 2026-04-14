@@ -132,6 +132,8 @@ class TestCacheImageSizeConflict:
         data = np.load(cache, allow_pickle=True)
         assert "image_size" in data
         assert int(data["image_size"]) == 64
+        assert "data_dir" in data
+        assert str(data["data_dir"].item()) == str(synth_dataset.resolve())
 
     def test_cache_rejects_different_image_size(self, synth_dataset, tmp_path):
         cache = tmp_path / "cache.npz"
@@ -145,6 +147,23 @@ class TestCacheImageSizeConflict:
         X1, y1, g1, p1 = build_feature_matrix(synth_dataset, image_size=64, cache_path=cache)
         X2, y2, g2, p2 = build_feature_matrix(synth_dataset, image_size=64, cache_path=cache)
         np.testing.assert_array_equal(X1, X2)
+
+    def test_cache_rejects_different_data_dir(self, synth_dataset, tmp_path):
+        cache = tmp_path / "cache.npz"
+        build_feature_matrix(synth_dataset, image_size=64, cache_path=cache)
+
+        other_dataset = tmp_path / f"other_{uuid4().hex[:8]}"
+        for class_name in SINIF_ISIMLERI:
+            class_dir = other_dataset / class_name
+            class_dir.mkdir(parents=True, exist_ok=True)
+            for i in range(4):
+                img = Image.fromarray(
+                    np.random.randint(0, 256, (64, 64), dtype=np.uint8), mode="L",
+                )
+                img.save(class_dir / f"other_{i}.jpg")
+
+        with pytest.raises(ValueError, match="farkli veri dizini"):
+            build_feature_matrix(other_dataset, image_size=64, cache_path=cache)
 
 
 # ==================== HIGH-1: Val loss best vs last epoch ====================
@@ -164,7 +183,7 @@ class TestValLossBestEpoch:
             trainval_dir=str(synth_dataset),
             test_dir=str(synth_dataset),
             val_ratio=0.25,
-            test_ratio=0.0,
+            test_ratio=0.25,
             seed=42,
         )
         results = run_sl_training(
@@ -200,7 +219,7 @@ class TestTestLossReal:
             trainval_dir=str(synth_dataset),
             test_dir=str(synth_dataset),
             val_ratio=0.25,
-            test_ratio=0.0,
+            test_ratio=0.25,
             seed=42,
         )
         results = run_sl_training(
@@ -214,6 +233,105 @@ class TestTestLossReal:
         assert results["test_metrics"] is not None
         test_loss = results["test_metrics"]["loss"]
         assert test_loss > 0.0, "Test loss should be > 0 (real logloss, not hard-coded 0.0)"
+
+
+# ==================== HIGH-2B: SL split sizinti ve original-only politikasi ====================
+
+
+class TestSLSplitSafety:
+    def test_sl_internal_test_split_same_dir_with_positive_ratio(self, synth_dataset, tmp_path):
+        from model.sl.training_runner import run_sl_training
+
+        config = SLTrainingConfig(
+            n_estimators=10,
+            max_depth=3,
+            learning_rate=0.3,
+            image_size=64,
+            trainval_dir=str(synth_dataset),
+            test_dir=str(synth_dataset),
+            val_ratio=0.25,
+            test_ratio=0.25,
+            seed=42,
+        )
+
+        results = run_sl_training(
+            config,
+            output_root=tmp_path / "out",
+            save_artifacts=False,
+            evaluate_test_set=True,
+            verbose=False,
+        )
+
+        assert results["test_metrics"] is not None
+        assert results["data_info"]["test_size"] > 0
+        assert results["data_info"]["uses_external_test_dir"] is False
+
+    def test_sl_external_test_rejects_overlapping_source_groups(self, synth_dataset, tmp_path):
+        from model.sl.training_runner import run_sl_training
+
+        external_test = tmp_path / f"external_{uuid4().hex[:8]}"
+        for class_name in SINIF_ISIMLERI:
+            class_dir = external_test / class_name
+            class_dir.mkdir(parents=True, exist_ok=True)
+            for i in range(4):
+                img = Image.fromarray(
+                    np.random.randint(0, 256, (64, 64), dtype=np.uint8), mode="L",
+                )
+                img.save(class_dir / f"img_{i}.jpg")
+
+        config = SLTrainingConfig(
+            n_estimators=10,
+            image_size=64,
+            trainval_dir=str(synth_dataset),
+            test_dir=str(external_test),
+            val_ratio=0.25,
+            test_ratio=0.0,
+            seed=42,
+        )
+
+        with pytest.raises(ValueError, match="ortak kaynak grup"):
+            run_sl_training(config, save_artifacts=False, evaluate_test_set=True, verbose=False)
+
+    def test_sl_split_filters_augmented_samples_from_val_and_test(self):
+        from model.sl.training_runner import _split_feature_matrix
+
+        X_rows = []
+        y_values = []
+        groups = []
+        paths = []
+        row_id = 0
+        for class_id, class_name in enumerate(SINIF_ISIMLERI):
+            for sample_id in range(4):
+                group = f"{class_name}::img_{sample_id}"
+                for suffix in ("", "_aug1"):
+                    X_rows.append([float(row_id)])
+                    y_values.append(class_id)
+                    groups.append(group)
+                    paths.append(f"/tmp/{class_name}/img_{sample_id}{suffix}.jpg")
+                    row_id += 1
+
+        (
+            _X_train,
+            _y_train,
+            _X_val,
+            _y_val,
+            _X_test,
+            _y_test,
+            info,
+        ) = _split_feature_matrix(
+            np.asarray(X_rows, dtype=np.float32),
+            np.asarray(y_values, dtype=np.int64),
+            groups,
+            paths,
+            val_ratio=0.25,
+            test_ratio=0.25,
+            seed=42,
+            include_test=True,
+        )
+
+        assert info["trainval_grouping"]["augmented_samples"] == 16
+        assert info["val_size"] == info["val_groups"]
+        assert info["test_size"] == info["test_groups"]
 
 
 # ==================== HIGH-3: XGB study summary search space ====================

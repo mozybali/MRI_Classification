@@ -61,12 +61,25 @@ def build_feature_matrix(
         if cache_path.exists():
             data = np.load(cache_path, allow_pickle=True)
             # Metadata dogrulama: cache dosyasi farkli image_size ile
-            # olusturulmussa stale cache kullanilmasini onle
+            # veya veri diziniyle olusturulmussa stale cache kullanilmasini onle
             cached_image_size = int(data["image_size"]) if "image_size" in data else None
             if cached_image_size is not None and cached_image_size != image_size:
                 raise ValueError(
                     f"Cache dosyasi farkli image_size ile olusturulmus: "
                     f"cache={cached_image_size}, istenen={image_size}. "
+                    f"Cache dosyasini silin veya farkli cache yolu kullanin: {cache_path}"
+                )
+            cached_data_dir = str(data["data_dir"].item()) if "data_dir" in data else None
+            current_data_dir = str(data_dir.resolve())
+            if cached_data_dir is None:
+                raise ValueError(
+                    "Cache dosyasi veri dizini metadata'si icermiyor. "
+                    f"Stale cache riskini onlemek icin dosyayi silin veya farkli cache yolu kullanin: {cache_path}"
+                )
+            if cached_data_dir != current_data_dir:
+                raise ValueError(
+                    "Cache dosyasi farkli veri dizini ile olusturulmus: "
+                    f"cache={cached_data_dir}, istenen={current_data_dir}. "
                     f"Cache dosyasini silin veya farkli cache yolu kullanin: {cache_path}"
                 )
             return (
@@ -114,6 +127,7 @@ def build_feature_matrix(
             groups=np.array(groups, dtype=object),
             paths=np.array(paths_str, dtype=object),
             image_size=np.array(image_size),
+            data_dir=np.array(str(data_dir.resolve())),
         )
 
     return X, y, groups, paths_str

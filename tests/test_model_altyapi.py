@@ -92,9 +92,21 @@ def test_evaluate_returns_numpy_predictions_and_labels():
 
     metrics = evaluate(model, loader, criterion, torch.device("cpu"))
 
-    assert set(metrics) == {"loss", "accuracy", "precision", "recall", "f1", "preds", "labels"}
+    assert set(metrics) == {
+        "loss",
+        "accuracy",
+        "precision",
+        "recall",
+        "f1",
+        "preds",
+        "labels",
+        "probs",
+        "confidences",
+    }
     assert metrics["preds"].shape == (2,)
     assert metrics["labels"].shape == (2,)
+    assert metrics["probs"].shape == (2, 2)
+    assert metrics["confidences"].shape == (2,)
 
 
 def test_early_stopping_patience_and_reset():
@@ -299,7 +311,11 @@ def test_load_model_uses_checkpoint_metadata(monkeypatch, tmp_path):
             self.eval_called = True
             return self
 
-    monkeypatch.setattr("model.inference.ResNetClassifier", DummyModel)
+    def fake_build_model(name, num_classes, device, pretrained=False):
+        assert name == "resnet"
+        return DummyModel(num_classes=num_classes, pretrained=pretrained).to(device)
+
+    monkeypatch.setattr("model.inference.build_model", fake_build_model)
 
     checkpoint_path = tmp_path / "dummy_resnet.pt"
     torch.save(

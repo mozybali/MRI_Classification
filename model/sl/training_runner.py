@@ -38,18 +38,15 @@ from ..ayarlar import (
     TEST_VERI_DIZINI,
     TRAINVAL_VERI_DIZINI,
 )
-from ..common.evaluation import (
-    build_detailed_eval_report,
-    compute_valid_multiclass_auc_ap,
-    round_or_none,
-)
+from ..common.evaluation import build_detailed_eval_report
 from ..dl.dataset import (
     SINIF_ISIMLERI,
-    _group_stratified_train_val_split,
-    _stratified_train_val_split,
+    _indices_for_groups,
+    _missing_class_names,
+    _split_group_keys,
     _summarize_grouping,
     _augmentasyon_kopyasi_mi,
-    kaynak_id_belirle,
+    _validate_dataset_separation,
 )
 from ..dl.utils import (
     plot_classification_summary,
@@ -58,7 +55,7 @@ from ..dl.utils import (
     plot_prediction_confidence,
 )
 from .dataset import build_feature_matrix
-from .xgb_classifier import build_xgb_classifier, save_xgb_model, load_xgb_model_with_meta
+from .xgb_classifier import build_xgb_classifier, save_xgb_model
 
 SUPPORTED_SELECTION_METRICS = {"loss", "accuracy", "precision", "recall", "f1"}
 
@@ -156,38 +153,59 @@ def validate_sl_config(
         raise ValueError("--test-ratio 0 ile 1 arasinda olmali.")
 
     trainval_dir, test_dir = resolve_sl_data_dirs(config)
-    if not full_trainval and test_dir is None and config.val_ratio + config.test_ratio >= 1.0:
-        raise ValueError("--val-ratio + --test-ratio 1'den kucuk olmali.")
-    if require_test_dir and test_dir is None and config.test_ratio <= 0.0:
-        raise ValueError("Harici test dizini yoksa --test-ratio pozitif olmali.")
     if not trainval_dir.exists():
         raise FileNotFoundError(f"TrainVal veri dizini bulunamadi: {trainval_dir}")
     if test_dir is not None and not test_dir.exists():
         raise FileNotFoundError(f"Test veri dizini bulunamadi: {test_dir}")
+    has_external_test = bool(test_dir is not None and test_dir.resolve() != trainval_dir.resolve())
+    if not full_trainval and not has_external_test and config.val_ratio + config.test_ratio >= 1.0:
+        raise ValueError("--val-ratio + --test-ratio 1'den kucuk olmali.")
+    if not full_trainval and require_test_dir and not has_external_test and config.test_ratio <= 0.0:
+        raise ValueError("Harici test dizini yoksa --test-ratio pozitif olmali.")
     if full_trainval and require_test_dir:
-        if test_dir is None:
+        if not has_external_test:
             raise ValueError(
                 "Full-trainval final egitim icin harici test dizini gerekli."
-            )
-        if test_dir.resolve() == trainval_dir.resolve():
-            raise ValueError(
-                "Full-trainval final egitim icin test dizini trainval'den farkli olmali."
             )
 
 
 # ==================== Split ====================
 
-def _group_split_feature_matrix(
+
+def _augmented_flags_from_paths(paths: list[str]) -> list[bool]:
+    """Ozellik matrisindeki path bilgisinden augment/turev kopyalari belirle."""
+    return [_augmentasyon_kopyasi_mi(Path(path).name) for path in paths]
+
+
+def _ensure_split_has_all_classes(y_values: np.ndarray, split_name: str) -> None:
+    """Model raporlarinin anlamli kalmasi icin split sinif kapsamini dogrula."""
+    missing = _missing_class_names(y_values.astype(int).tolist(), len(SINIF_ISIMLERI))
+    if missing:
+        raise RuntimeError(f"{split_name} split'inde eksik siniflar: {', '.join(missing)}")
+
+
+def _split_feature_matrix(
     X: np.ndarray,
     y: np.ndarray,
     groups: list[str],
+    paths: list[str],
     *,
     val_ratio: float,
+    test_ratio: float,
     seed: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]:
-    """Ozellik matrisini grup-bazli train/val olarak bol."""
+    include_test: bool,
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray | None,
+    np.ndarray | None,
+    dict[str, Any],
+]:
+    """Ozellik matrisini DL akisiyle uyumlu sekilde train/val/test olarak bol."""
     num_classes = len(SINIF_ISIMLERI)
-    augmented_flags = [_augmentasyon_kopyasi_mi(g.split("::")[-1]) for g in groups]
+    augmented_flags = _augmented_flags_from_paths(paths)
     group_stats = _summarize_grouping(groups, augmented_flags)
 
     use_group_split = group_stats["grouping_reliable"]
@@ -195,53 +213,84 @@ def _group_split_feature_matrix(
     if not use_group_split and group_stats["augmented_samples"] > 0:
         split_warnings.append(
             "TrainVal dosya adlarindan tekrarli kaynak grup cikarilamadi; "
-            "stratified split kullanildi."
+            "stratified split kullanildi ve augment turevleri icin leak-free garanti verilemiyor."
         )
         warnings.warn(
             "Augmentasyon kopyalari tespit edildi ancak grup-bazli split yapilamadi. "
-            "Stratified split kullanildi — augmentasyon kopyalari farkli split'lere "
+            "Stratified split kullanildi; augmentasyon kopyalari farkli split'lere "
             "dusebilir ve veri sizintisina yol acabilir.",
             stacklevel=2,
         )
 
-    labels_list = y.tolist()
-    if use_group_split:
-        train_idxs, val_idxs = _group_stratified_train_val_split(
-            labels=labels_list,
-            groups=groups,
-            val_ratio=val_ratio,
-            seed=seed,
-            num_classes=num_classes,
-        )
-    else:
-        train_idxs, val_idxs = _stratified_train_val_split(
-            labels=labels_list,
-            val_ratio=val_ratio,
-            seed=seed,
-            num_classes=num_classes,
-        )
+    internal_test_ratio = test_ratio if include_test else 0.0
+    train_group_keys, val_group_keys, test_group_keys, strategy = _split_group_keys(
+        labels=y.astype(int).tolist(),
+        groups=groups,
+        val_ratio=val_ratio,
+        test_ratio=internal_test_ratio,
+        seed=seed,
+        use_group_split=use_group_split,
+    )
 
-    strategy = "group_stratified" if use_group_split else "stratified_without_groups"
-    train_groups_set = {groups[i] for i in train_idxs}
-    val_groups_set = {groups[i] for i in val_idxs}
+    train_idxs = _indices_for_groups(groups, augmented_flags, train_group_keys, original_only=False)
+    val_idxs = _indices_for_groups(groups, augmented_flags, val_group_keys, original_only=True)
+    test_idxs = _indices_for_groups(groups, augmented_flags, test_group_keys, original_only=True)
+
+    if not train_idxs:
+        raise RuntimeError("Train split olusturulamadi.")
+    if not val_idxs:
+        raise RuntimeError("Validation split olusturulamadi; original validation ornegi bulunamadi.")
+    if include_test and not test_idxs:
+        raise RuntimeError("Test split olusturulamadi; original test ornegi bulunamadi.")
+
+    X_train, y_train = X[train_idxs], y[train_idxs]
+    X_val, y_val = X[val_idxs], y[val_idxs]
+    X_test = X[test_idxs] if include_test else None
+    y_test = y[test_idxs] if include_test else None
+
+    _ensure_split_has_all_classes(y_train, "Train")
+    _ensure_split_has_all_classes(y_val, "Validation")
+    if y_test is not None:
+        _ensure_split_has_all_classes(y_test, "Test")
 
     info = {
         "num_classes": num_classes,
         "train_size": len(train_idxs),
         "val_size": len(val_idxs),
-        "train_groups": len(train_groups_set),
-        "val_groups": len(val_groups_set),
+        "test_size": len(test_idxs) if include_test else 0,
+        "train_groups": len({groups[i] for i in train_idxs}),
+        "val_groups": len({groups[i] for i in val_idxs}),
+        "test_groups": len({groups[i] for i in test_idxs}) if include_test else 0,
         "split_strategy": strategy,
         "split_warnings": split_warnings,
         "trainval_grouping": group_stats,
+        "uses_external_test_dir": False,
     }
-    return (
-        X[train_idxs],
-        y[train_idxs],
-        X[val_idxs],
-        y[val_idxs],
-        info,
+    return X_train, y_train, X_val, y_val, X_test, y_test, info
+
+
+def _group_split_feature_matrix(
+    X: np.ndarray,
+    y: np.ndarray,
+    groups: list[str],
+    paths: list[str] | None = None,
+    *,
+    val_ratio: float,
+    seed: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]:
+    """Ozellik matrisini grup-bazli train/val olarak bol."""
+    paths = paths if paths is not None else [group.split("::")[-1] for group in groups]
+    X_train, y_train, X_val, y_val, _X_test, _y_test, info = _split_feature_matrix(
+        X,
+        y,
+        groups,
+        paths,
+        val_ratio=val_ratio,
+        test_ratio=0.0,
+        seed=seed,
+        include_test=False,
     )
+    return X_train, y_train, X_val, y_val, info
 
 
 # ==================== Cikti dizinleri ====================
@@ -323,6 +372,11 @@ def run_sl_training(
     trainval_dir, test_dir = resolve_sl_data_dirs(config)
     if not evaluate_test_set:
         test_dir = None
+    using_external_test = bool(
+        evaluate_test_set
+        and test_dir is not None
+        and test_dir.resolve() != trainval_dir.resolve()
+    )
 
     if verbose:
         print("\n[INFO] XGBoost egitimi basliyor")
@@ -338,13 +392,27 @@ def run_sl_training(
     X_test: np.ndarray | None = None
     y_test: np.ndarray | None = None
     test_grouping: dict[str, Any] | None = None
-    if test_dir is not None:
+    if using_external_test and test_dir is not None:
         te_cache = Path(config.feature_cache) / f"test_img{config.image_size}.npz" if config.feature_cache else None
-        X_test, y_test, groups_te, paths_te = build_feature_matrix(
+        X_test_all, y_test_all, groups_te, paths_te = build_feature_matrix(
             test_dir, image_size=config.image_size, cache_path=te_cache,
         )
-        aug_flags_te = [_augmentasyon_kopyasi_mi(g.split("::")[-1]) for g in groups_te]
+        _validate_dataset_separation(groups_tv, groups_te, trainval_dir, test_dir)
+        aug_flags_te = _augmented_flags_from_paths(paths_te)
         test_grouping = _summarize_grouping(groups_te, aug_flags_te)
+        external_test_idxs = _indices_for_groups(
+            groups_te,
+            aug_flags_te,
+            set(groups_te),
+            original_only=True,
+        )
+        if not external_test_idxs:
+            raise RuntimeError(
+                "Harici test dizininde original goruntu bulunamadi; test split olusturulamiyor."
+            )
+        X_test = X_test_all[external_test_idxs]
+        y_test = y_test_all[external_test_idxs]
+        _ensure_split_has_all_classes(y_test, "Test")
 
     num_classes = len(SINIF_ISIMLERI)
 
@@ -353,22 +421,47 @@ def run_sl_training(
     if full_trainval:
         X_train, y_train = X_tv, y_tv
         X_val, y_val = None, None
-        aug_flags_tv = [_augmentasyon_kopyasi_mi(g.split("::")[-1]) for g in groups_tv]
+        _ensure_split_has_all_classes(y_train, "Train")
+        aug_flags_tv = _augmented_flags_from_paths(paths_tv)
         tv_grouping = _summarize_grouping(groups_tv, aug_flags_tv)
         split_info = {
             "num_classes": num_classes,
             "train_size": len(y_tv),
             "val_size": 0,
+            "test_size": len(y_test) if y_test is not None else 0,
             "train_groups": tv_grouping["unique_groups"],
             "val_groups": 0,
-            "split_strategy": "full_trainval",
+            "test_groups": test_grouping["unique_groups"] if test_grouping is not None else 0,
+            "split_strategy": "full_trainval_external_test",
             "split_warnings": [],
             "trainval_grouping": tv_grouping,
+            "uses_external_test_dir": using_external_test,
         }
     else:
-        X_train, y_train, X_val, y_val, split_info = _group_split_feature_matrix(
-            X_tv, y_tv, groups_tv, val_ratio=config.val_ratio, seed=config.seed,
+        include_internal_test = evaluate_test_set and not using_external_test
+        (
+            X_train,
+            y_train,
+            X_val,
+            y_val,
+            X_test_internal,
+            y_test_internal,
+            split_info,
+        ) = _split_feature_matrix(
+            X_tv,
+            y_tv,
+            groups_tv,
+            paths_tv,
+            val_ratio=config.val_ratio,
+            test_ratio=config.test_ratio,
+            seed=config.seed,
+            include_test=include_internal_test,
         )
+        if include_internal_test:
+            X_test = X_test_internal
+            y_test = y_test_internal
+        if using_external_test:
+            split_info["uses_external_test_dir"] = True
 
     if verbose:
         print(f"  Train: {split_info['train_size']}, Val: {split_info['val_size']}")

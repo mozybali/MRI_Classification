@@ -100,8 +100,6 @@ python -m model.train --model xgboost --xgb-n-estimators 300 --xgb-max-depth 6
 - `--batch-size`: Batch boyutu
 - `--lr`: Ogrenme hizi
 - `--patience`: Early stopping sabir degeri
-- `--use-processed-trainval`: Geriye donuk uyumluluk bayragi
-- `--use-processed-test`: Geriye donuk uyumluluk bayragi
 - `--loss`: `ce` veya `focal`
 - `--num-workers`: DataLoader worker sayisi
 - `--pretrained`: ImageNet agirliklarini acar
