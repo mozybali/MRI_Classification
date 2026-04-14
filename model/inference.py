@@ -9,7 +9,7 @@ Yeni MRI goruntuleri icin demans seviyesi tahmini yapar.
 
 Kullanim:
     python model/inference.py --model-path model/ciktilar/modeller/best_resnet.pt --image test.jpg
-    python model/inference.py --model-path model/ciktilar/modeller/best_unet.pt --batch ./images/
+    python model/inference.py --model-path model/ciktilar/modeller/best_resnet.pt --batch ./images/
 """
 
 import argparse
@@ -38,7 +38,9 @@ else:
 def load_model(model_path: Path, device: torch.device):
     """Checkpoint'tan model yukle."""
     checkpoint = load_checkpoint(model_path, map_location=device)
-    model_name = checkpoint.get("model_name", "resnet")
+    model_name = checkpoint.get("model_name")
+    if not model_name:
+        raise ValueError("Checkpoint 'model_name' eksik veya bos.")
     num_classes = checkpoint.get("num_classes", 4)
 
     model = build_model(model_name, num_classes, device, pretrained=False)
@@ -95,7 +97,7 @@ def main(argv: list[str] | None = None):
         epilog="""
 Ornekler:
   python model/inference.py --model-path model/ciktilar/modeller/best_resnet.pt --image test.jpg
-  python model/inference.py --model-path model/ciktilar/modeller/best_unet.pt --batch ./images/
+  python model/inference.py --model-path model/ciktilar/modeller/best_resnet.pt --batch ./images/
         """,
     )
     parser.add_argument("--model-path", type=str, required=True, help=".pt checkpoint yolu")

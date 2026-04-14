@@ -113,7 +113,6 @@ mri-preprocess --action all --input-dir Veri_Seti/OriginalDataset --output-dir g
 
 ```bash
 mri-train --model resnet --epochs 50 --batch-size 32
-mri-train --model unet --epochs 50 --batch-size 16
 mri-train --model resnet
 ```
 
@@ -121,7 +120,7 @@ mri-train --model resnet
 
 ```bash
 mri-tune --model resnet --trials 20 --epochs 12 --metric f1
-mri-tune --model unet --trials 30 --metric loss --skip-final-train
+mri-tune --model resnet --trials 30 --metric loss --skip-final-train
 ```
 
 ### 4. Tahmin

@@ -7,7 +7,6 @@ Bu modul, MRI goruntulerinden demans seviyesi siniflandirmak icin PyTorch tabanl
 | Model | Aciklama |
 |-------|----------|
 | `resnet` | ResNet18 tabanli siniflandirici |
-| `unet` | U-Net encoder + classification head |
 
 ## Varsayilan Veri Politikasi
 
@@ -31,7 +30,6 @@ CPU ile calisacaksaniz ikinci satir yerine `requirements-torch-cpu.txt` kullanin
 
 ```bash
 mri-train --model resnet --epochs 50 --batch-size 32
-mri-train --model unet --epochs 50 --batch-size 16
 mri-train --model resnet --trainval-dir Veri_Seti/OriginalDataset
 mri-train --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
 ```
@@ -52,7 +50,7 @@ mri-train --model resnet --pretrained
 mri-train --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
 mri-train --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test --full-trainval
 mri-train --model resnet --trainval-dir Veri_Seti/OriginalDataset
-mri-train --model unet --val-ratio 0.2
+mri-train --model resnet --val-ratio 0.2
 ```
 
 Islenmis goruntulerle egitim icin onerilen akis:
@@ -64,7 +62,7 @@ mri-train --model resnet
 
 ## Temel Parametreler
 
-- `--model`: `resnet` veya `unet`
+- `--model`: `resnet`
 - `--epochs`: Epoch sayisi
 - `--batch-size`: Batch boyutu
 - `--lr`: Ogrenme hizi
@@ -97,7 +95,7 @@ mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --image ornek.jpg
 Klasor bazli batch tahmin:
 
 ```bash
-mri-infer --model-path model/ciktilar/modeller/best_unet.pt --batch ornek_klasor
+mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --batch ornek_klasor
 ```
 
 Dogrudan Python ile:
@@ -112,7 +110,7 @@ Optuna `TPESampler` kullanilarak Bayesian-style hiperparametre aramasi yapilabil
 
 ```bash
 mri-tune --model resnet --trials 20 --epochs 12 --metric f1
-python -m model.hpo --model unet --trials 30 --metric loss --skip-final-train
+python -m model.hpo --model resnet --trials 30 --metric loss --skip-final-train
 ```
 
 Onerilen akis:
@@ -166,7 +164,6 @@ model/
 ## Uretilen Ciktilar
 
 - `model/ciktilar/modeller/best_resnet.pt`
-- `model/ciktilar/modeller/best_unet.pt`
 - `model/ciktilar/raporlar/rapor_<model>_<timestamp>.json`
 - `model/ciktilar/gorseller/confusion_matrix_<model>.png`
 - `model/ciktilar/gorseller/confusion_matrix_normalized_<model>.png`

@@ -22,7 +22,7 @@ if __package__ in {None, ""}:
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(PROJECT_ROOT))
 
-    from model.ayarlar import HPO_KLASORU, RASTGELE_TOHUM
+    from model.ayarlar import HPO_KLASORU, RASTGELE_TOHUM, VARSAYILAN_EARLY_STOPPING_SABIR
     from model.training_runner import (
         SUPPORTED_SELECTION_METRICS,
         TrainingConfig,
@@ -31,7 +31,7 @@ if __package__ in {None, ""}:
         validate_training_config,
     )
 else:
-    from .ayarlar import HPO_KLASORU, RASTGELE_TOHUM
+    from .ayarlar import HPO_KLASORU, RASTGELE_TOHUM, VARSAYILAN_EARLY_STOPPING_SABIR
     from .training_runner import (
         SUPPORTED_SELECTION_METRICS,
         TrainingConfig,
@@ -53,12 +53,12 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="""
 Ornekler:
   python -m model.hpo --model resnet --trials 20 --epochs 12
-  python -m model.hpo --model unet --trials 30 --metric loss --skip-final-train
+  python -m model.hpo --model resnet --trials 30 --metric loss --skip-final-train
   python -m model.hpo --model resnet --search-pretrained --batch-size-choices 16 32
   python -m model.hpo --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
         """,
     )
-    parser.add_argument("--model", choices=["resnet", "unet"], default="resnet")
+    parser.add_argument("--model", choices=["resnet"], default="resnet")
     parser.add_argument(
         "--trials",
         type=int,
@@ -96,7 +96,7 @@ Ornekler:
         help="Arama ciktilarinin kaydedilecegi klasor",
     )
     parser.add_argument("--epochs", type=int, default=15)
-    parser.add_argument("--patience", type=int, default=30)
+    parser.add_argument("--patience", type=int, default=VARSAYILAN_EARLY_STOPPING_SABIR)
     parser.add_argument("--val-ratio", type=float, default=0.15)
     parser.add_argument("--test-ratio", type=float, default=0.15)
     parser.add_argument("--seed", type=int, default=RASTGELE_TOHUM)

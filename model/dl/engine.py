@@ -14,6 +14,8 @@ import torch
 import torch.nn as nn
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 
+from ..ayarlar import VARSAYILAN_EARLY_STOPPING_SABIR
+
 
 def train_one_epoch(
     model: nn.Module,
@@ -96,7 +98,7 @@ def evaluate(
 class EarlyStopping:
     """Overfitting'i onlemek icin early stopping mekanizmasi."""
 
-    def __init__(self, patience: int = 10, min_delta: float = 1e-4):
+    def __init__(self, patience: int = VARSAYILAN_EARLY_STOPPING_SABIR, min_delta: float = 1e-4):
         self.patience = patience
         self.min_delta = min_delta
         self.counter = 0

@@ -29,6 +29,7 @@ from .ayarlar import (
     RAPORLAR_KLASORU,
     TEST_VERI_DIZINI,
     TRAINVAL_VERI_DIZINI,
+    VARSAYILAN_EARLY_STOPPING_SABIR,
 )
 from .dl.dataset import SINIF_ISIMLERI, create_dataloaders, create_full_train_test_loaders
 from .dl.engine import EarlyStopping, evaluate, train_one_epoch
@@ -53,7 +54,7 @@ class TrainingConfig:
     epochs: int = 50
     batch_size: int = 32
     lr: float = 1e-4
-    patience: int = 30
+    patience: int = VARSAYILAN_EARLY_STOPPING_SABIR
     image_size: int = 224
     trainval_dir: Path | str | None = None
     test_dir: Path | str | None = None
@@ -99,6 +100,9 @@ def _resolve_default_test_dir(trainval_dir: Path) -> Path | None:
     return TEST_VERI_DIZINI
 
 
+SUPPORTED_MODELS = ("resnet",)
+
+
 def build_model(
     name: str,
     num_classes: int,
@@ -109,7 +113,9 @@ def build_model(
     if name == "resnet":
         model = ResNetClassifier(num_classes=num_classes, pretrained=pretrained)
     else:
-        raise ValueError(f"Bilinmeyen model: {name}")
+        raise ValueError(
+            f"Bilinmeyen model: {name}. Desteklenen modeller: {', '.join(SUPPORTED_MODELS)}"
+        )
     return model.to(device)
 
 
@@ -124,8 +130,6 @@ def config_to_dict(config: TrainingConfig) -> dict[str, Any]:
 
 def resolve_data_dirs(
     config: TrainingConfig,
-    *,
-    require_test_dir: bool = True,
 ) -> tuple[Path, Path | None]:
     """Resolve split source directory and optional external test directory."""
     if config.trainval_dir:
@@ -176,7 +180,7 @@ def validate_training_config(
     if config.focal_gamma < 0:
         raise ValueError("--focal-gamma negatif olamaz.")
 
-    trainval_dir, test_dir = resolve_data_dirs(config, require_test_dir=require_test_dir)
+    trainval_dir, test_dir = resolve_data_dirs(config)
     if not full_trainval and test_dir is None and config.val_ratio + config.test_ratio >= 1.0:
         raise ValueError("--val-ratio + --test-ratio 1'den kucuk olmali.")
     if require_test_dir and test_dir is None and config.test_ratio <= 0.0:
@@ -389,7 +393,7 @@ def run_training(
 
     set_seed(config.seed)
     device = get_device(verbose=verbose)
-    trainval_dir, test_dir = resolve_data_dirs(config, require_test_dir=evaluate_test_set)
+    trainval_dir, test_dir = resolve_data_dirs(config)
     if not evaluate_test_set:
         test_dir = None
 
@@ -608,7 +612,7 @@ def run_training(
             )
             if verbose:
                 print("  [OK] Final checkpoint kaydedildi (full-trainval)")
-    elif best_state_dict is None:
+    elif not full_trainval and best_state_dict is None:
         best_state_dict = copy.deepcopy(model.state_dict())
         best_val_metrics = dict(val_scalars)
         best_epoch = epoch

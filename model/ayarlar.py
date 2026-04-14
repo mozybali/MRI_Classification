@@ -29,3 +29,6 @@ HPO_KLASORU = CIKTI_KLASORU / "hiperparametre_arama"
 
 # ==================== GENEL ====================
 RASTGELE_TOHUM = 42
+
+# ==================== EGITIM ====================
+VARSAYILAN_EARLY_STOPPING_SABIR = 30

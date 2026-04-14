@@ -38,7 +38,6 @@ class FocalLoss(nn.Module):
         log_pt = log_probs.gather(1, targets.unsqueeze(1)).squeeze(1)
         pt = log_pt.exp()
         focal_loss = -((1 - pt) ** self.gamma) * log_pt
-        alpha_factor = None
 
         if self.alpha is not None:
             alpha = self.alpha.to(device=inputs.device, dtype=inputs.dtype)
@@ -49,8 +48,6 @@ class FocalLoss(nn.Module):
             focal_loss = focal_loss * alpha_factor
 
         if self.reduction == "mean":
-            if alpha_factor is not None and alpha_factor.ndim > 0:
-                return focal_loss.sum() / alpha_factor.sum().clamp_min(1e-12)
             return focal_loss.mean()
         elif self.reduction == "sum":
             return focal_loss.sum()

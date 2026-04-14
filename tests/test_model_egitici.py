@@ -135,16 +135,17 @@ def test_compute_class_weights_pozitif_deger_uretir():
     assert torch.all(weights > 0).item()
 
 
-def test_focal_loss_gamma_sifirken_weighted_ce_ile_eslesir():
+def test_focal_loss_gamma_sifirken_ornek_bazli_ce_ile_eslesir():
     inputs = torch.tensor([[2.0, 0.5], [0.1, 1.3]], dtype=torch.float32)
     targets = torch.tensor([0, 1], dtype=torch.long)
     alpha = torch.tensor([1.0, 3.0], dtype=torch.float32)
 
     focal = FocalLoss(alpha=alpha, gamma=0.0, reduction="mean")
     focal_loss = focal(inputs, targets)
-    ce_loss = F.cross_entropy(inputs, targets, weight=alpha, reduction="mean")
+    per_sample_ce = F.cross_entropy(inputs, targets, weight=alpha, reduction="none")
+    expected = per_sample_ce.mean()
 
-    assert torch.allclose(focal_loss, ce_loss)
+    assert torch.allclose(focal_loss, expected)
 
 
 def test_confusion_matrix_eksik_sinifta_da_cizer(tmp_path):
@@ -509,7 +510,7 @@ def test_hpo_parse_args_bayes_search_parametrelerini_cozer():
     args = hpo.parse_args(
         [
             "--model",
-            "unet",
+            "resnet",
             "--trials",
             "9",
             "--metric",
@@ -524,7 +525,7 @@ def test_hpo_parse_args_bayes_search_parametrelerini_cozer():
         ]
     )
 
-    assert args.model == "unet"
+    assert args.model == "resnet"
     assert args.trials == 9
     assert args.metric == "loss"
     assert args.batch_size_choices == [8, 16]

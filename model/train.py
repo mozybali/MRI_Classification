@@ -8,7 +8,6 @@ MRI siniflandirma derin ogrenme egitim scripti.
 
 Kullanim:
     python model/train.py --model resnet --epochs 50 --batch-size 32
-    python model/train.py --model unet --epochs 50 --batch-size 16
 """
 
 from __future__ import annotations
@@ -22,8 +21,10 @@ if __package__ in {None, ""}:
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(PROJECT_ROOT))
 
+    from model.ayarlar import VARSAYILAN_EARLY_STOPPING_SABIR
     from model.training_runner import TrainingConfig, build_model, run_training
 else:
+    from .ayarlar import VARSAYILAN_EARLY_STOPPING_SABIR
     from .training_runner import TrainingConfig, build_model, run_training
 
 
@@ -34,25 +35,29 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="""
 Ornekler:
   python model/train.py --model resnet --epochs 50 --batch-size 32
-  python model/train.py --model unet --epochs 50 --batch-size 16
   python model/train.py --model resnet --loss focal --lr 3e-4 --focal-gamma 2.5
   python model/train.py --model resnet --weight-decay 1e-3 --scheduler-factor 0.3
   python model/train.py --model resnet --pretrained
   python model/train.py --model resnet --trainval-dir Veri_Seti/OriginalDataset
   python model/train.py --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
-  python model/train.py --model unet --val-ratio 0.2
+  python model/train.py --model resnet --val-ratio 0.2
         """,
     )
     parser.add_argument(
         "--model",
-        choices=["resnet", "unet"],
+        choices=["resnet"],
         default="resnet",
         help="Model tipi (varsayilan: resnet)",
     )
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-4, help="Ogrenme hizi")
-    parser.add_argument("--patience", type=int, default=30, help="Early stopping sabir degeri")
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=VARSAYILAN_EARLY_STOPPING_SABIR,
+        help="Early stopping sabir degeri",
+    )
     parser.add_argument("--image-size", type=int, default=224)
     parser.add_argument(
         "--trainval-dir",
