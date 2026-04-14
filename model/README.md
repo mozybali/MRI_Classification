@@ -1,12 +1,13 @@
 # Model Egitim Modulu
 
-Bu modul, MRI goruntulerinden demans seviyesi siniflandirmak icin PyTorch tabanli egitim ve inference akisini saglar.
+Bu modul, MRI goruntulerinden demans seviyesi siniflandirmak icin PyTorch tabanli derin ogrenme ve XGBoost tabanli sig ogrenme egitim/inference akisini saglar.
 
 ## Desteklenen Modeller
 
-| Model | Aciklama |
-|-------|----------|
-| `resnet` | ResNet18 tabanli siniflandirici |
+| Model | Tur | Aciklama |
+|-------|-----|----------|
+| `resnet` | Derin Ogrenme | ResNet18 tabanli siniflandirici |
+| `xgboost` | Sig Ogrenme | HOG + LBP + GLCM ozellik vektorleri ile XGBoost siniflandirici |
 
 ## Varsayilan Veri Politikasi
 
@@ -60,36 +61,81 @@ mri-preprocess --action preprocess --input-dir Veri_Seti/OriginalDataset --outpu
 mri-train --model resnet
 ```
 
+## Sig Ogrenme (XGBoost) Egitim
+
+XGBoost pipeline, goruntulerden HOG, LBP, GLCM ve histogram istatistik ozelliklerini cikarir ve bir gradient-boosted tree siniflandirici egitir.
+
+```bash
+mri-train --model xgboost
+mri-train --model xgboost --xgb-n-estimators 500 --xgb-max-depth 8
+mri-train --model xgboost --xgb-learning-rate 0.05 --xgb-subsample 0.7
+mri-train --model xgboost --trainval-dir Veri_Seti/OriginalDataset
+mri-train --model xgboost --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
+mri-train --model xgboost --full-trainval --test-dir goruntu_isleme/cikti/test
+mri-train --model xgboost --feature-cache model/ciktilar/sl_ozellikler
+```
+
+Dogrudan Python ile:
+
+```bash
+python -m model.train --model xgboost --xgb-n-estimators 300 --xgb-max-depth 6
+```
+
 ## Temel Parametreler
 
-- `--model`: `resnet`
+### Ortak Parametreler
+
+- `--model`: `resnet` veya `xgboost`
+- `--image-size`: Giris goruntu boyutu
+- `--trainval-dir`: Split kaynagi veya train+validation veri dizini
+- `--test-dir`: Opsiyonel harici test veri dizini
+- `--val-ratio`: Validation orani
+- `--test-ratio`: Harici test dizini yoksa internal test orani
+- `--seed`: Rastgele tohum
+- `--full-trainval`: Validation ayirmadan tum trainval ile final model egitir; harici test dizini gerekir
+
+### ResNet Parametreleri
+
 - `--epochs`: Epoch sayisi
 - `--batch-size`: Batch boyutu
 - `--lr`: Ogrenme hizi
 - `--patience`: Early stopping sabir degeri
-- `--image-size`: Giris goruntu boyutu
-- `--trainval-dir`: Split kaynagi veya train+validation veri dizini
-- `--test-dir`: Opsiyonel harici test veri dizini
-- `--use-processed-trainval`: Geriye donuk uyumluluk bayragi; varsayilan train+validation kaynagi zaten `goruntu_isleme/cikti/trainval`
-- `--use-processed-test`: Geriye donuk uyumluluk bayragi; varsayilan test kaynagi zaten `goruntu_isleme/cikti/test`
-- `--val-ratio`: Validation orani
-- `--test-ratio`: Harici test dizini yoksa internal test orani
+- `--use-processed-trainval`: Geriye donuk uyumluluk bayragi
+- `--use-processed-test`: Geriye donuk uyumluluk bayragi
 - `--loss`: `ce` veya `focal`
-- `--seed`: Rastgele tohum
 - `--num-workers`: DataLoader worker sayisi
-- `--pretrained`: Sadece ResNet icin ImageNet agirliklarini acar
+- `--pretrained`: ImageNet agirliklarini acar
 - `--weight-decay`: AdamW regularizasyon katsayisi
 - `--scheduler-factor`: Plateau durumunda LR azaltma carpani
 - `--scheduler-patience`: LR scheduler sabir degeri
 - `--focal-gamma`: Focal loss gamma parametresi
-- `--full-trainval`: Validation ayirmadan tum trainval ile final model egitir; harici test dizini gerekir
+
+### XGBoost Parametreleri
+
+- `--xgb-n-estimators`: Agac sayisi (varsayilan: 300)
+- `--xgb-max-depth`: Maksimum agac derinligi (varsayilan: 6)
+- `--xgb-learning-rate`: Ogrenme hizi (varsayilan: 0.1)
+- `--xgb-subsample`: Satir alt-ornekleme orani (varsayilan: 0.8)
+- `--xgb-colsample-bytree`: Ozellik alt-ornekleme orani (varsayilan: 0.8)
+- `--xgb-reg-lambda`: L2 regularizasyon katsayisi (varsayilan: 1.0)
+- `--xgb-min-child-weight`: Yaprakta min agirlik toplami (varsayilan: 1)
+- `--feature-cache`: Ozellik cache dizini (.npz)
 
 ## Inference
 
-Tek goruntu:
+Model tipi dosya uzantisindan otomatik algilanir: `.pt` → ResNet, `.json` → XGBoost.
+
+ResNet ile:
 
 ```bash
 mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --image ornek.jpg
+```
+
+XGBoost ile:
+
+```bash
+mri-infer --model-path model/ciktilar/modeller/best_xgboost.json --image ornek.jpg
+mri-infer --model-path model/ciktilar/modeller/best_xgboost.json --batch ornek_klasor
 ```
 
 Klasor bazli batch tahmin:
@@ -108,9 +154,19 @@ python -m model.inference --model-path model/ciktilar/modeller/best_resnet.pt --
 
 Optuna `TPESampler` kullanilarak Bayesian-style hiperparametre aramasi yapilabilir.
 
+ResNet icin:
+
 ```bash
 mri-tune --model resnet --trials 20 --epochs 12 --metric f1
 python -m model.hpo --model resnet --trials 30 --metric loss --skip-final-train
+```
+
+XGBoost icin:
+
+```bash
+mri-tune --model xgboost --trials 30 --metric f1
+mri-tune --model xgboost --trials 50 --metric accuracy --feature-cache model/ciktilar/sl_ozellikler
+python -m model.hpo --model xgboost --trials 20 --skip-final-train
 ```
 
 Onerilen akis:
@@ -122,6 +178,8 @@ Onerilen akis:
 
 Aranan baslica hiperparametreler:
 
+### ResNet
+
 - `batch_size`
 - `image_size`
 - `lr`
@@ -131,6 +189,17 @@ Aranan baslica hiperparametreler:
 - `loss`
 - `focal_gamma` (`loss=focal` ise)
 - `pretrained` (`--search-pretrained` ile, sadece ResNet)
+
+### XGBoost
+
+- `n_estimators`
+- `max_depth`
+- `learning_rate`
+- `subsample`
+- `colsample_bytree`
+- `reg_lambda`
+- `min_child_weight`
+- `image_size`
 
 Bayes search ciktilari varsayilan olarak `model/ciktilar/hiperparametre_arama/<study_name>/` altina yazilir:
 
@@ -148,6 +217,8 @@ model/
 |-- inference.py
 |-- ayarlar.py
 |-- training_runner.py
+|-- common/
+|   `-- evaluation.py
 |-- dl/
 |   |-- dataset.py
 |   |-- engine.py
@@ -155,22 +226,41 @@ model/
 |   |-- utils.py
 |   `-- models/
 |       `-- resnet_classifier.py
+|-- sl/
+|   |-- features.py
+|   |-- dataset.py
+|   |-- xgb_classifier.py
+|   `-- training_runner.py
 `-- ciktilar/
     |-- modeller/
     |-- raporlar/
-    `-- gorseller/
+    |-- gorseller/
+    `-- sl_ozellikler/
 ```
 
 ## Uretilen Ciktilar
 
+### ResNet
+
 - `model/ciktilar/modeller/best_resnet.pt`
-- `model/ciktilar/raporlar/rapor_<model>_<timestamp>.json`
-- `model/ciktilar/gorseller/confusion_matrix_<model>.png`
-- `model/ciktilar/gorseller/confusion_matrix_normalized_<model>.png`
-- `model/ciktilar/gorseller/classification_summary_<model>.png`
-- `model/ciktilar/gorseller/prediction_confidence_<model>.png`
-- `model/ciktilar/gorseller/roc_pr_curves_<model>.png`
-- `model/ciktilar/gorseller/training_curves_<model>.png`
+- `model/ciktilar/raporlar/rapor_resnet_<timestamp>.json`
+- `model/ciktilar/gorseller/confusion_matrix_resnet.png`
+- `model/ciktilar/gorseller/confusion_matrix_normalized_resnet.png`
+- `model/ciktilar/gorseller/classification_summary_resnet.png`
+- `model/ciktilar/gorseller/prediction_confidence_resnet.png`
+- `model/ciktilar/gorseller/roc_pr_curves_resnet.png`
+- `model/ciktilar/gorseller/training_curves_resnet.png`
+
+### XGBoost
+
+- `model/ciktilar/modeller/best_xgboost.json`
+- `model/ciktilar/raporlar/rapor_xgboost_<timestamp>.json`
+- `model/ciktilar/gorseller/confusion_matrix_xgboost.png`
+- `model/ciktilar/gorseller/confusion_matrix_normalized_xgboost.png`
+- `model/ciktilar/gorseller/classification_summary_xgboost.png`
+- `model/ciktilar/gorseller/prediction_confidence_xgboost.png`
+- `model/ciktilar/gorseller/roc_pr_curves_xgboost.png`
+- `model/ciktilar/gorseller/training_curves_xgboost.png`
 
 ## Ozellikler
 

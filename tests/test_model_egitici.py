@@ -350,16 +350,18 @@ def test_train_parse_args_ek_hiperparametreleri_cozer():
     assert args.scheduler_patience == 3
 
 
-def test_train_parse_args_islenmis_goruntu_flaglerini_cozer():
+def test_train_parse_args_trainval_ve_test_dir_flaglerini_cozer():
     args = parse_train_args(
         [
-            "--use-processed-trainval",
-            "--use-processed-test",
+            "--trainval-dir",
+            "goruntu_isleme/cikti/trainval",
+            "--test-dir",
+            "goruntu_isleme/cikti/test",
         ]
     )
 
-    assert args.use_processed_trainval is True
-    assert args.use_processed_test is True
+    assert args.trainval_dir == "goruntu_isleme/cikti/trainval"
+    assert args.test_dir == "goruntu_isleme/cikti/test"
 
 
 def test_train_parse_args_full_trainval_flagini_cozer():
@@ -368,17 +370,14 @@ def test_train_parse_args_full_trainval_flagini_cozer():
     assert args.full_trainval is True
 
 
-def test_resolve_data_dirs_islenmis_trainval_kokunu_otomatik_kullanir(monkeypatch):
+def test_resolve_data_dirs_explicit_trainval_sinif_dizinlerini_kullanir():
     processed_root = Path("tmp_test_artifacts") / f"processed_trainval_{uuid4().hex}"
     for class_name in training_runner.SINIF_ISIMLERI:
         (processed_root / class_name).mkdir(parents=True, exist_ok=True)
 
-    monkeypatch.setattr(training_runner, "ISLENMIS_VERI_KLASORU", processed_root)
-    monkeypatch.setattr(training_runner, "ISLENMIS_TRAINVAL_VERI_DIZINI", processed_root / "trainval")
-
     trainval_dir, test_dir = training_runner.resolve_data_dirs(
         training_runner.TrainingConfig(
-            use_processed_trainval=True,
+            trainval_dir=str(processed_root),
             test_dir="custom/test",
         )
     )
@@ -387,30 +386,30 @@ def test_resolve_data_dirs_islenmis_trainval_kokunu_otomatik_kullanir(monkeypatc
     assert test_dir == Path("custom/test")
 
 
-def test_resolve_data_dirs_islenmis_test_varsayilanini_kullanir(monkeypatch):
+def test_resolve_data_dirs_explicit_test_dir_kullanir():
     processed_test = Path("tmp_test_artifacts") / f"processed_test_{uuid4().hex}"
-    processed_test.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(training_runner, "ISLENMIS_TEST_VERI_DIZINI", processed_test)
+    for class_name in training_runner.SINIF_ISIMLERI:
+        (processed_test / class_name).mkdir(parents=True, exist_ok=True)
 
     _trainval_dir, test_dir = training_runner.resolve_data_dirs(
-        training_runner.TrainingConfig(use_processed_test=True)
+        training_runner.TrainingConfig(test_dir=str(processed_test))
     )
 
     assert test_dir == processed_test
 
 
-def test_resolve_data_dirs_islenmis_trainval_secildiginde_islenmis_testi_de_kullanir(monkeypatch):
+def test_resolve_data_dirs_explicit_trainval_ve_test_kullanir():
     processed_trainval = Path("tmp_test_artifacts") / f"processed_trainval_split_{uuid4().hex}"
     processed_test = Path("tmp_test_artifacts") / f"processed_test_split_{uuid4().hex}"
     for root in (processed_trainval, processed_test):
         for class_name in training_runner.SINIF_ISIMLERI:
             (root / class_name).mkdir(parents=True, exist_ok=True)
 
-    monkeypatch.setattr(training_runner, "ISLENMIS_TRAINVAL_VERI_DIZINI", processed_trainval)
-    monkeypatch.setattr(training_runner, "ISLENMIS_TEST_VERI_DIZINI", processed_test)
-
     trainval_dir, test_dir = training_runner.resolve_data_dirs(
-        training_runner.TrainingConfig(use_processed_trainval=True)
+        training_runner.TrainingConfig(
+            trainval_dir=str(processed_trainval),
+            test_dir=str(processed_test),
+        )
     )
 
     assert trainval_dir == processed_trainval
@@ -425,8 +424,8 @@ def test_resolve_data_dirs_trainval_root_verilince_split_alt_dizinlerini_cozer()
 
     trainval_dir, test_dir = training_runner.resolve_data_dirs(
         training_runner.TrainingConfig(
-            trainval_dir=processed_root,
-            use_processed_trainval=True,
+            trainval_dir=str(processed_root),
+            test_dir=str(processed_root),
         )
     )
 
@@ -451,27 +450,29 @@ def test_resolve_data_dirs_test_root_verilince_test_alt_dizinini_cozer():
     assert test_dir == processed_root / "test"
 
 
-def test_resolve_data_dirs_varsayilanda_islenmis_splitleri_kullanir(monkeypatch):
-    monkeypatch.setattr(training_runner, "TRAINVAL_VERI_DIZINI", Path("goruntu_isleme/cikti/trainval"))
-    monkeypatch.setattr(training_runner, "VARSAYILAN_VERI_DIZINI", Path("goruntu_isleme/cikti/trainval"))
-    monkeypatch.setattr(training_runner, "ISLENMIS_TRAINVAL_VERI_DIZINI", Path("goruntu_isleme/cikti/trainval"))
-    monkeypatch.setattr(training_runner, "ISLENMIS_TEST_VERI_DIZINI", Path("goruntu_isleme/cikti/test"))
-    monkeypatch.setattr(training_runner, "TEST_VERI_DIZINI", Path("goruntu_isleme/cikti/test"))
+def test_resolve_data_dirs_varsayilanda_trainval_ve_test_dizinlerini_kullanir(monkeypatch):
+    tv_path = Path("tmp_test_artifacts") / f"resolve_tv_{uuid4().hex}"
+    te_path = Path("tmp_test_artifacts") / f"resolve_te_{uuid4().hex}"
+    for root in (tv_path, te_path):
+        for class_name in training_runner.SINIF_ISIMLERI:
+            (root / class_name).mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(training_runner, "TRAINVAL_VERI_DIZINI", tv_path)
+    monkeypatch.setattr(training_runner, "TEST_VERI_DIZINI", te_path)
 
     trainval_dir, test_dir = training_runner.resolve_data_dirs(training_runner.TrainingConfig())
 
-    assert trainval_dir == Path("goruntu_isleme/cikti/trainval")
-    assert test_dir == Path("goruntu_isleme/cikti/test")
+    assert trainval_dir == tv_path
+    assert test_dir == te_path
 
 
-def test_resolve_data_dirs_varsayilan_veri_dizinini_onceliklendirir(monkeypatch):
+def test_resolve_data_dirs_trainval_dizinini_varsayilan_olarak_kullanir(monkeypatch):
     monkeypatch.setattr(training_runner, "TRAINVAL_VERI_DIZINI", Path("fallback/trainval"))
-    monkeypatch.setattr(training_runner, "VARSAYILAN_VERI_DIZINI", Path("."))
     monkeypatch.setattr(training_runner, "TEST_VERI_DIZINI", Path("fallback/trainval"))
 
     trainval_dir, _test_dir = training_runner.resolve_data_dirs(training_runner.TrainingConfig())
 
-    assert trainval_dir == Path(".")
+    assert trainval_dir == Path("fallback/trainval")
 
 
 def test_resolve_data_dirs_harici_test_ayarini_kullanir(monkeypatch):
@@ -480,7 +481,6 @@ def test_resolve_data_dirs_harici_test_ayarini_kullanir(monkeypatch):
         (external_test / class_name).mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setattr(training_runner, "TRAINVAL_VERI_DIZINI", Path("Veri_Seti/OriginalDataset"))
-    monkeypatch.setattr(training_runner, "VARSAYILAN_VERI_DIZINI", Path("Veri_Seti/OriginalDataset"))
     monkeypatch.setattr(training_runner, "TEST_VERI_DIZINI", external_test)
 
     _trainval_dir, test_dir = training_runner.resolve_data_dirs(training_runner.TrainingConfig())

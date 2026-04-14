@@ -23,14 +23,16 @@ if __package__ in {None, ""}:
 
     from model.ayarlar import VARSAYILAN_EARLY_STOPPING_SABIR
     from model.training_runner import TrainingConfig, build_model, run_training
+    from model.sl.training_runner import SLTrainingConfig, run_sl_training
 else:
     from .ayarlar import VARSAYILAN_EARLY_STOPPING_SABIR
     from .training_runner import TrainingConfig, build_model, run_training
+    from .sl.training_runner import SLTrainingConfig, run_sl_training
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="MRI siniflandirma - derin ogrenme egitimi",
+        description="MRI siniflandirma - derin ogrenme / sig ogrenme egitimi",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Ornekler:
@@ -41,11 +43,12 @@ Ornekler:
   python model/train.py --model resnet --trainval-dir Veri_Seti/OriginalDataset
   python model/train.py --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
   python model/train.py --model resnet --val-ratio 0.2
+  python model/train.py --model xgboost --xgb-max-depth 6 --xgb-n-estimators 300
         """,
     )
     parser.add_argument(
         "--model",
-        choices=["resnet"],
+        choices=["resnet", "xgboost"],
         default="resnet",
         help="Model tipi (varsayilan: resnet)",
     )
@@ -128,6 +131,18 @@ Ornekler:
             "test icin harici test dizini gerekir."
         ),
     )
+
+    # XGBoost parametreleri
+    xgb_group = parser.add_argument_group("XGBoost")
+    xgb_group.add_argument("--xgb-n-estimators", type=int, default=300, help="Boosting round sayisi")
+    xgb_group.add_argument("--xgb-max-depth", type=int, default=6, help="Maksimum agac derinligi")
+    xgb_group.add_argument("--xgb-learning-rate", type=float, default=0.1, help="XGBoost ogrenme hizi")
+    xgb_group.add_argument("--xgb-subsample", type=float, default=0.8, help="Satir ornekleme orani")
+    xgb_group.add_argument("--xgb-colsample-bytree", type=float, default=0.8, help="Sutun ornekleme orani")
+    xgb_group.add_argument("--xgb-reg-lambda", type=float, default=1.0, help="L2 regularizasyon")
+    xgb_group.add_argument("--xgb-min-child-weight", type=int, default=1, help="Min child weight")
+    xgb_group.add_argument("--feature-cache", type=str, default=None, help="Ozellik cache dizini (.npz)")
+
     return parser
 
 
@@ -137,6 +152,57 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+
+    if args.model == "xgboost":
+        # DL'ye ozgu argumanlarin kullanilip kullanilmadigini kontrol et
+        import warnings
+        dl_args = {
+            "epochs": (args.epochs, 50),
+            "batch_size": (args.batch_size, 32),
+            "lr": (args.lr, 1e-4),
+            "loss": (args.loss, "ce"),
+            "pretrained": (args.pretrained, False),
+            "weight_decay": (args.weight_decay, 1e-4),
+            "scheduler_factor": (args.scheduler_factor, 0.5),
+            "scheduler_patience": (args.scheduler_patience, 5),
+            "focal_gamma": (args.focal_gamma, 2.0),
+            "num_workers": (args.num_workers, 0),
+        }
+        used_dl_args = [k for k, (val, default) in dl_args.items() if val != default]
+        if used_dl_args:
+            warnings.warn(
+                f"XGBoost modunda DL'ye ozgu arguman(lar) yok sayildi: {', '.join(used_dl_args)}",
+                stacklevel=1,
+            )
+
+        config = SLTrainingConfig(
+            n_estimators=args.xgb_n_estimators,
+            max_depth=args.xgb_max_depth,
+            learning_rate=args.xgb_learning_rate,
+            subsample=args.xgb_subsample,
+            colsample_bytree=args.xgb_colsample_bytree,
+            reg_lambda=args.xgb_reg_lambda,
+            min_child_weight=args.xgb_min_child_weight,
+            image_size=args.image_size,
+            trainval_dir=args.trainval_dir,
+            test_dir=args.test_dir,
+            val_ratio=args.val_ratio,
+            test_ratio=args.test_ratio,
+            seed=args.seed,
+            feature_cache=args.feature_cache,
+        )
+        try:
+            run_sl_training(
+                config,
+                artifact_tag="xgboost",
+                full_trainval=args.full_trainval,
+            )
+        except (FileNotFoundError, RuntimeError, ValueError) as exc:
+            print(f"[HATA] {exc}")
+            return 1
+        return 0
+
+    # DL (ResNet) akisi
     config = TrainingConfig(
         model=args.model,
         epochs=args.epochs,

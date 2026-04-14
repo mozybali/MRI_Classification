@@ -1,12 +1,12 @@
 # MRI Beyin Goruntusu Siniflandirma
 
-Bu repo, MRI beyin goruntulerinden demans seviyesini siniflandirmaya yonelik uctan uca bir Python projesidir. Kod tabani; kesifsel veri analizi, 2D goruntu on isleme, ozellik cikarma, PyTorch ile model egitimi, inference ve test altyapisini ayni yerde toplar.
+Bu repo, MRI beyin goruntulerinden demans seviyesini siniflandirmaya yonelik uctan uca bir Python projesidir. Kod tabani; kesifsel veri analizi, 2D goruntu on isleme, ozellik cikarma, PyTorch (ResNet) ve XGBoost ile model egitimi, inference ve test altyapisini ayni yerde toplar.
 
 ## Moduller
 
 - [`eda_analiz/README.md`](eda_analiz/README.md): Veri seti dagilimi, boyut, yogunluk, korelasyon ve PCA analizleri
 - [`goruntu_isleme/README.md`](goruntu_isleme/README.md): On isleme, ozellik cikarma, veri bolme ve olceklendirme akisi
-- [`model/README.md`](model/README.md): ResNet ve U-Net tabanli egitim ve inference komutlari
+- [`model/README.md`](model/README.md): ResNet (derin ogrenme) ve XGBoost (sig ogrenme) tabanli egitim ve inference komutlari
 - [`tests/README.md`](tests/README.md): Pytest duzeni, test dosyalari ve calistirma ornekleri
 - [`Veri_Seti/README.md`](Veri_Seti/README.md): Beklenen veri klasor yapisi ve varsayilan veri politikasi
 
@@ -30,7 +30,9 @@ MRI_Classification/
 |-- model/
 |   |-- train.py
 |   |-- inference.py
+|   |-- common/
 |   |-- dl/
+|   |-- sl/
 |   |-- ciktilar/
 |   `-- README.md
 |-- tests/
@@ -111,22 +113,32 @@ mri-preprocess --action all --input-dir Veri_Seti/OriginalDataset --output-dir g
 
 ### 3. Model egitimi
 
+ResNet (derin ogrenme):
+
 ```bash
 mri-train --model resnet --epochs 50 --batch-size 32
 mri-train --model resnet
+```
+
+XGBoost (sig ogrenme):
+
+```bash
+mri-train --model xgboost
+mri-train --model xgboost --xgb-n-estimators 500 --xgb-max-depth 8
 ```
 
 ### 3.1 Bayes search ile hiperparametre optimizasyonu
 
 ```bash
 mri-tune --model resnet --trials 20 --epochs 12 --metric f1
-mri-tune --model resnet --trials 30 --metric loss --skip-final-train
+mri-tune --model xgboost --trials 30 --metric f1
 ```
 
 ### 4. Tahmin
 
 ```bash
 mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --image ornek.jpg
+mri-infer --model-path model/ciktilar/modeller/best_xgboost.json --image ornek.jpg
 ```
 
 ## Varsayilan Veri Politikasi
@@ -144,7 +156,7 @@ Proje akisi varsayilan olarak preprocess ciktilari uzerinden ilerler. Ham veriyl
 
 - `eda_analiz/eda_ciktilar/`: EDA grafik ve tablo ciktilari
 - `goruntu_isleme/cikti/`: `trainval/`, `test/`, ozellik CSV'leri, split dosyalari ve scaler
-- `model/ciktilar/modeller/`: Egitilmis `.pt` checkpoint dosyalari
+- `model/ciktilar/modeller/`: Egitilmis `.pt` (ResNet) ve `.json` (XGBoost) checkpoint dosyalari
 - `model/ciktilar/raporlar/`: JSON performans raporlari
 - `model/ciktilar/gorseller/`: Confusion matrix, normalize confusion matrix, sinif bazli performans, guven grafikleri, ROC/PR ve egitim dashboard'lari
 - `model/ciktilar/hiperparametre_arama/`: Optuna TPE tabanli Bayes search trial ve study ciktilari

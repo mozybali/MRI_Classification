@@ -30,6 +30,11 @@ if __package__ in {None, ""}:
         run_training,
         validate_training_config,
     )
+    from model.sl.training_runner import (
+        SLTrainingConfig,
+        run_sl_training,
+        validate_sl_config,
+    )
 else:
     from .ayarlar import HPO_KLASORU, RASTGELE_TOHUM, VARSAYILAN_EARLY_STOPPING_SABIR
     from .training_runner import (
@@ -38,6 +43,11 @@ else:
         _selection_mode_for_metric,
         run_training,
         validate_training_config,
+    )
+    from .sl.training_runner import (
+        SLTrainingConfig,
+        run_sl_training,
+        validate_sl_config,
     )
 
 try:
@@ -58,7 +68,7 @@ Ornekler:
   python -m model.hpo --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
         """,
     )
-    parser.add_argument("--model", choices=["resnet"], default="resnet")
+    parser.add_argument("--model", choices=["resnet", "xgboost"], default="resnet")
     parser.add_argument(
         "--trials",
         type=int,
@@ -167,6 +177,12 @@ Ornekler:
         action="store_true",
         help="Her trial icin epoch loglarini goster",
     )
+    parser.add_argument(
+        "--feature-cache",
+        type=str,
+        default=None,
+        help="XGBoost ozellik cache dizini (disk .npz)",
+    )
     return parser
 
 
@@ -190,6 +206,8 @@ def _resolve_study_dir(args: argparse.Namespace, study_name: str) -> Path:
 
 
 def _search_space_summary(args: argparse.Namespace) -> dict[str, Any]:
+    if args.model == "xgboost":
+        return _search_space_summary_xgb(args)
     return {
         "batch_size_choices": sorted(set(args.batch_size_choices)),
         "image_size_choices": sorted(set(args.image_size_choices)),
@@ -203,6 +221,19 @@ def _search_space_summary(args: argparse.Namespace) -> dict[str, Any]:
         "loss_choices": list(dict.fromkeys(args.loss_choices)),
         "focal_gamma_range": [args.focal_gamma_min, args.focal_gamma_max],
         "search_pretrained": bool(args.search_pretrained and args.model == "resnet"),
+    }
+
+
+def _search_space_summary_xgb(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "image_size_choices": sorted(set(args.image_size_choices)),
+        "n_estimators_range": [100, 1000],
+        "max_depth_range": [3, 10],
+        "learning_rate_range": [0.01, 0.3],
+        "subsample_range": [0.5, 1.0],
+        "colsample_bytree_range": [0.5, 1.0],
+        "reg_lambda_range": [1e-3, 10.0],
+        "min_child_weight_range": [1, 10],
     }
 
 
@@ -284,6 +315,20 @@ def validate_search_args(args: argparse.Namespace) -> None:
         raise ValueError("--pruner-startup-trials negatif olamaz.")
     if args.pruner_warmup_epochs < 0:
         raise ValueError("--pruner-warmup-epochs negatif olamaz.")
+
+    if args.model == "xgboost":
+        base_sl_config = SLTrainingConfig(
+            image_size=min(args.image_size_choices),
+            trainval_dir=args.trainval_dir,
+            test_dir=args.test_dir,
+            val_ratio=args.val_ratio,
+            test_ratio=args.test_ratio,
+            seed=args.seed,
+        )
+        validate_sl_config(base_sl_config, require_test_dir=False, full_trainval=False)
+        if not args.skip_final_train:
+            validate_sl_config(base_sl_config, require_test_dir=True, full_trainval=True)
+        return
 
     base_config = _build_config_from_args(
         args,
@@ -463,6 +508,137 @@ def _on_epoch_end(trial, metric_name: str, epoch: int, val_metrics: dict[str, fl
         )
 
 
+# ==================== XGBoost HPO ====================
+
+def _sample_xgb_params(trial, args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "n_estimators": trial.suggest_int("n_estimators", 100, 1000),
+        "max_depth": trial.suggest_int("max_depth", 3, 10),
+        "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
+        "subsample": trial.suggest_float("subsample", 0.5, 1.0),
+        "colsample_bytree": trial.suggest_float("colsample_bytree", 0.5, 1.0),
+        "reg_lambda": trial.suggest_float("reg_lambda", 1e-3, 10.0, log=True),
+        "min_child_weight": trial.suggest_int("min_child_weight", 1, 10),
+        "image_size": trial.suggest_categorical(
+            "image_size",
+            sorted(set(args.image_size_choices)),
+        ),
+    }
+
+
+def _xgb_objective_factory(args: argparse.Namespace, study_dir: Path):
+    # NOT: XGBoost trial'larinda epoch bazli pruning desteklenmemektedir.
+    # MedianPruner tanimli olsa da XGBoost objective'i trial.report() cagirmaz.
+    # Dolayisiyla kotu parametreli trial'lar tam egitime tabi tutulur.
+    def objective(trial) -> float:
+        params = _sample_xgb_params(trial, args)
+        trial_dir = _trial_dir(study_dir, trial.number)
+        trial_dir.mkdir(parents=True, exist_ok=True)
+
+        config = SLTrainingConfig(
+            n_estimators=params["n_estimators"],
+            max_depth=params["max_depth"],
+            learning_rate=params["learning_rate"],
+            subsample=params["subsample"],
+            colsample_bytree=params["colsample_bytree"],
+            reg_lambda=params["reg_lambda"],
+            min_child_weight=params["min_child_weight"],
+            image_size=params["image_size"],
+            trainval_dir=args.trainval_dir,
+            test_dir=args.test_dir,
+            val_ratio=args.val_ratio,
+            test_ratio=args.test_ratio,
+            seed=args.seed,
+            feature_cache=getattr(args, "feature_cache", None),
+        )
+
+        try:
+            results = run_sl_training(
+                config,
+                save_artifacts=False,
+                evaluate_test_set=False,
+                verbose=args.verbose_trials,
+                selection_metric=args.metric,
+            )
+        except Exception as exc:
+            _write_json(
+                trial_dir / "trial_summary.json",
+                {
+                    "trial_number": trial.number,
+                    "state": "FAILED",
+                    "params": params,
+                    "metric": args.metric,
+                    "error": str(exc),
+                },
+            )
+            raise
+
+        best_val_metrics = results["best_val_metrics"]
+        if best_val_metrics is None:
+            raise ValueError("XGBoost trial val metrikleri bos.")
+        objective_value = float(best_val_metrics[args.metric])
+        trial.set_user_attr("trial_dir", str(trial_dir))
+        trial.set_user_attr("best_val_f1", best_val_metrics["f1"])
+
+        _write_json(
+            trial_dir / "trial_summary.json",
+            {
+                "trial_number": trial.number,
+                "state": "COMPLETE",
+                "metric": args.metric,
+                "objective_value": objective_value,
+                "params": params,
+                "best_val_metrics": best_val_metrics,
+                "config": results["config"],
+            },
+        )
+        return objective_value
+
+    return objective
+
+
+def _run_final_xgb_training(
+    args: argparse.Namespace,
+    study_dir: Path,
+    best_params: dict[str, Any],
+    study_name: str,
+    best_trial_number: int,
+) -> dict[str, Any]:
+    config = SLTrainingConfig(
+        n_estimators=int(best_params["n_estimators"]),
+        max_depth=int(best_params["max_depth"]),
+        learning_rate=float(best_params["learning_rate"]),
+        subsample=float(best_params["subsample"]),
+        colsample_bytree=float(best_params["colsample_bytree"]),
+        reg_lambda=float(best_params["reg_lambda"]),
+        min_child_weight=int(best_params["min_child_weight"]),
+        image_size=int(best_params["image_size"]),
+        trainval_dir=args.trainval_dir,
+        test_dir=args.test_dir,
+        val_ratio=args.val_ratio,
+        test_ratio=args.test_ratio,
+        seed=args.seed,
+        feature_cache=getattr(args, "feature_cache", None),
+    )
+    final_dir = study_dir / "best_run"
+    return run_sl_training(
+        config,
+        output_root=final_dir,
+        artifact_tag="xgboost_tuned",
+        save_artifacts=True,
+        evaluate_test_set=True,
+        full_trainval=True,
+        verbose=True,
+        selection_metric=args.metric,
+        extra_report={
+            "study_name": study_name,
+            "best_trial_number": best_trial_number,
+            "optimized_metric": args.metric,
+            "search_type": "bayesian_tpe",
+        },
+    )
+
+
 def _run_final_training(
     args: argparse.Namespace,
     study_dir: Path,
@@ -586,8 +762,12 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     if trials_to_run > 0:
+        if args.model == "xgboost":
+            objective_fn = _xgb_objective_factory(args, study_dir)
+        else:
+            objective_fn = _objective_factory(args, study_dir)
         study.optimize(
-            _objective_factory(args, study_dir),
+            objective_fn,
             n_trials=trials_to_run,
             timeout=args.timeout,
             catch=(RuntimeError, ValueError, FileNotFoundError),
@@ -608,14 +788,23 @@ def main(argv: list[str] | None = None) -> int:
             f"#{study.best_trial.number} ({args.metric}={study.best_value:.4f}). "
             "Tum trainval uzerinde final egitim baslatiliyor."
         )
-        final_run = _run_final_training(
-            args=args,
-            study_dir=study_dir,
-            best_params=study.best_trial.params,
-            study_name=study_name,
-            best_trial_number=study.best_trial.number,
-            best_epoch=study.best_trial.user_attrs.get("best_epoch"),
-        )
+        if args.model == "xgboost":
+            final_run = _run_final_xgb_training(
+                args=args,
+                study_dir=study_dir,
+                best_params=study.best_trial.params,
+                study_name=study_name,
+                best_trial_number=study.best_trial.number,
+            )
+        else:
+            final_run = _run_final_training(
+                args=args,
+                study_dir=study_dir,
+                best_params=study.best_trial.params,
+                study_name=study_name,
+                best_trial_number=study.best_trial.number,
+                best_epoch=study.best_trial.user_attrs.get("best_epoch"),
+            )
 
     _save_study_artifacts(
         study=study,

@@ -27,6 +27,9 @@ RAPORLAR_KLASORU = CIKTI_KLASORU / "raporlar"
 GORSELLER_KLASORU = CIKTI_KLASORU / "gorseller"
 HPO_KLASORU = CIKTI_KLASORU / "hiperparametre_arama"
 
+# SL ozellik cache
+SL_FEATURE_CACHE_KLASORU = CIKTI_KLASORU / "sl_ozellikler"
+
 # ==================== GENEL ====================
 RASTGELE_TOHUM = 42
 
