@@ -437,7 +437,19 @@ class EDAAnaLiz:
             _guvenli_print("[UYARI] Korelasyon analizi atlandı: en az iki sayısal özellik gerekiyor.")
             return
 
-        korelasyon = df[mevcut_kolonlar].corr()
+        # Sabit değerli (varyans=0) özellikleri çıkar — corr() NaN döndürür
+        degisken_kolonlar = [k for k in mevcut_kolonlar if df[k].std() > 0]
+        cikarilanlar = set(mevcut_kolonlar) - set(degisken_kolonlar)
+        if cikarilanlar:
+            _guvenli_print(
+                f"[BILGI] Korelasyondan sabit özellikler çıkarıldı: "
+                f"{', '.join(sorted(cikarilanlar))}"
+            )
+        if len(degisken_kolonlar) < 2:
+            _guvenli_print("[UYARI] Korelasyon analizi atlandı: en az iki değişken özellik gerekiyor.")
+            return
+
+        korelasyon = df[degisken_kolonlar].corr()
         if korelasyon.empty or korelasyon.isna().all().all():
             _guvenli_print("[UYARI] Korelasyon analizi atlandı: korelasyon matrisi hesaplanamadı.")
             return
@@ -452,7 +464,10 @@ class EDAAnaLiz:
             square=True,
             ax=ax,
         )
-        ax.set_title("Özellikler Arası Korelasyon Matrisi")
+        baslik = "Özellikler Arası Korelasyon Matrisi"
+        if cikarilanlar:
+            baslik += f"\n(Sabit özellikler çıkarıldı: {', '.join(sorted(cikarilanlar))})"
+        ax.set_title(baslik)
         plt.tight_layout()
         self.grafik_kaydet(fig, "4_korelasyon_matrisi.png")
 
@@ -489,8 +504,20 @@ class EDAAnaLiz:
             _guvenli_print("[UYARI] PCA atlandı: yeterli sayida gecerli ornek yok.")
             return
 
+        # Sabit değerli (varyans=0) özellikleri çıkar — StandardScaler 0'a bölme yapar
+        degisken_ozellikler = [k for k in ozellikler if temiz_df[k].std() > 0]
+        cikarilanlar = set(ozellikler) - set(degisken_ozellikler)
+        if cikarilanlar:
+            _guvenli_print(
+                f"[BILGI] PCA'dan sabit özellikler çıkarıldı: "
+                f"{', '.join(sorted(cikarilanlar))}"
+            )
+        if len(degisken_ozellikler) < 2:
+            _guvenli_print("[UYARI] PCA atlandı: en az iki değişken özellik gerekiyor.")
+            return
+
         df_sample = temiz_df.sample(min(n_ornekler, len(temiz_df)), random_state=self.tohum)
-        X = df_sample[ozellikler].values
+        X = df_sample[degisken_ozellikler].values
         y = df_sample["label_name"].values
         X_scaled = StandardScaler().fit_transform(X)
 
