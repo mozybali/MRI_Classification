@@ -43,6 +43,37 @@ _GLCM_PROPS = ["contrast", "homogeneity", "energy", "correlation"]
 _HIST_BINS = 32
 
 
+def feature_group_slices(image_size: int) -> dict[str, slice]:
+    """Ozellik vektorundeki ana bloklarin index araliklarini dondur."""
+    n_cells_y = image_size // _HOG_PIXELS_PER_CELL[0]
+    n_cells_x = image_size // _HOG_PIXELS_PER_CELL[1]
+    hog_blocks_y = max(n_cells_y - _HOG_CELLS_PER_BLOCK[0] + 1, 0)
+    hog_blocks_x = max(n_cells_x - _HOG_CELLS_PER_BLOCK[1] + 1, 0)
+    hog_len = (
+        hog_blocks_y
+        * hog_blocks_x
+        * _HOG_CELLS_PER_BLOCK[0]
+        * _HOG_CELLS_PER_BLOCK[1]
+        * _HOG_ORIENTATIONS
+    )
+    lbp_len = _LBP_N_BINS
+    glcm_len = len(_GLCM_PROPS) * len(_GLCM_DISTANCES) * len(_GLCM_ANGLES)
+    hist_stats_len = _HIST_BINS + 5
+
+    start = 0
+    slices: dict[str, slice] = {}
+    for name, length in (
+        ("HOG", hog_len),
+        ("LBP", lbp_len),
+        ("GLCM", glcm_len),
+        ("Histogram/Stats", hist_stats_len),
+    ):
+        stop = start + length
+        slices[name] = slice(start, stop)
+        start = stop
+    return slices
+
+
 def _ensure_gray_uint8(image: np.ndarray) -> np.ndarray:
     """Goruntunun 2D gri-ton uint8 formatinda olmasini garanti et.
 

@@ -55,6 +55,7 @@ from ..dl.utils import (
     plot_prediction_confidence,
 )
 from .dataset import build_feature_matrix
+from .features import feature_group_slices
 from .xgb_classifier import build_xgb_classifier, save_xgb_model
 
 SUPPORTED_SELECTION_METRICS = {"loss", "accuracy", "precision", "recall", "f1"}
@@ -340,6 +341,70 @@ def _plot_xgb_training_curves(
     print(f"[OK] XGBoost egitim egrisi kaydedildi: {save_path}")
 
 
+def _plot_xgb_feature_importance(
+    model: Any,
+    save_path: Path,
+    *,
+    image_size: int,
+    max_features: int = 30,
+) -> Path | None:
+    """XGBoost feature importance grafigini kaydet."""
+    importances = np.asarray(getattr(model, "feature_importances_", []), dtype=np.float64)
+    if importances.size == 0:
+        warnings.warn("XGBoost feature_importances_ bos; feature importance grafigi atlandi.")
+        return None
+
+    save_path = Path(save_path)
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    importances = np.nan_to_num(importances, nan=0.0, posinf=0.0, neginf=0.0)
+
+    top_n = min(max_features, importances.size)
+    top_indices = np.argsort(importances)[-top_n:][::-1]
+    top_values = importances[top_indices]
+    top_labels = [f"f{idx}" for idx in top_indices]
+
+    group_values: dict[str, float] = {}
+    covered_until = 0
+    for group_name, group_slice in feature_group_slices(image_size).items():
+        start = min(group_slice.start, importances.size)
+        stop = min(group_slice.stop, importances.size)
+        if stop > start:
+            group_values[group_name] = float(importances[start:stop].sum())
+            covered_until = max(covered_until, stop)
+    if covered_until < importances.size:
+        group_values["Other"] = float(importances[covered_until:].sum())
+
+    fig, (ax_top, ax_group) = plt.subplots(1, 2, figsize=(18, 8))
+
+    y_pos = np.arange(top_n)
+    ax_top.barh(y_pos, top_values, color="#4C78A8")
+    ax_top.set_yticks(y_pos)
+    ax_top.set_yticklabels(top_labels)
+    ax_top.invert_yaxis()
+    ax_top.set_xlabel("Importance")
+    ax_top.set_title(f"Top {top_n} XGBoost Features")
+    ax_top.grid(True, axis="x", alpha=0.3)
+
+    sorted_groups = sorted(group_values.items(), key=lambda item: item[1], reverse=True)
+    group_names = [name for name, _ in sorted_groups]
+    group_scores = [score for _, score in sorted_groups]
+    group_pos = np.arange(len(group_names))
+    ax_group.barh(group_pos, group_scores, color="#F58518")
+    ax_group.set_yticks(group_pos)
+    ax_group.set_yticklabels(group_names)
+    ax_group.invert_yaxis()
+    ax_group.set_xlabel("Total Importance")
+    ax_group.set_title("Feature Group Importance")
+    ax_group.grid(True, axis="x", alpha=0.3)
+
+    fig.suptitle("XGBoost Feature Importance", fontsize=14, fontweight="bold")
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[OK] XGBoost feature importance kaydedildi: {save_path}")
+    return save_path
+
+
 # ==================== Ana egitim fonksiyonu ====================
 
 def _selection_mode_for_metric(metric: str) -> Literal["minimize", "maximize"]:
@@ -542,6 +607,7 @@ def run_sl_training(
     artifact_stem = artifact_tag or "xgboost"
     output_dirs = None
     checkpoint_path = None
+    feature_importance_path: Path | None = None
     if save_artifacts:
         output_dirs = _build_output_dirs(output_root or CIKTI_KLASORU)
         checkpoint_path = output_dirs["models"] / f"best_{artifact_stem}.json"
@@ -621,6 +687,12 @@ def run_sl_training(
             evals_result,
             output_dirs["visuals"] / f"training_curves_{artifact_stem}.png",
             best_iteration=best_iteration,
+        )
+    if output_dirs is not None:
+        feature_importance_path = _plot_xgb_feature_importance(
+            model,
+            output_dirs["visuals"] / f"feature_importance_{artifact_stem}.png",
+            image_size=config.image_size,
         )
 
     # Rapor
@@ -721,6 +793,7 @@ def run_sl_training(
                     str(output_dirs["visuals"] / f"roc_pr_curves_{artifact_stem}.png")
                     if test_metrics else None
                 ),
+                "feature_importance": str(feature_importance_path) if feature_importance_path else None,
             },
         }
         if extra_report:
@@ -753,6 +826,7 @@ def run_sl_training(
         },
         "checkpoint_path": checkpoint_path,
         "report_path": report_path,
+        "feature_importance_path": feature_importance_path,
         "output_root": output_dirs["root"] if output_dirs else None,
         "trainval_dir": trainval_dir,
         "test_dir": test_dir,

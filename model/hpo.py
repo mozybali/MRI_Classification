@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import warnings
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -577,8 +578,12 @@ def _xgb_objective_factory(args: argparse.Namespace, study_dir: Path):
         if best_val_metrics is None:
             raise ValueError("XGBoost trial val metrikleri bos.")
         objective_value = float(best_val_metrics[args.metric])
+        best_iteration = results.get("best_iteration")
+        best_iteration_int = int(best_iteration) if best_iteration is not None else None
         trial.set_user_attr("trial_dir", str(trial_dir))
         trial.set_user_attr("best_val_f1", best_val_metrics["f1"])
+        if best_iteration_int is not None:
+            trial.set_user_attr("best_iteration", best_iteration_int)
 
         _write_json(
             trial_dir / "trial_summary.json",
@@ -588,6 +593,7 @@ def _xgb_objective_factory(args: argparse.Namespace, study_dir: Path):
                 "metric": args.metric,
                 "objective_value": objective_value,
                 "params": params,
+                "best_iteration": best_iteration_int,
                 "best_val_metrics": best_val_metrics,
                 "config": results["config"],
             },
@@ -597,15 +603,41 @@ def _xgb_objective_factory(args: argparse.Namespace, study_dir: Path):
     return objective
 
 
+def _resolve_final_xgb_n_estimators(
+    searched_n_estimators: int,
+    best_iteration: Any | None,
+) -> tuple[int, int | None]:
+    searched_n_estimators = max(1, int(searched_n_estimators))
+    if best_iteration is None:
+        return searched_n_estimators, None
+
+    try:
+        best_iteration_int = int(best_iteration)
+    except (TypeError, ValueError):
+        return searched_n_estimators, None
+
+    if best_iteration_int < 0:
+        return searched_n_estimators, None
+
+    final_n_estimators = min(searched_n_estimators, best_iteration_int + 1)
+    return max(1, final_n_estimators), best_iteration_int
+
+
 def _run_final_xgb_training(
     args: argparse.Namespace,
     study_dir: Path,
     best_params: dict[str, Any],
     study_name: str,
     best_trial_number: int,
+    best_iteration: Any | None,
 ) -> dict[str, Any]:
+    searched_n_estimators = int(best_params["n_estimators"])
+    final_n_estimators, best_iteration_int = _resolve_final_xgb_n_estimators(
+        searched_n_estimators,
+        best_iteration,
+    )
     config = SLTrainingConfig(
-        n_estimators=int(best_params["n_estimators"]),
+        n_estimators=final_n_estimators,
         max_depth=int(best_params["max_depth"]),
         learning_rate=float(best_params["learning_rate"]),
         subsample=float(best_params["subsample"]),
@@ -635,6 +667,14 @@ def _run_final_xgb_training(
             "best_trial_number": best_trial_number,
             "optimized_metric": args.metric,
             "search_type": "bayesian_tpe",
+            "best_trial_n_estimators": searched_n_estimators,
+            "best_trial_best_iteration": best_iteration_int,
+            "final_n_estimators": final_n_estimators,
+            "final_n_estimators_source": (
+                "best_iteration_plus_one"
+                if best_iteration_int is not None
+                else "best_trial_n_estimators"
+            ),
         },
     )
 
@@ -680,6 +720,72 @@ def _run_final_training(
     )
 
 
+def _figure_from_plot_result(plot_result: Any) -> Any | None:
+    if hasattr(plot_result, "figure"):
+        return plot_result.figure
+    if hasattr(plot_result, "flat"):
+        for item in plot_result.flat:
+            fig = _figure_from_plot_result(item)
+            if fig is not None:
+                return fig
+    if isinstance(plot_result, (list, tuple)):
+        for item in plot_result:
+            fig = _figure_from_plot_result(item)
+            if fig is not None:
+                return fig
+    return None
+
+
+def _save_single_hpo_plot(study: Any, plot_func: Any, save_path: Path, label: str) -> str | None:
+    import matplotlib.pyplot as plt
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            plot_result = plot_func(study)
+        fig = _figure_from_plot_result(plot_result)
+        if fig is None:
+            raise RuntimeError("Matplotlib figure bulunamadi.")
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.tight_layout()
+        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        return str(save_path)
+    except Exception as exc:
+        plt.close("all")
+        print(f"[UYARI] HPO {label} grafigi kaydedilemedi: {exc}")
+        return None
+
+
+def _save_hpo_visualizations(study: Any, study_dir: Path) -> dict[str, str]:
+    """Optuna study icin analiz grafiklerini kaydet."""
+    try:
+        from optuna.visualization import matplotlib as optuna_mpl
+    except Exception as exc:
+        print(f"[UYARI] Optuna matplotlib gorselleri yuklenemedi: {exc}")
+        return {}
+
+    visuals_dir = study_dir / "gorseller"
+    plotters = {
+        "optimization_history": optuna_mpl.plot_optimization_history,
+        "param_importances": optuna_mpl.plot_param_importances,
+        "parallel_coordinate": optuna_mpl.plot_parallel_coordinate,
+        "slice": optuna_mpl.plot_slice,
+    }
+
+    artifacts: dict[str, str] = {}
+    for key, plot_func in plotters.items():
+        saved_path = _save_single_hpo_plot(
+            study,
+            plot_func,
+            visuals_dir / f"hpo_{key}.png",
+            key,
+        )
+        if saved_path is not None:
+            artifacts[key] = saved_path
+    return artifacts
+
+
 def _save_study_artifacts(
     study,
     args: argparse.Namespace,
@@ -691,6 +797,7 @@ def _save_study_artifacts(
 ) -> None:
     trials_df = study.trials_dataframe()
     trials_df.to_csv(study_dir / "trial_history.csv", index=False)
+    hpo_visualizations = _save_hpo_visualizations(study, study_dir)
 
     state_counts = Counter(str(trial.state) for trial in study.trials)
     best_trial = study.best_trial
@@ -716,6 +823,7 @@ def _save_study_artifacts(
         },
         "final_run_dir": str(final_run["output_root"]) if final_run is not None else None,
         "final_report_path": str(final_run["report_path"]) if final_run is not None else None,
+        "visualizations": hpo_visualizations,
     }
     _write_json(study_dir / "study_summary.json", summary)
 
@@ -795,6 +903,7 @@ def main(argv: list[str] | None = None) -> int:
                 best_params=study.best_trial.params,
                 study_name=study_name,
                 best_trial_number=study.best_trial.number,
+                best_iteration=study.best_trial.user_attrs.get("best_iteration"),
             )
         else:
             final_run = _run_final_training(

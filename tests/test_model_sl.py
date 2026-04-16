@@ -181,6 +181,9 @@ class TestSLTrainingSmoke:
         with open(results["report_path"], encoding="utf-8") as f:
             report = json.load(f)
         assert report["model"] == "xgboost"
+        assert results["feature_importance_path"] is not None
+        assert Path(results["feature_importance_path"]).exists()
+        assert Path(report["artifacts"]["feature_importance"]).exists()
 
         # Test metrikleri makul aralıkta mi?
         assert results["test_metrics"] is not None

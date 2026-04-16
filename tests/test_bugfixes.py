@@ -380,6 +380,78 @@ class TestXGBStudySummary:
         assert "loss_choices" in summary
         assert "n_estimators_range" not in summary
 
+    def test_final_xgb_n_estimators_uses_best_iteration(self):
+        from model.hpo import _resolve_final_xgb_n_estimators
+
+        assert _resolve_final_xgb_n_estimators(100, 24) == (25, 24)
+        assert _resolve_final_xgb_n_estimators(100, "9") == (10, 9)
+        assert _resolve_final_xgb_n_estimators(100, None) == (100, None)
+        assert _resolve_final_xgb_n_estimators(100, 150) == (100, 150)
+
+    def test_final_xgb_training_receives_best_iteration_estimators(self, tmp_path, monkeypatch):
+        from model import hpo
+
+        args = hpo.parse_args([
+            "--model", "xgboost",
+            "--metric", "f1",
+            "--trainval-dir", "trainval",
+            "--test-dir", "test",
+        ])
+        captured = {}
+
+        def fake_run_sl_training(config, **kwargs):
+            captured["config"] = config
+            captured["kwargs"] = kwargs
+            return {
+                "output_root": kwargs["output_root"],
+                "report_path": kwargs["output_root"] / "rapor.json",
+            }
+
+        monkeypatch.setattr(hpo, "run_sl_training", fake_run_sl_training)
+        best_params = {
+            "n_estimators": 200,
+            "max_depth": 4,
+            "learning_rate": 0.05,
+            "subsample": 0.8,
+            "colsample_bytree": 0.7,
+            "reg_lambda": 1.0,
+            "min_child_weight": 2,
+            "image_size": 64,
+        }
+
+        hpo._run_final_xgb_training(
+            args=args,
+            study_dir=tmp_path,
+            best_params=best_params,
+            study_name="xgb_test",
+            best_trial_number=3,
+            best_iteration=31,
+        )
+
+        assert captured["config"].n_estimators == 32
+        assert captured["kwargs"]["full_trainval"] is True
+        extra_report = captured["kwargs"]["extra_report"]
+        assert extra_report["best_trial_n_estimators"] == 200
+        assert extra_report["best_trial_best_iteration"] == 31
+        assert extra_report["final_n_estimators"] == 32
+        assert extra_report["final_n_estimators_source"] == "best_iteration_plus_one"
+
+    def test_hpo_visualizations_are_saved(self, tmp_path):
+        optuna = pytest.importorskip("optuna")
+        from model.hpo import _save_hpo_visualizations
+
+        study = optuna.create_study(direction="maximize")
+        for value in [0.40, 0.55, 0.50, 0.70]:
+            trial = study.ask()
+            trial.suggest_float("learning_rate", 0.01, 0.3, log=True)
+            trial.suggest_int("max_depth", 3, 8)
+            study.tell(trial, value)
+
+        artifacts = _save_hpo_visualizations(study, tmp_path)
+
+        assert "optimization_history" in artifacts
+        assert Path(artifacts["optimization_history"]).exists()
+
 
 # ==================== HIGH-4: SLTrainingConfig validation ====================
 

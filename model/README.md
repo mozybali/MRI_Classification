@@ -171,7 +171,7 @@ Onerilen akis:
 
 1. `preprocess` ile veriyi `trainval/test` olarak ayir.
 2. HPO trial'larini sadece `trainval` uzerinde train+validation ile sec.
-3. `--skip-final-train` verilmediginde en iyi trial'in `best_epoch` degeriyle tum `trainval` uzerinde yeniden egit.
+3. `--skip-final-train` verilmediginde final egitimi tum `trainval` uzerinde yap; ResNet icin `best_epoch`, XGBoost icin `best_iteration + 1` kullanilir.
 4. Test degerlendirmesini yalnizca en sonda harici `test` dizini uzerinde bir kez yap.
 
 Aranan baslica hiperparametreler:
@@ -203,6 +203,10 @@ Bayes search ciktilari varsayilan olarak `model/ciktilar/hiperparametre_arama/<s
 
 - `trial_history.csv`
 - `study_summary.json`
+- `gorseller/hpo_optimization_history.png`
+- `gorseller/hpo_param_importances.png`
+- `gorseller/hpo_parallel_coordinate.png`
+- `gorseller/hpo_slice.png`
 - `trials/trial_XXX/trial_summary.json`
 - `best_run/` (final egitim kapatilmazsa; tum `trainval` uzerinde yeniden egitim + tek seferlik test)
 
@@ -259,6 +263,7 @@ model/
 - `model/ciktilar/gorseller/prediction_confidence_xgboost.png`
 - `model/ciktilar/gorseller/roc_pr_curves_xgboost.png`
 - `model/ciktilar/gorseller/training_curves_xgboost.png`
+- `model/ciktilar/gorseller/feature_importance_xgboost.png`
 
 ## Ozellikler
 

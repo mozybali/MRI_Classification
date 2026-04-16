@@ -107,7 +107,7 @@ Z_SCORE_NORMALIZASYON_AKTIF = True
 
 # Histogram eşitleme (CLAHE) - Kontrast iyileştirme
 HISTOGRAM_ESITLEME_AKTIF = True
-CLAHE_CLIP_LIMIT = 5.0  # Kırpma sınırı (yüksek = daha fazla kontrast)
+CLAHE_CLIP_LIMIT = 4.0  # Kırpma sınırı (yüksek = daha fazla kontrast)
 
 # Filtreler - Gelişmiş görüntü filtreleme seçenekleri
 GELISMIS_FILTRE_AKTIF = False

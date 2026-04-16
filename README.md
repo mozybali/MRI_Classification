@@ -165,8 +165,8 @@ Proje akisi varsayilan olarak preprocess ciktilari uzerinden ilerler. Ham veriyl
 - `goruntu_isleme/cikti/`: `trainval/`, `test/`, ozellik CSV'leri, split dosyalari ve scaler
 - `model/ciktilar/modeller/`: Egitilmis `.pt` (ResNet) ve `.json` (XGBoost) checkpoint dosyalari
 - `model/ciktilar/raporlar/`: JSON performans raporlari
-- `model/ciktilar/gorseller/`: Confusion matrix, normalize confusion matrix, sinif bazli performans, guven grafikleri, ROC/PR ve egitim dashboard'lari
-- `model/ciktilar/hiperparametre_arama/`: Optuna TPE tabanli Bayes search trial ve study ciktilari
+- `model/ciktilar/gorseller/`: Confusion matrix, normalize confusion matrix, sinif bazli performans, guven grafikleri, ROC/PR, egitim dashboard'lari ve XGBoost feature importance
+- `model/ciktilar/hiperparametre_arama/`: Optuna TPE tabanli Bayes search trial, study ve HPO analiz grafikleri
 
 ## Test
 
