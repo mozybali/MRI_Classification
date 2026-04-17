@@ -719,7 +719,9 @@ def run_sl_training(
         report: dict[str, Any] = {
             "model": "xgboost",
             "timestamp": timestamp,
-            "n_estimators_trained": best_iteration or config.n_estimators,
+            "n_estimators_trained": (
+                int(best_iteration) + 1 if best_iteration is not None else config.n_estimators
+            ),
             "best_iteration": best_iteration,
             "selection_metric": selection_metric,
             "selection_mode": selection_mode,

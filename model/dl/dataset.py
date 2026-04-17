@@ -531,13 +531,10 @@ def create_dataloaders(
     - Validation ve test split'leri yalnizca original goruntulerden kurulur.
     - ``test_dir`` verilirse harici/original test dizini olarak kullanilir.
     """
-    if include_test:
-        if test_ratio <= 0 or test_ratio >= 1.0:
-            raise ValueError("test_ratio 0 ile 1 arasinda olmali.")
-    elif test_ratio < 0 or test_ratio >= 1.0:
-        raise ValueError("test_ratio 0 ile 1 arasinda olmali.")
     if val_ratio <= 0 or val_ratio >= 1.0:
         raise ValueError("val_ratio 0 ile 1 arasinda olmali.")
+    if test_ratio < 0 or test_ratio >= 1.0:
+        raise ValueError("test_ratio 0 ile 1 arasinda olmali.")
 
     _validate_expected_classes(trainval_dir, "Trainval")
     using_external_test = bool(
@@ -545,6 +542,10 @@ def create_dataloaders(
         and test_dir is not None
         and test_dir.resolve() != trainval_dir.resolve()
     )
+    if include_test and not using_external_test and test_ratio <= 0:
+        raise ValueError(
+            "Harici test dizini yoksa test_ratio pozitif olmali."
+        )
     if using_external_test and test_dir is not None:
         _validate_class_match(trainval_dir, test_dir)
 
