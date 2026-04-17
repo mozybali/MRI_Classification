@@ -506,12 +506,16 @@ def run_training(
             )
             if verbose:
                 print("  [OK] Final checkpoint kaydedildi (full-trainval)")
-    elif not full_trainval and best_state_dict is None:
+    elif best_state_dict is None and val_losses:
         best_state_dict = copy.deepcopy(model.state_dict())
         best_val_metrics = dict(val_scalars)
         best_epoch = epoch
         best_selection_value = float(val_scalars[selection_metric])
         selected_epoch_val_loss = val_scalars["loss"]
+    elif best_state_dict is None:
+        raise RuntimeError(
+            "Egitim calismadi: config.epochs >= 1 olmali veya --full-trainval kullanilmali."
+        )
 
     model.load_state_dict(best_state_dict)
 
@@ -630,7 +634,7 @@ def run_training(
             "selection_metric": selection_metric,
             "selection_mode": "fixed_epoch_full_trainval" if full_trainval else selection_mode,
             "best_selection_value": round(best_selection_value, 6) if best_selection_value is not None else None,
-            "lowest_val_loss": round(lowest_val_loss, 6) if best_val_metrics is not None else None,
+            "lowest_val_loss": round(lowest_val_loss, 6) if lowest_val_loss != float("inf") else None,
             "selected_epoch_val_loss": (
                 round(selected_epoch_val_loss, 6) if selected_epoch_val_loss is not None else None
             ),
