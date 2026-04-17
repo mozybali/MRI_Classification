@@ -151,6 +151,44 @@ def _extract_histogram_stats(gray: np.ndarray) -> np.ndarray:
     return np.concatenate([hist, stats_vec])
 
 
+def extract_texture_summary(image: np.ndarray) -> dict[str, float]:
+    """Tek goruntuden skaler doku ozet metriklerini dondur.
+
+    CSV tabanli akislar (ozellik_cikarici) icin uygun, dusuk boyutlu bir ozet:
+    LBP histogramindan entropi ve uniformity, GLCM'den tum aci/mesafe
+    ortalamalari (contrast, homogeneity, energy, correlation).
+    """
+    gray = _ensure_gray_uint8(image)
+
+    lbp_hist = _extract_lbp(gray)
+    lbp_nonzero = lbp_hist[lbp_hist > 0]
+    lbp_entropy = (
+        float(-np.sum(lbp_nonzero * np.log2(lbp_nonzero))) if lbp_nonzero.size else 0.0
+    )
+    lbp_uniformity = float(np.sum(lbp_hist ** 2))
+
+    glcm = graycomatrix(
+        gray,
+        distances=_GLCM_DISTANCES,
+        angles=_GLCM_ANGLES,
+        levels=256,
+        symmetric=True,
+        normed=True,
+    )
+    summary: dict[str, float] = {
+        "lbp_entropi": lbp_entropy,
+        "lbp_uniformity": lbp_uniformity,
+    }
+    for prop in _GLCM_PROPS:
+        values = graycoprops(glcm, prop)
+        summary[f"glcm_{prop}"] = float(np.mean(values))
+
+    for key, value in summary.items():
+        if not np.isfinite(value):
+            summary[key] = 0.0
+    return summary
+
+
 def extract_features(image: np.ndarray) -> np.ndarray:
     """Tek goruntuden sabit boyutlu ozellik vektoru cikar.
 

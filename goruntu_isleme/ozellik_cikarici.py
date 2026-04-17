@@ -33,6 +33,13 @@ try:
 except ImportError:
     from ayarlar import *
 
+try:
+    from model.sl.features import extract_texture_summary as _extract_texture_summary
+    _TEXTURE_SUMMARY_AVAILABLE = True
+except ImportError:
+    _extract_texture_summary = None
+    _TEXTURE_SUMMARY_AVAILABLE = False
+
 KATEGORIK_SUTUNLAR = [
     'dosya_adi', 'sinif', 'etiket', 'tam_yol',
     'kaynak_id', 'kaynak_grup', 'augmentasyon_mu'
@@ -315,7 +322,7 @@ class OzellikCikarici:
                 otsu_esik = float(np.mean(piksel_array))
             
             # 12. TÜM ÖZELLİKLERİ SÖZLÜKTE TOPLA VE DÖNDÜR
-            return {
+            sonuc = {
                 "dosya_adi": dosya_adi,
                 "boyut_bayt": int(boyut_bayt),
                 "genislik": int(genislik),
@@ -341,6 +348,22 @@ class OzellikCikarici:
                 "max_gradyan": round(max_gradyan, 2),
                 "otsu_esik": round(otsu_esik, 2),
             }
+
+            # 13. DOKU OZET METRIKLERI (LBP + GLCM) — model/sl/features.py tek kaynak
+            if _TEXTURE_SUMMARY_AVAILABLE:
+                try:
+                    doku_ozet = _extract_texture_summary(piksel_array)
+                    for anahtar, deger in doku_ozet.items():
+                        sonuc[anahtar] = round(
+                            self._sonlu_sayiya_zorla(deger), 6
+                        )
+                except Exception as e:
+                    print(
+                        f"[UYARI] Doku ozeti cikarilamadi {dosya_adi}: "
+                        f"{type(e).__name__}: {e}"
+                    )
+
+            return sonuc
             
         except Exception as e:
             print(f"[HATA] Özellik çıkarılamadı {goruntu_yolu}: {e}")
