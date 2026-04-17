@@ -57,18 +57,28 @@ class MRIDataset(Dataset):
         return image, label
 
 
-def get_transforms(image_size: int = 224, is_train: bool = True) -> transforms.Compose:
+def get_transforms(
+    image_size: int = 224,
+    is_train: bool = True,
+    hflip_p: float = 0.5,
+    rotation_degrees: float = 10.0,
+    color_jitter: float = 0.1,
+) -> transforms.Compose:
     """Egitim veya degerlendirme icin goruntu donusumleri."""
     if is_train:
-        return transforms.Compose([
-            transforms.Resize((image_size, image_size)),
-            transforms.RandomHorizontalFlip(p=0.5),
-            transforms.RandomRotation(10),
-            transforms.ColorJitter(brightness=0.1, contrast=0.1),
+        ops: list = [transforms.Resize((image_size, image_size))]
+        if hflip_p > 0:
+            ops.append(transforms.RandomHorizontalFlip(p=hflip_p))
+        if rotation_degrees > 0:
+            ops.append(transforms.RandomRotation(rotation_degrees))
+        if color_jitter > 0:
+            ops.append(transforms.ColorJitter(brightness=color_jitter, contrast=color_jitter))
+        ops.extend([
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                  std=[0.229, 0.224, 0.225]),
         ])
+        return transforms.Compose(ops)
     return transforms.Compose([
         transforms.Resize((image_size, image_size)),
         transforms.ToTensor(),
@@ -522,6 +532,9 @@ def create_dataloaders(
     seed: int = 42,
     num_workers: int = 0,
     include_test: bool = True,
+    hflip_p: float = 0.5,
+    rotation_degrees: float = 10.0,
+    color_jitter: float = 0.1,
 ) -> Tuple[DataLoader, DataLoader, DataLoader | None, Dict]:
     """
     Train, validation ve test DataLoader'lari olustur.
@@ -649,10 +662,18 @@ def create_dataloaders(
     for warning in split_warnings:
         print(f"  [UYARI] {warning}")
 
-    train_ds = MRIDataset(paths_train, labels_train, get_transforms(image_size, is_train=True))
-    val_ds = MRIDataset(paths_val, labels_val, get_transforms(image_size, is_train=False))
+    train_transform = get_transforms(
+        image_size,
+        is_train=True,
+        hflip_p=hflip_p,
+        rotation_degrees=rotation_degrees,
+        color_jitter=color_jitter,
+    )
+    eval_transform = get_transforms(image_size, is_train=False)
+    train_ds = MRIDataset(paths_train, labels_train, train_transform)
+    val_ds = MRIDataset(paths_val, labels_val, eval_transform)
     test_ds = (
-        MRIDataset(paths_test, labels_test, get_transforms(image_size, is_train=False))
+        MRIDataset(paths_test, labels_test, eval_transform)
         if include_test
         else None
     )
@@ -718,6 +739,9 @@ def create_full_train_test_loaders(
     image_size: int = 224,
     seed: int = 42,
     num_workers: int = 0,
+    hflip_p: float = 0.5,
+    rotation_degrees: float = 10.0,
+    color_jitter: float = 0.1,
 ) -> Tuple[DataLoader, DataLoader, Dict]:
     """
     Final model egitimi icin trainval'in tamami ve harici/original test diziniyle
@@ -767,8 +791,16 @@ def create_full_train_test_loaders(
         print(f"    {name}: {labels_test.count(lbl)}")
     print("  [Split] Strateji: full_trainval_external_test")
 
-    train_ds = MRIDataset(paths_train, labels_train, get_transforms(image_size, is_train=True))
-    test_ds = MRIDataset(paths_test, labels_test, get_transforms(image_size, is_train=False))
+    train_transform = get_transforms(
+        image_size,
+        is_train=True,
+        hflip_p=hflip_p,
+        rotation_degrees=rotation_degrees,
+        color_jitter=color_jitter,
+    )
+    eval_transform = get_transforms(image_size, is_train=False)
+    train_ds = MRIDataset(paths_train, labels_train, train_transform)
+    test_ds = MRIDataset(paths_test, labels_test, eval_transform)
 
     pin_memory = torch.cuda.is_available()
     train_generator = torch.Generator().manual_seed(seed)

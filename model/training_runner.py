@@ -72,6 +72,11 @@ class TrainingConfig:
     scheduler_factor: float = 0.5
     scheduler_patience: int = 5
     focal_gamma: float = 2.0
+    dropout: float = 0.5
+    label_smoothing: float = 0.0
+    hflip_p: float = 0.5
+    rotation_degrees: float = 10.0
+    color_jitter: float = 0.1
 
 
 def _contains_class_dirs(data_dir: Path) -> bool:
@@ -112,10 +117,15 @@ def build_model(
     num_classes: int,
     device: torch.device,
     pretrained: bool = False,
+    dropout: float = 0.5,
 ) -> torch.nn.Module:
     """Build a model instance by name."""
     if name == "resnet":
-        model = ResNetClassifier(num_classes=num_classes, pretrained=pretrained)
+        model = ResNetClassifier(
+            num_classes=num_classes,
+            pretrained=pretrained,
+            dropout=dropout,
+        )
     else:
         raise ValueError(
             f"Bilinmeyen model: {name}. Desteklenen modeller: {', '.join(SUPPORTED_MODELS)}"
@@ -183,6 +193,16 @@ def validate_training_config(
         raise ValueError("--scheduler-patience en az 1 olmali.")
     if config.focal_gamma < 0:
         raise ValueError("--focal-gamma negatif olamaz.")
+    if not 0.0 <= config.dropout < 1.0:
+        raise ValueError("--dropout 0 ile 1 arasinda olmali.")
+    if not 0.0 <= config.label_smoothing < 1.0:
+        raise ValueError("--label-smoothing 0 ile 1 arasinda olmali.")
+    if not 0.0 <= config.hflip_p <= 1.0:
+        raise ValueError("--hflip-p 0 ile 1 arasinda olmali.")
+    if config.rotation_degrees < 0:
+        raise ValueError("--rotation-degrees negatif olamaz.")
+    if config.color_jitter < 0:
+        raise ValueError("--color-jitter negatif olamaz.")
 
     trainval_dir, test_dir = resolve_data_dirs(config)
     if not full_trainval and test_dir is None and config.val_ratio + config.test_ratio >= 1.0:
@@ -313,6 +333,9 @@ def run_training(
             image_size=config.image_size,
             seed=config.seed,
             num_workers=config.num_workers,
+            hflip_p=config.hflip_p,
+            rotation_degrees=config.rotation_degrees,
+            color_jitter=config.color_jitter,
         )
         val_loader = None
     else:
@@ -326,6 +349,9 @@ def run_training(
             seed=config.seed,
             num_workers=config.num_workers,
             include_test=evaluate_test_set,
+            hflip_p=config.hflip_p,
+            rotation_degrees=config.rotation_degrees,
+            color_jitter=config.color_jitter,
         )
 
     if verbose:
@@ -338,7 +364,13 @@ def run_training(
                 print(f"    - {warning}")
 
     num_classes = info["num_classes"]
-    model = build_model(config.model, num_classes, device, pretrained=config.pretrained)
+    model = build_model(
+        config.model,
+        num_classes,
+        device,
+        pretrained=config.pretrained,
+        dropout=config.dropout,
+    )
     param_count = sum(p.numel() for p in model.parameters() if p.requires_grad)
     if verbose:
         print(f"\n[INFO] Model: {config.model.upper()}")
@@ -348,13 +380,19 @@ def run_training(
     if config.loss == "focal":
         criterion = FocalLoss(alpha=class_weights, gamma=config.focal_gamma)
     else:
-        criterion = torch.nn.CrossEntropyLoss(weight=class_weights)
+        criterion = torch.nn.CrossEntropyLoss(
+            weight=class_weights,
+            label_smoothing=config.label_smoothing,
+        )
 
     if verbose:
         if config.loss == "focal":
             print(f"  Loss: FOCAL (gamma={config.focal_gamma:.3f}, class weights aktif)")
         else:
-            print("  Loss: CE (class weights aktif)")
+            print(
+                "  Loss: CE (class weights aktif, "
+                f"label_smoothing={config.label_smoothing:.3f})"
+            )
 
     optimizer = torch.optim.AdamW(
         model.parameters(),

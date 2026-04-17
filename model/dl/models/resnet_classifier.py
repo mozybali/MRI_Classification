@@ -14,8 +14,10 @@ from torchvision import models
 class ResNetClassifier(nn.Module):
     """ResNet18 tabanli siniflandirici."""
 
-    def __init__(self, num_classes: int = 4, pretrained: bool = True):
+    def __init__(self, num_classes: int = 4, pretrained: bool = True, dropout: float = 0.5):
         super().__init__()
+        if not 0.0 <= dropout < 1.0:
+            raise ValueError(f"dropout 0 ile 1 arasinda olmali (alinan: {dropout}).")
         if pretrained:
             try:
                 self.backbone = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
@@ -29,7 +31,7 @@ class ResNetClassifier(nn.Module):
 
         in_features = self.backbone.fc.in_features
         self.backbone.fc = nn.Sequential(
-            nn.Dropout(0.5),
+            nn.Dropout(dropout),
             nn.Linear(in_features, num_classes),
         )
 

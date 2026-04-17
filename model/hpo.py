@@ -145,6 +145,21 @@ Ornekler:
     )
     parser.add_argument("--focal-gamma-min", type=float, default=1.0)
     parser.add_argument("--focal-gamma-max", type=float, default=4.0)
+    parser.add_argument("--dropout-min", type=float, default=0.1)
+    parser.add_argument("--dropout-max", type=float, default=0.6)
+    parser.add_argument("--label-smoothing-min", type=float, default=0.0)
+    parser.add_argument("--label-smoothing-max", type=float, default=0.15)
+    parser.add_argument(
+        "--hflip-p-choices",
+        type=float,
+        nargs="+",
+        default=[0.0, 0.25, 0.5],
+        help="Denenecek RandomHorizontalFlip olasiliklari",
+    )
+    parser.add_argument("--rotation-degrees-min", type=int, default=0)
+    parser.add_argument("--rotation-degrees-max", type=int, default=20)
+    parser.add_argument("--color-jitter-min", type=float, default=0.0)
+    parser.add_argument("--color-jitter-max", type=float, default=0.2)
     parser.add_argument(
         "--search-pretrained",
         action="store_true",
@@ -221,6 +236,11 @@ def _search_space_summary(args: argparse.Namespace) -> dict[str, Any]:
         ],
         "loss_choices": list(dict.fromkeys(args.loss_choices)),
         "focal_gamma_range": [args.focal_gamma_min, args.focal_gamma_max],
+        "dropout_range": [args.dropout_min, args.dropout_max],
+        "label_smoothing_range": [args.label_smoothing_min, args.label_smoothing_max],
+        "hflip_p_choices": sorted(set(args.hflip_p_choices)),
+        "rotation_degrees_range": [args.rotation_degrees_min, args.rotation_degrees_max],
+        "color_jitter_range": [args.color_jitter_min, args.color_jitter_max],
         "search_pretrained": bool(args.search_pretrained and args.model == "resnet"),
     }
 
@@ -251,6 +271,11 @@ def _build_config_from_args(
     focal_gamma: float = 2.0,
     pretrained: bool = False,
     epochs: int | None = None,
+    dropout: float = 0.5,
+    label_smoothing: float = 0.0,
+    hflip_p: float = 0.5,
+    rotation_degrees: float = 10.0,
+    color_jitter: float = 0.1,
 ) -> TrainingConfig:
     """HPO argumanlari ve trial/final parametrelerinden TrainingConfig olustur."""
     return TrainingConfig(
@@ -272,6 +297,11 @@ def _build_config_from_args(
         scheduler_factor=scheduler_factor,
         scheduler_patience=scheduler_patience,
         focal_gamma=focal_gamma,
+        dropout=dropout,
+        label_smoothing=label_smoothing,
+        hflip_p=hflip_p,
+        rotation_degrees=rotation_degrees,
+        color_jitter=color_jitter,
     )
 
 
@@ -308,6 +338,32 @@ def validate_search_args(args: argparse.Namespace) -> None:
         raise ValueError("scheduler patience araligi gecersiz.")
     if args.focal_gamma_min < 0 or args.focal_gamma_min > args.focal_gamma_max:
         raise ValueError("focal gamma araligi gecersiz.")
+    if (
+        args.dropout_min < 0
+        or args.dropout_max >= 1.0
+        or args.dropout_min > args.dropout_max
+    ):
+        raise ValueError("dropout araligi 0 ile 1 arasinda olmali ve min <= max olmali.")
+    if (
+        args.label_smoothing_min < 0
+        or args.label_smoothing_max >= 1.0
+        or args.label_smoothing_min > args.label_smoothing_max
+    ):
+        raise ValueError("label smoothing araligi 0 ile 1 arasinda olmali ve min <= max olmali.")
+    if not args.hflip_p_choices:
+        raise ValueError("--hflip-p-choices bos olamaz.")
+    if any(p < 0 or p > 1 for p in args.hflip_p_choices):
+        raise ValueError("hflip olasiliklari 0 ile 1 arasinda olmali.")
+    if (
+        args.rotation_degrees_min < 0
+        or args.rotation_degrees_min > args.rotation_degrees_max
+    ):
+        raise ValueError("rotation degrees araligi gecersiz.")
+    if (
+        args.color_jitter_min < 0
+        or args.color_jitter_min > args.color_jitter_max
+    ):
+        raise ValueError("color jitter araligi gecersiz.")
     if not args.loss_choices:
         raise ValueError("--loss-choices bos olamaz.")
     if args.n_startup_trials < 1:
@@ -394,8 +450,34 @@ def _sample_params(trial, args: argparse.Namespace) -> dict[str, Any]:
             args.focal_gamma_min,
             args.focal_gamma_max,
         )
+        params["label_smoothing"] = 0.0
     else:
         params["focal_gamma"] = 2.0
+        params["label_smoothing"] = trial.suggest_float(
+            "label_smoothing",
+            args.label_smoothing_min,
+            args.label_smoothing_max,
+        )
+
+    params["dropout"] = trial.suggest_float(
+        "dropout",
+        args.dropout_min,
+        args.dropout_max,
+    )
+    params["hflip_p"] = trial.suggest_categorical(
+        "hflip_p",
+        sorted(set(args.hflip_p_choices)),
+    )
+    params["rotation_degrees"] = trial.suggest_int(
+        "rotation_degrees",
+        args.rotation_degrees_min,
+        args.rotation_degrees_max,
+    )
+    params["color_jitter"] = trial.suggest_float(
+        "color_jitter",
+        args.color_jitter_min,
+        args.color_jitter_max,
+    )
 
     if args.model == "resnet" and args.search_pretrained:
         params["pretrained"] = trial.suggest_categorical("pretrained", [False, True])
@@ -431,6 +513,11 @@ def _objective_factory(args: argparse.Namespace, study_dir: Path):
             loss=params["loss"],
             focal_gamma=params["focal_gamma"],
             pretrained=params["pretrained"],
+            dropout=params["dropout"],
+            label_smoothing=params["label_smoothing"],
+            hflip_p=params["hflip_p"],
+            rotation_degrees=params["rotation_degrees"],
+            color_jitter=params["color_jitter"],
         )
 
         try:
@@ -699,6 +786,11 @@ def _run_final_training(
         scheduler_factor=float(best_params["scheduler_factor"]),
         scheduler_patience=int(best_params["scheduler_patience"]),
         focal_gamma=float(best_params.get("focal_gamma", 2.0)),
+        dropout=float(best_params.get("dropout", 0.5)),
+        label_smoothing=float(best_params.get("label_smoothing", 0.0)),
+        hflip_p=float(best_params.get("hflip_p", 0.5)),
+        rotation_degrees=float(best_params.get("rotation_degrees", 10.0)),
+        color_jitter=float(best_params.get("color_jitter", 0.1)),
     )
     final_dir = study_dir / "best_run"
     return run_training(

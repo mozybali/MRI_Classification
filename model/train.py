@@ -124,6 +124,36 @@ Ornekler:
         help="Loss=focal iken gamma parametresi",
     )
     parser.add_argument(
+        "--dropout",
+        type=float,
+        default=0.5,
+        help="ResNet classifier head dropout orani",
+    )
+    parser.add_argument(
+        "--label-smoothing",
+        type=float,
+        default=0.0,
+        help="CE loss icin label smoothing (focal iken yok sayilir)",
+    )
+    parser.add_argument(
+        "--hflip-p",
+        type=float,
+        default=0.5,
+        help="Egitim augmentasyonunda RandomHorizontalFlip olasiligi",
+    )
+    parser.add_argument(
+        "--rotation-degrees",
+        type=float,
+        default=10.0,
+        help="Egitim augmentasyonunda RandomRotation sinir derecesi",
+    )
+    parser.add_argument(
+        "--color-jitter",
+        type=float,
+        default=0.1,
+        help="Egitim augmentasyonunda ColorJitter brightness/contrast siddeti",
+    )
+    parser.add_argument(
         "--full-trainval",
         action="store_true",
         help=(
@@ -167,6 +197,11 @@ def main(argv: list[str] | None = None) -> int:
             "scheduler_patience": (args.scheduler_patience, 5),
             "focal_gamma": (args.focal_gamma, 2.0),
             "num_workers": (args.num_workers, 0),
+            "dropout": (args.dropout, 0.5),
+            "label_smoothing": (args.label_smoothing, 0.0),
+            "hflip_p": (args.hflip_p, 0.5),
+            "rotation_degrees": (args.rotation_degrees, 10.0),
+            "color_jitter": (args.color_jitter, 0.1),
         }
         used_dl_args = [k for k, (val, default) in dl_args.items() if val != default]
         if used_dl_args:
@@ -222,6 +257,11 @@ def main(argv: list[str] | None = None) -> int:
         scheduler_factor=args.scheduler_factor,
         scheduler_patience=args.scheduler_patience,
         focal_gamma=args.focal_gamma,
+        dropout=args.dropout,
+        label_smoothing=args.label_smoothing,
+        hflip_p=args.hflip_p,
+        rotation_degrees=args.rotation_degrees,
+        color_jitter=args.color_jitter,
     )
 
     try:
