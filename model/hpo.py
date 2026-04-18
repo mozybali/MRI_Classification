@@ -829,24 +829,29 @@ def _figure_from_plot_result(plot_result: Any) -> Any | None:
 
 
 def _save_single_hpo_plot(study: Any, plot_func: Any, save_path: Path, label: str) -> str | None:
+    import logging
     import matplotlib.pyplot as plt
 
+    optuna_logger = logging.getLogger("optuna")
+    previous_level = optuna_logger.level
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
+            optuna_logger.setLevel(logging.ERROR)
             plot_result = plot_func(study)
-        fig = _figure_from_plot_result(plot_result)
-        if fig is None:
-            raise RuntimeError("Matplotlib figure bulunamadi.")
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.tight_layout()
-        fig.savefig(save_path, dpi=150, bbox_inches="tight")
-        plt.close(fig)
+            fig = _figure_from_plot_result(plot_result)
+            if fig is None:
+                raise RuntimeError("Matplotlib figure bulunamadi.")
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            fig.savefig(save_path, dpi=150, bbox_inches="tight")
+            plt.close(fig)
         return str(save_path)
     except Exception as exc:
         plt.close("all")
         print(f"[UYARI] HPO {label} grafigi kaydedilemedi: {exc}")
         return None
+    finally:
+        optuna_logger.setLevel(previous_level)
 
 
 def _save_hpo_visualizations(study: Any, study_dir: Path) -> dict[str, str]:
