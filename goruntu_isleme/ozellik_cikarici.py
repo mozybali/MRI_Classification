@@ -7,7 +7,6 @@ ozellik_cikarici.py
 import shutil
 
 import pickle
-import re
 import math
 import numpy as np
 import pandas as pd
