@@ -105,3 +105,25 @@ _review_tmp/
 *.pt
 *.pth
 *.joblib
+*.pkl
+*.pickle
+
+# =========================
+# Data and numeric caches
+# =========================
+*.npy
+*.npz
+
+# =========================
+# Optuna / SQLite storage
+# =========================
+*.db
+*.sqlite
+*.sqlite3
+
+# =========================
+# Coverage and linter caches
+# =========================
+coverage.xml
+.mypy_cache/
+.ruff_cache/
