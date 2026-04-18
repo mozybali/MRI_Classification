@@ -1,41 +1,53 @@
-# Test Yapisi
+# Test Klasörü
 
-Bu klasor, projenin EDA, goruntu isleme, CLI ve model altyapisini dogrulayan `pytest` testlerini icerir.
+Bu klasör, projenin EDA, görüntü işleme, özellik çıkarma, CLI, derin öğrenme ve XGBoost akışlarını `pytest` ile doğrular. Testlerin önemli bölümü sentetik veri ve `tmp_path` kullanır; gerçek veri veya ağır Torch senaryoları varsayılan koşuldan ayrılmıştır.
 
-## Icerik
+## Dosya İçeriği
 
-- `conftest.py`: Ortak fixture'lar ve test yardimcilari
-- `test_eda_araclar.py`: EDA sinifi ve analiz ciktilari
-- `test_goruntu_isleyici.py`: On isleme ve goruntu donusumleri
-- `test_ozellik_cikarici.py`: Ozellik cikarma, split ve olceklendirme
-- `pipeline_quick_test.py`: Paket, veri seti ve goruntu isleme modulu hizli kontrolu
-- `test_pipeline.py`: Tek goruntu uzerinde pipeline gorsellestirme script'i
-- `test_model_altyapi.py`: Dataset, loss, utility ve split altyapisi
-- `test_model_egitici.py`: Egitim akisina yonelik birim kontroller
-- `test_akislari_ve_cli.py`: CLI action'lari ve uctan uca akis kontrolleri
-- `_runtime_verify/`: Calisma sirasinda olusabilecek gecici dogrulama klasoru
+- `conftest.py`: Ortak fixture ve test yardımcıları.
+- `test_eda_araclar.py`: EDA sınıfı, veri çözümleme ve analiz çıktıları.
+- `test_goruntu_isleyici.py`: Görüntü yükleme, normalizasyon, kalite kontrol, augmentation ve leak-free split kontrolleri.
+- `test_ozellik_cikarici.py`: Tek görüntü özellikleri, CSV üretimi, NaN temizleme, split ve ölçeklendirme.
+- `test_akislari_ve_cli.py`: `mri-eda` ve `mri-preprocess` tarafındaki CLI/action akışları.
+- `test_model_sl.py`: XGBoost özellik matrisi, model kaydetme/yükleme ve shallow-learning smoke testleri.
+- `test_model_altyapi.py`: Torch tabanlı dataset, DataLoader, inference ve eğitim yardımcıları.
+- `test_model_egitici.py`: ResNet, loss, HPO ve eğitim yardımcıları için Torch bağımlı testler.
+- `test_bugfixes.py`: Daha önce raporlanan kritik/yüksek öncelikli hatalar için regresyon testleri.
+- `pipeline_quick_test.py`: Paket kurulumu, veri seti yapısı ve görüntü işleme modülü için hızlı kontrol script'i.
+- `test_pipeline.py`: Tek görüntü üzerinde ön işleme aşamalarını görselleştiren yardımcı script.
 
-## Calistirma
+## Testleri Çalıştırma
 
-Tum testler:
+Tüm varsayılan testleri çalıştırmak için:
 
 ```bash
 pytest
 ```
 
-Sadece hizli testler:
+Veri, GPU ve yavaş testleri dışarıda bırakan hızlı koşum:
 
 ```bash
 pytest -m "not slow and not requires_data and not requires_gpu"
 ```
 
-Belirli dosya:
+Belirli bir dosyayı çalıştırmak için:
 
 ```bash
 pytest tests/test_akislari_ve_cli.py
 ```
 
-Goruntu isleme pipeline yardimci kontrolleri:
+Torch bağımlı test dosyaları varsayılan olarak modül seviyesinde atlanır. Bu testleri açmak için ortam değişkeni verin:
+
+```bash
+# Windows PowerShell
+$env:MRI_RUN_TORCH_TESTS = "1"
+pytest tests/test_model_altyapi.py tests/test_model_egitici.py
+
+# macOS / Linux
+MRI_RUN_TORCH_TESTS=1 pytest tests/test_model_altyapi.py tests/test_model_egitici.py
+```
+
+Görüntü işleme yardımcı kontrolleri:
 
 ```bash
 python tests/pipeline_quick_test.py
@@ -44,16 +56,16 @@ python tests/test_pipeline.py ornek_goruntu.jpg
 
 ## Marker'lar
 
-`pytest.ini` icinde tanimli marker'lar:
+`pytest.ini` içinde tanımlı marker'lar:
 
-- `unit`
-- `integration`
-- `slow`
-- `requires_data`
-- `requires_gpu`
+- `unit`: Küçük ve izole birim testleri.
+- `integration`: Modüller arası akış testleri.
+- `slow`: Uzun sürebilecek testler.
+- `requires_data`: Gerçek veri seti gerektiren testler.
+- `requires_gpu`: GPU gerektiren testler.
 
 ## Notlar
 
-- Testlerin buyuk bolumu sentetik veri ve gecici dizinler kullanir.
-- Gercek veri veya GPU bagimli senaryolari ayirmak icin marker'lar kullanilir.
-- Paket kurulu degilse testler repo kokunden calistirilmalidir.
+- Testler repo kökünden çalıştırılmalıdır; paket kurulumu yapılmışsa CLI giriş noktaları da kullanılabilir.
+- Sentetik veri kullanan testler proje veri setini değiştirmez.
+- Gerçek veriyle çalışan yardımcı script'ler `Veri_Seti/OriginalDataset/<SinifAdi>/` yapısını bekler.

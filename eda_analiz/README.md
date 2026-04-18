@@ -1,72 +1,74 @@
-# EDA Analiz Modulu
+# EDA Analiz Modülü
 
-Bu modul, MRI veri seti icin kesifsel veri analizi uretir. Sinif dagilimi, goruntu boyutlari, piksel yogunlugu, korelasyon ve PCA gorsellerini otomatik olarak kaydeder.
+Bu modül, `Veri_Seti/OriginalDataset` altındaki MRI görüntüleri için keşifsel veri analizi üretir. Sınıf dağılımı, görüntü boyutları, piksel yoğunluğu, korelasyon ve PCA çıktıları eğitimden önce veri setini hızlıca okumayı sağlar.
 
-## Ne Icin Kullanilir
+## Dosya Yapısı
 
-- Veri setinin dengeli olup olmadigini kontrol etmek
-- Boyut ve yogunluk farklarini egitim oncesi incelemek
-- Problemli goruntu veya sinif dagilimlarini erken fark etmek
-- Rapor ve sunumlar icin hazir grafik ciktilari uretmek
+```text
+eda_analiz/
+|-- __init__.py
+|-- __main__.py
+|-- eda_araclar.py
+|-- eda_calistir.py
+`-- README.md
+```
 
-## Calistirma
+- `eda_araclar.py`: `EDAAnaLiz` sınıfını ve analiz/görselleştirme fonksiyonlarını içerir.
+- `eda_calistir.py`: CLI giriş noktasıdır; `mri-eda` komutu buraya bağlanır.
+- `__main__.py`: Modülü `python -m eda_analiz` biçiminde çalıştırmayı destekler.
 
-Repo kokunden onerilen komut:
+## Ne Zaman Kullanılır
+
+- Sınıf dağılımını ve veri dengesizliğini kontrol etmek.
+- Görüntü boyutu, oran ve yoğunluk farklılıklarını eğitimden önce görmek.
+- Problemli klasör yapısı veya okunamayan görüntüleri erken yakalamak.
+- Rapor veya sunum için temel grafik çıktıları üretmek.
+
+## Çalıştırma
+
+Kurulumdan sonra önerilen komut:
 
 ```bash
 mri-eda --interactive
 ```
 
-Dogrudan Python ile:
+Doğrudan Python modülüyle:
 
 ```bash
 python -m eda_analiz.eda_calistir --interactive
 ```
 
-Etkilesimsiz ornekler:
+Etkileşimsiz örnekler:
 
 ```bash
 mri-eda --data-dir Veri_Seti/OriginalDataset --output-dir eda_analiz/eda_ciktilar
-mri-eda --data-dir Veri_Seti/OriginalDataset --jobs 1
+mri-eda --data-dir Veri_Seti --jobs 1
+python -m eda_analiz --data-dir Veri_Seti/OriginalDataset
 ```
 
 ## CLI Parametreleri
 
-- `--data-dir`: Analiz edilecek veri klasoru
-- `--output-dir`: Ciktilarin yazilacagi klasor
-- `--interactive`: Eksik argumanlari soru-cevap ile tamamlar
-- `--jobs`: Istatistik hesaplamada kullanilacak cekirdek sayisi
+- `--data-dir`: Analiz edilecek veri klasörü. Üst klasör olarak `Veri_Seti` verilirse `OriginalDataset` otomatik çözümlenir.
+- `--output-dir`: Analiz çıktılarının yazılacağı klasör.
+- `--interactive`: Eksik argümanları soru-cevap ile tamamlar.
+- `--jobs`: İstatistik hesaplamada kullanılacak çekirdek sayısı. Verilmezse otomatik seçilir.
 
-## Varsayilanlar
+## Varsayılanlar
 
-- Varsayilan veri klasoru: `Veri_Seti/OriginalDataset`
-- Varsayilan cikti klasoru: `eda_analiz/eda_ciktilar`
-- `--jobs` verilmezse cekirdek sayisi otomatik secilir
+- Veri klasörü: `Veri_Seti/OriginalDataset`
+- Çıktı klasörü: `eda_analiz/eda_ciktilar`
+- Desteklenen görüntü uzantıları: `.jpg`, `.jpeg`, `.png`
+- Sabit sınıflar: `NonDemented`, `VeryMildDemented`, `MildDemented`, `ModerateDemented`
 
-Desteklenen veri yapilari:
+Beklenen veri yapısı:
 
 ```text
 Veri_Seti/OriginalDataset/<SinifAdi>/
 ```
 
-### Otomatik Klasor Cozumleme
+## Üretilen Çıktılar
 
-`--data-dir` olarak ust klasor verildiginde (ornegin `Veri_Seti`), arac
-otomatik olarak `OriginalDataset` alt klasorunu arar ve kullanir.
-Eger sinif klasorleri dogrudan verilen dizinde bulunursa o dizin kullanilir.
-
-### Interaktif Mod
-
-Interaktif soru-cevap modu yalnizca `--interactive` bayragi ile etkinlesir.
-Bayrak verilmezse varsayilan dizinler sessizce kullanilir; CI/CD
-ortamlarinda asili kalma riski yoktur.
-
-### Desteklenen Goruntu Uzantilari
-
-Sadece `.jpg`, `.jpeg` ve `.png` dosyalari yuklenir. Diger uzantilar
-(`.tif`, `.bmp`, `.gif` vb.) varsa konsola uyari basilir ve atlanir.
-
-## Uretilen Ciktilar
+Varsayılan olarak `eda_analiz/eda_ciktilar` altına şu dosyalar yazılır:
 
 - `0_ozet_istatistikler.txt`
 - `1_sinif_dagilimi.png`
@@ -78,6 +80,6 @@ Sadece `.jpg`, `.jpeg` ve `.png` dosyalari yuklenir. Diger uzantilar
 
 ## Notlar
 
-- Arac, cikti klasorunu yoksa otomatik olusturur.
-- Istatistik hesaplamalari cok cekirdekli calisma destekler.
-- Proje genelindeki sinif adlari `NonDemented`, `VeryMildDemented`, `MildDemented`, `ModerateDemented` olarak sabittir.
+- Çıktı klasörü yoksa otomatik oluşturulur.
+- Desteklenmeyen görüntü uzantıları atlanır ve konsola uyarı yazılır.
+- İnteraktif mod yalnızca `--interactive` bayrağı verildiğinde açılır; CI/CD ortamlarında komut kendiliğinden girdi beklemez.

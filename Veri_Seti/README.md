@@ -1,11 +1,12 @@
-# Veri Seti Yapisi
+# Veri Seti Klasörü
 
-Bu klasor, projenin bekledigi MRI veri yerlesimini tanimlar. Proje yalnizca `OriginalDataset` uzerinden calisacak sekilde sadelelestirilmistir.
+Bu klasör, projenin ham MRI görüntülerini aradığı yerdir. Kod tabanı tek kaynak veri dizini olarak `Veri_Seti/OriginalDataset` yapısını bekler; EDA, ön işleme ve eğitim adımları varsayılan olarak bu yerleşimle uyumludur.
 
-## Beklenen Yapi
+## Beklenen Yapı
 
 ```text
 Veri_Seti/
+|-- README.md
 `-- OriginalDataset/
     |-- NonDemented/
     |-- VeryMildDemented/
@@ -13,23 +14,37 @@ Veri_Seti/
     `-- ModerateDemented/
 ```
 
-## Sinif Adlari
+Sınıf klasör adları birebir bu şekilde yazılmalıdır. Projedeki etiket eşlemesi sabittir:
 
-Asagidaki klasor adlari proje boyunca sabit kabul edilir:
+| Klasör | Etiket | Anlam |
+| --- | ---: | --- |
+| `NonDemented` | 0 | Demans yok |
+| `VeryMildDemented` | 1 | Çok hafif demans |
+| `MildDemented` | 2 | Hafif demans |
+| `ModerateDemented` | 3 | Orta seviye demans |
 
-- `NonDemented`
-- `VeryMildDemented`
-- `MildDemented`
-- `ModerateDemented`
+## Kullanım Akışı
 
-## Kullanim Politikasi
+- EDA modülü varsayılan olarak `Veri_Seti/OriginalDataset` içeriğini analiz eder.
+- Görüntü işleme modülü ham veriyi önce kaynak grupları karışmayacak şekilde `trainval` ve `test` olarak böler.
+- İşlenmiş görüntüler ve özellik CSV'leri bu klasöre değil, `goruntu_isleme/cikti` altına yazılır.
+- Model eğitimi varsayılan olarak `goruntu_isleme/cikti/trainval` ve `goruntu_isleme/cikti/test` dizinlerini kullanır.
+- Ham veriyle doğrudan eğitim yapılacaksa eğitim komutunda `--trainval-dir Veri_Seti/OriginalDataset` verilebilir.
 
-- `OriginalDataset`: tek kaynak veri dizini
-- `goruntu_isleme/preprocess`: ham veriyi once leak-free `trainval/test` olarak ayirir
-- `validation`: `trainval` icinden original-only olarak uretilir
-- `test`: preprocess sirasinda ayrilan original-only split'tir
-- Train tarafinda yalnizca transform tabanli augmentation kullanilir
+## Veri Politikası
 
-## Not
+- `OriginalDataset` ham/orijinal veri kaynağıdır; bu klasördeki dosyalar çalışma sırasında değiştirilmez.
+- Desteklenen görüntü uzantıları `.jpg`, `.jpeg` ve `.png` dosyalarıdır.
+- `preprocess` adımı test verisini original-only tutar; augmentation yalnızca `trainval` tarafına uygulanır.
+- Validation ayrımı eğitim sırasında `trainval` içinden yapılır ve original-only örneklerle kurulur.
+- Aynı kaynaktan türeyen dosyalar mümkün olduğunca aynı split içinde tutulur; bu sayede veri sızıntısı riski azaltılır.
 
-Repo icindeki guncel beklenti `Veri_Seti/OriginalDataset/<SinifAdi>/` yapisidir ve proje akisi bu yol uzerine sabitlenmistir.
+## Hızlı Kontrol
+
+Veri yapısını ve paket kurulumunu hızlıca kontrol etmek için repo kökünden şu komut çalıştırılabilir:
+
+```bash
+python tests/pipeline_quick_test.py
+```
+
+EDA veya ön işleme başlatmadan önce dört sınıf klasörünün de mevcut olduğundan ve dosya adlarının aynı kaynaktan türeyen kopyaları ayırt edilebilir bıraktığından emin olun.
