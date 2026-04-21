@@ -425,9 +425,10 @@ class OzellikCikarici:
             gorseller.sort(key=lambda p: p.name)
             
             partial_func = partial(_ozellik_cikar_wrapper, sinif_adi=sinif_adi)
-            if self.n_jobs > 1:
+            efektif_isci = min(self.n_jobs, max(1, len(gorseller)))
+            if efektif_isci > 1:
                 try:
-                    with Pool(processes=self.n_jobs, initializer=_ozellik_worker_init) as pool:
+                    with Pool(processes=efektif_isci, initializer=_ozellik_worker_init) as pool:
                         sonuclar = list(tqdm(
                             pool.imap(partial_func, gorseller),
                             total=len(gorseller),

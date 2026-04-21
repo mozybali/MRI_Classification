@@ -1399,11 +1399,12 @@ class GorselIsleyici:
             print("[BILGI] Affine/rigid registration aktif - sequential modda calisiyor (template tutarliligi icin)")
 
         sonuclar = []
-        if paralel_kullan and self.n_jobs > 1:
+        efektif_isci = min(self.n_jobs, max(1, len(islem_args)))
+        if paralel_kullan and efektif_isci > 1:
             # Paralel işleme ile hızlandırma
-            print(f"[BILGI] Paralel isleme aktif: {self.n_jobs} cekirdek kullaniliyor")
+            print(f"[BILGI] Paralel isleme aktif: {efektif_isci} cekirdek kullaniliyor")
             try:
-                with Pool(processes=self.n_jobs, initializer=_islem_worker_init) as pool:
+                with Pool(processes=efektif_isci, initializer=_islem_worker_init) as pool:
                     sonuclar = list(tqdm(
                         pool.imap(_islem_wrapper, islem_args),
                         total=len(dosyalar),
