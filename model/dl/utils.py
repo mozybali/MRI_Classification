@@ -43,11 +43,15 @@ def set_seed(seed: int = 42):
 
 
 def get_device(verbose: bool = True) -> torch.device:
-    """GPU varsa CUDA, yoksa CPU dondur."""
+    """CUDA > MPS > CPU oncelik sirasi ile uygun device dondur."""
     if torch.cuda.is_available():
         device = torch.device("cuda")
         if verbose:
             print(f"[OK] GPU kullaniliyor: {torch.cuda.get_device_name(0)}")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+        if verbose:
+            print("[OK] Apple MPS GPU kullaniliyor")
     else:
         device = torch.device("cpu")
         if verbose:

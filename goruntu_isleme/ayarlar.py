@@ -103,11 +103,11 @@ KIRPMA_YUZDELERI = (1, 99)
 NORMALIZASYON_STRATEJISI = "standard"  # "minimal", "standard", "aggressive"
 
 # Z-score normalizasyonu: Ortalama=0, Std=1 yapma (isteğe bağlı)
-Z_SCORE_NORMALIZASYON_AKTIF = True
+Z_SCORE_NORMALIZASYON_AKTIF = False
 
 # Histogram eşitleme (CLAHE) - Kontrast iyileştirme
 HISTOGRAM_ESITLEME_AKTIF = True
-CLAHE_CLIP_LIMIT = 4.0  # Kırpma sınırı (yüksek = daha fazla kontrast)
+CLAHE_CLIP_LIMIT = 3.0  # Kırpma sınırı (yüksek = daha fazla kontrast)
 
 # Filtreler - Gelişmiş görüntü filtreleme seçenekleri
 GELISMIS_FILTRE_AKTIF = False
