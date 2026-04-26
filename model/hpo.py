@@ -153,8 +153,11 @@ Ornekler:
         "--hflip-p-choices",
         type=float,
         nargs="+",
-        default=[0.0, 0.25, 0.5],
-        help="Denenecek RandomHorizontalFlip olasiliklari",
+        default=[0.0],
+        help=(
+            "Denenecek RandomHorizontalFlip olasiliklari. Beyin MR'larinda "
+            "anatomik lateralite onemli oldugundan varsayilan yalnizca 0.0'dir."
+        ),
     )
     parser.add_argument("--rotation-degrees-min", type=int, default=0)
     parser.add_argument("--rotation-degrees-max", type=int, default=20)
@@ -273,7 +276,7 @@ def _build_config_from_args(
     epochs: int | None = None,
     dropout: float = 0.5,
     label_smoothing: float = 0.0,
-    hflip_p: float = 0.5,
+    hflip_p: float = 0.0,
     rotation_degrees: float = 10.0,
     color_jitter: float = 0.1,
 ) -> TrainingConfig:
@@ -788,7 +791,7 @@ def _run_final_training(
         focal_gamma=float(best_params.get("focal_gamma", 2.0)),
         dropout=float(best_params.get("dropout", 0.5)),
         label_smoothing=float(best_params.get("label_smoothing", 0.0)),
-        hflip_p=float(best_params.get("hflip_p", 0.5)),
+        hflip_p=float(best_params.get("hflip_p", 0.0)),
         rotation_degrees=float(best_params.get("rotation_degrees", 10.0)),
         color_jitter=float(best_params.get("color_jitter", 0.1)),
     )

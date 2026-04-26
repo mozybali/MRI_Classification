@@ -386,7 +386,7 @@ class GorselIsleyici:
         # 0-255 aralığına ölçeklendir ve uint8'e çevir
         return (norm * 255.0).astype(np.uint8)
     
-    def histogram_esitle(self, goruntu: np.ndarray, adaptive: bool = True) -> np.ndarray:
+    def histogram_esitle(self, goruntu: np.ndarray, adaptive: bool = False) -> np.ndarray:
         """
         CLAHE (Contrast Limited Adaptive Histogram Equalization) uygula.
         
@@ -496,7 +496,9 @@ class GorselIsleyici:
                     return self._bilateral_filtre_uygula(goruntu)
                 if GAUSSIAN_BLUR_AKTIF:
                     return self.gurultu_gider(goruntu, metod='gaussian')
-            return self.gurultu_gider(goruntu, metod='median')
+            # Filtreler kapaliyken median 3x3'e dusmek kortikal dokuyu siler;
+            # explicit olarak hicbir filtre etkin degilse goruntuyu degistirme.
+            return goruntu
 
         if metod == 'median':
             # Median filtre: Salt-and-pepper gürültüsü için ideal
@@ -908,18 +910,27 @@ class GorselIsleyici:
             print(f"[UYARI] Advanced registration başarısız: {e}")
             return self._simple_center_alignment(goruntu)
     
+    # Z-score'u uint8'e geri eslerken kullanilan +/- aralik (sigma cinsinden).
+    # +/- 2.5 sigma disindaki degerler kirpilarak [0, 255]'e dogrusal eslenir;
+    # boylece "*50 + 128" gibi sihirli sabitler yerine acik bir kontrat olur.
+    _Z_SCORE_RANGE_SIGMA = 2.5
+
     def z_score_normalize(self, goruntu: np.ndarray) -> np.ndarray:
-        """Z-score normalizasyonu uygula (mean=0, std=1)."""
+        """Robust z-score: mean/std cikarip +/- 2.5 sigma'yi [0, 255]'e dogrusal esle."""
         if not Z_SCORE_NORMALIZASYON_AKTIF:
             return goruntu
-        
-        mean = np.mean(goruntu)
-        std = np.std(goruntu)
-        
+
+        arr = goruntu.astype(np.float32)
+        mean = float(arr.mean())
+        std = float(arr.std())
+
         if std < 1e-6:
             return goruntu
-        
-        return ((goruntu - mean) / std * 50 + 128).clip(0, 255).astype(np.uint8)
+
+        zscored = (arr - mean) / std
+        clipped = np.clip(zscored, -self._Z_SCORE_RANGE_SIGMA, self._Z_SCORE_RANGE_SIGMA)
+        rescaled = (clipped + self._Z_SCORE_RANGE_SIGMA) / (2.0 * self._Z_SCORE_RANGE_SIGMA) * 255.0
+        return rescaled.astype(np.uint8)
     
     def goruntu_isle(self, dosya_yolu: str) -> Optional[np.ndarray]:
         """
@@ -996,23 +1007,23 @@ class GorselIsleyici:
         if strategy == "minimal":
             # Minimal: Sadece percentile clipping
             goruntu = self.yogunluk_normalize(goruntu)
-            
+
         elif strategy == "standard":
-            # Standard: percentile + CLAHE (önerilen)
+            # Standard: percentile + sabit CLAHE (train/test arasi deterministik)
             goruntu = self.yogunluk_normalize(goruntu)
-            goruntu = self.histogram_esitle(goruntu, adaptive=True)
-            
+            goruntu = self.histogram_esitle(goruntu, adaptive=False)
+
         elif strategy == "aggressive":
-            # Aggressive: percentile + CLAHE + z-score
+            # Aggressive: percentile + sabit CLAHE + z-score
             goruntu = self.yogunluk_normalize(goruntu)
-            goruntu = self.histogram_esitle(goruntu, adaptive=True)
+            goruntu = self.histogram_esitle(goruntu, adaptive=False)
             goruntu = self.z_score_normalize(goruntu)
-            
+
         else:
             # Varsayılan: standard
             print(f"[UYARI] Bilinmeyen strateji: {strategy}, 'standard' kullanılıyor")
             goruntu = self.yogunluk_normalize(goruntu)
-            goruntu = self.histogram_esitle(goruntu, adaptive=True)
+            goruntu = self.histogram_esitle(goruntu, adaptive=False)
         
         return goruntu
     
@@ -1479,8 +1490,8 @@ class GorselIsleyici:
             dosyalar=trainval_dosyalar,
         )
 
-        # Template'i sıfırla: test verisi trainval template'inden etkilenmemeli
-        self.template_image = None
+        # Template korunur: trainval ve test ayni anchor'a hizalanmali ki
+        # affine/rigid registration train/test arasi sistematik kaymaya yol acmasin.
 
         test_istatistik = self.tum_gorselleri_isle(
             cikti_klasoru=Path(cikti_klasoru) / "test",

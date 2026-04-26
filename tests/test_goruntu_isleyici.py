@@ -112,8 +112,13 @@ class TestGorselIsleyici:
         assert resized.shape == (256, 256)
         assert resized.dtype == np.uint8
 
-    def test_gurultu_gider_auto_varsayilan_olarak_median_kullanir(self, monkeypatch):
-        """Gelismis filtreler kapaliyken auto mod median filtreye dusmeli."""
+    def test_gurultu_gider_auto_filtreler_kapaliyken_no_op(self, monkeypatch):
+        """Tum filtreler kapaliyken auto mod goruntuyu degistirmeden dondurmeli.
+
+        Eski davranis: GELISMIS_FILTRE_AKTIF=False iken median 3x3'e dusuluyordu;
+        bu kortikal dokuyu sessizce siliyordu. Yeni sozlesme: hicbir filtre
+        secilmemisse goruntu aynen donulur.
+        """
         monkeypatch.setattr(gi, "GELISMIS_FILTRE_AKTIF", False)
         monkeypatch.setattr(gi, "GAUSSIAN_BLUR_AKTIF", False)
         monkeypatch.setattr(gi, "BILATERAL_FILTRE_AKTIF", False)
@@ -125,7 +130,7 @@ class TestGorselIsleyici:
         result = isleyici.gurultu_gider(test_img, metod='auto')
 
         assert result.dtype == np.uint8
-        assert result[4, 4] != 255
+        np.testing.assert_array_equal(result, test_img)
 
     def test_goruntu_isle_gurultu_giderme_ayar_gudumlu_calisir(self, monkeypatch):
         """goruntu_isle median'i zorlamamali; gurultu giderme auto modda cagrilmali."""

@@ -74,7 +74,7 @@ class TrainingConfig:
     focal_gamma: float = 2.0
     dropout: float = 0.5
     label_smoothing: float = 0.0
-    hflip_p: float = 0.5
+    hflip_p: float = 0.0
     rotation_degrees: float = 10.0
     color_jitter: float = 0.1
 
@@ -269,6 +269,8 @@ def _checkpoint_payload(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     num_classes: int,
+    normalize_mean: list[float] | None = None,
+    normalize_std: list[float] | None = None,
 ) -> dict[str, Any]:
     return {
         "epoch": epoch,
@@ -281,6 +283,8 @@ def _checkpoint_payload(
         "image_size": config.image_size,
         "class_names": SINIF_ISIMLERI,
         "training_config": config_to_dict(config),
+        "normalize_mean": normalize_mean,
+        "normalize_std": normalize_std,
     }
 
 
@@ -321,6 +325,10 @@ def run_training(
             print(f"  Val orani       : {config.val_ratio}")
         print(f"  Test orani      : {config.test_ratio}")
 
+    # Pretrained ResNet ImageNet stats ile uyumlu; from-scratch egitimde
+    # train split'ten hesaplanan dataset-bazli mean/std hizli yakinsama saglar.
+    use_dataset_stats = not config.pretrained
+
     if full_trainval:
         if test_dir is None:
             raise ValueError(
@@ -336,6 +344,7 @@ def run_training(
             hflip_p=config.hflip_p,
             rotation_degrees=config.rotation_degrees,
             color_jitter=config.color_jitter,
+            use_dataset_stats=use_dataset_stats,
         )
         val_loader = None
     else:
@@ -352,6 +361,7 @@ def run_training(
             hflip_p=config.hflip_p,
             rotation_degrees=config.rotation_degrees,
             color_jitter=config.color_jitter,
+            use_dataset_stats=use_dataset_stats,
         )
 
     if verbose:
@@ -509,6 +519,8 @@ def run_training(
                         model=model,
                         optimizer=optimizer,
                         num_classes=num_classes,
+                        normalize_mean=info.get("normalize_mean"),
+                        normalize_std=info.get("normalize_std"),
                     ),
                     best_checkpoint_path,
                 )
@@ -539,6 +551,8 @@ def run_training(
                     model=model,
                     optimizer=optimizer,
                     num_classes=num_classes,
+                    normalize_mean=info.get("normalize_mean"),
+                    normalize_std=info.get("normalize_std"),
                 ),
                 best_checkpoint_path,
             )

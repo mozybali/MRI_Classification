@@ -103,11 +103,13 @@ KIRPMA_YUZDELERI = (1, 99)
 NORMALIZASYON_STRATEJISI = "standard"  # "minimal", "standard", "aggressive"
 
 # Z-score normalizasyonu: Ortalama=0, Std=1 yapma (isteğe bağlı)
-Z_SCORE_NORMALIZASYON_AKTIF = False
+Z_SCORE_NORMALIZASYON_AKTIF = True
 
-# Histogram eşitleme (CLAHE) - Kontrast iyileştirme
+# Histogram eşitleme (CLAHE) - Kontrast iyileştirme.
+# Train ve test arasinda deterministik olmasi icin sabit clip_limit kullanilir
+# (adaptive mod, std-bazli esiklerden dolayi splitler arasi tutarsizlik yaratir).
 HISTOGRAM_ESITLEME_AKTIF = True
-CLAHE_CLIP_LIMIT = 3.0  # Kırpma sınırı (yüksek = daha fazla kontrast)
+CLAHE_CLIP_LIMIT = 2.0  # Sabit clip limit (orta seviye kontrast iyilestirme)
 
 # Filtreler - Gelişmiş görüntü filtreleme seçenekleri
 GELISMIS_FILTRE_AKTIF = False
@@ -117,10 +119,13 @@ GAUSSIAN_BLUR_AKTIF = False  # Gaussian bulanıklaştırma (gürültü azaltma)
 GAUSSIAN_BLUR_SIGMA = 0.5    # Bulanıklaştırma şiddeti
 
 # Arka plan işleme
-MASKE_KENAR_PAYI = 5
+MASKE_KENAR_PAYI = 2
 
 # Skull stripping (kafatası çıkarma)
-SKULL_STRIPPING_AKTIF = True
+# Kaggle Alzheimer 2D slice veri setinde goruntuler zaten beyin-kirpilmis durumdadir;
+# Otsu tabanli basit skull strip kortikal dokuyu kismen silebilir. Default kapali.
+# Ham hacim (NIfTI) ile calisirken HD-BET / SynthStrip onerilir.
+SKULL_STRIPPING_AKTIF = False
 SKULL_STRIPPING_METHOD = "simple"  # "simple" veya "advanced" (morfolojik işlemlerle)
 
 # Bias field correction (MRI yoğunluk düzensizliği düzeltme)
@@ -128,7 +133,11 @@ BIAS_FIELD_CORRECTION_AKTIF = False
 BIAS_FIELD_METHOD = "n4itk"  # "n4itk" (profesyonel) veya "simple" (hızlı)
 
 # Registration/Hizalama
-REGISTRATION_AKTIF = True
+# Kaggle 2D slice veri seti onceden kabaca hizalanmistir; basit center-of-mass
+# kaydirma fazla deger katmaz ve kenar kayiplari yaratabilir. Default kapali.
+# Ham veri icin REGISTRATION_AKTIF=True ve REGISTRATION_METHOD="affine" + sabit
+# atlas onerilir.
+REGISTRATION_AKTIF = False
 REGISTRATION_METHOD = "simple"  # "simple" (center-of-mass), "affine" (gelişmiş), "rigid"
 
 # Morfolojik işlemler
@@ -137,17 +146,19 @@ MORFOLOJIK_KERNEL_BOYUTU = 3
 
 # ==================== VERİ ARTIRMA AYARLARI ====================
 # Veri artırma (Data Augmentation) - Yapay veri üretimi
-# Mevcut görüntülerden döndürme, aynalama vb. ile yeni varyasyonlar oluşturur
-VERI_ARTIRMA_AKTIF = True
-ARTIRMA_CARPANI = 2  # Her orijinal görüntüden kaç artırılmış versiyon üretilecek
+# Disk üzerinde çoğaltma yerine eğitimde online augmentasyon ve
+# class-weighted loss (compute_class_weights) kullanılır.
+VERI_ARTIRMA_AKTIF = False
+ARTIRMA_CARPANI = 0  # Her orijinal görüntüden kaç artırılmış versiyon üretilecek
 
-# Sınıf bazlı dengesiz augmentation - Az örnekli sınıfları daha fazla artır
-SINIF_BAZLI_ARTIRMA_AKTIF = True
+# Sınıf bazlı dengesiz augmentation - artık devre dışı; dengesizlik
+# eğitimde class weights ile telafi edilir.
+SINIF_BAZLI_ARTIRMA_AKTIF = False
 SINIF_BAZLI_CARPANLAR = {
-    "NonDemented": 0,        # Sadece orijinal örnekleri kullan
-    "VeryMildDemented": 0,   # Mevcut sayi yeterli, ek augmentation uygulama
-    "MildDemented": 1,       # Orta seviyede artır
-    "ModerateDemented": 5,   # Ciddi azinlik sinifi - kontrollu sekilde artır
+    "NonDemented": 0,
+    "VeryMildDemented": 0,
+    "MildDemented": 0,
+    "ModerateDemented": 0,
 }
 
 # Artırma parametreleri (basit)
@@ -164,7 +175,7 @@ ELASTIC_ALPHA = 15               # Daha yumuşak deformasyon
 ELASTIC_SIGMA = 8                # Deformasyon yumuşaklığı
 
 RANDOM_CROP_AKTIF = True
-RANDOM_CROP_RATIO = 0.97         # Beyin dokusunu korumak için daha hafif kırpma
+RANDOM_CROP_RATIO = 0.90         # Anlamli regulasyon icin daha belirgin kirpma
 
 GAUSSIAN_NOISE_AKTIF = False
 GAUSSIAN_NOISE_MEAN = 0

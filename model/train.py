@@ -138,8 +138,12 @@ Ornekler:
     parser.add_argument(
         "--hflip-p",
         type=float,
-        default=0.5,
-        help="Egitim augmentasyonunda RandomHorizontalFlip olasiligi",
+        default=0.0,
+        help=(
+            "Egitim augmentasyonunda RandomHorizontalFlip olasiligi. "
+            "Beyin MR'larinda anatomik lateralite (orn. hipokampal asimetri) "
+            "tani icin bilgi tasidigindan varsayilan 0.0'dir."
+        ),
     )
     parser.add_argument(
         "--rotation-degrees",
@@ -199,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
             "num_workers": (args.num_workers, 0),
             "dropout": (args.dropout, 0.5),
             "label_smoothing": (args.label_smoothing, 0.0),
-            "hflip_p": (args.hflip_p, 0.5),
+            "hflip_p": (args.hflip_p, 0.0),
             "rotation_degrees": (args.rotation_degrees, 10.0),
             "color_jitter": (args.color_jitter, 0.1),
         }

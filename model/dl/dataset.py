@@ -11,7 +11,7 @@ aksi halde uyari ile stratified fallback kullanir.
 """
 
 from pathlib import Path
-from typing import Tuple, List, Dict, Any
+from typing import Tuple, List, Dict, Any, Sequence
 import re
 import random
 from collections import Counter, defaultdict
@@ -21,10 +21,16 @@ import torch
 from PIL import Image
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
+from torchvision.transforms import InterpolationMode
 
 SINIF_ISIMLERI = ["NonDemented", "VeryMildDemented", "MildDemented", "ModerateDemented"]
 SINIF_ETIKETI = {name: idx for idx, name in enumerate(SINIF_ISIMLERI)}
 GORUNTU_UZANTILARI = {".jpg", ".jpeg", ".png"}
+
+IMAGENET_MEAN: Tuple[float, float, float] = (0.485, 0.456, 0.406)
+IMAGENET_STD: Tuple[float, float, float] = (0.229, 0.224, 0.225)
+
+_DATASET_STATS_CACHE: Dict[Tuple[int, int], Tuple[Tuple[float, float, float], Tuple[float, float, float]]] = {}
 
 
 def _seed_worker(worker_id: int) -> None:
@@ -32,6 +38,83 @@ def _seed_worker(worker_id: int) -> None:
     worker_seed = torch.initial_seed() % (2 ** 32)
     np.random.seed(worker_seed)
     random.seed(worker_seed)
+    # Worker icindeki torchvision random transformlari da torch'un global RNG'sini
+    # kullaniyor; numpy/random'a ek olarak torch RNG'sini de seed et.
+    torch.manual_seed(worker_seed)
+
+
+def compute_dataset_stats(
+    image_paths: Sequence[Path],
+    image_size: int,
+    *,
+    max_samples: int | None = 1024,
+    seed: int = 42,
+) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+    """RGB-replicated egitim goruntulerinden kanal bazli mean/std hesapla.
+
+    Sonuclari ``[0, 1]`` araligindaki tensor degerleri uzerinden, yani
+    ``transforms.ToTensor`` ciktisina uygun olcekte dondurur. Hesaplama maliyeti
+    process bazli bir cache ile bir HPO calismasi icinde tek seferlik tutulur.
+    """
+    if not image_paths:
+        raise ValueError("Stats hesaplamak icin gorseller bos olamaz.")
+
+    paths = list(image_paths)
+    if max_samples is not None and len(paths) > max_samples:
+        rng = np.random.default_rng(seed)
+        idxs = rng.choice(len(paths), size=max_samples, replace=False)
+        paths = [paths[i] for i in sorted(idxs.tolist())]
+
+    cache_key = (id(image_paths), image_size, len(paths))
+    cached = _DATASET_STATS_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    sum_ = np.zeros(3, dtype=np.float64)
+    sum_sq = np.zeros(3, dtype=np.float64)
+    pixel_count = 0
+    for path in paths:
+        with Image.open(path) as raw:
+            img = raw.convert("RGB")
+            img = img.resize((image_size, image_size), Image.BILINEAR)
+            arr = np.asarray(img, dtype=np.float64) / 255.0
+        flat = arr.reshape(-1, 3)
+        sum_ += flat.sum(axis=0)
+        sum_sq += (flat ** 2).sum(axis=0)
+        pixel_count += flat.shape[0]
+
+    if pixel_count == 0:
+        raise RuntimeError("Stats hesaplanamadi: bos goruntu listesi.")
+
+    mean = sum_ / pixel_count
+    var = np.maximum(sum_sq / pixel_count - mean ** 2, 0.0)
+    std = np.sqrt(var)
+    # Numerik gurultuye karsi std taban degeri
+    std = np.maximum(std, 1e-6)
+
+    result = (
+        (float(mean[0]), float(mean[1]), float(mean[2])),
+        (float(std[0]), float(std[1]), float(std[2])),
+    )
+    _DATASET_STATS_CACHE[cache_key] = result
+    return result
+
+
+def _resize_and_crop(image_size: int) -> List[transforms.Compose]:
+    """Aspect-ratio'yu koruyan resize + center crop akisi.
+
+    ``transforms.Resize(image_size)`` (int) kisa kenari ``image_size``'a esitler;
+    ardindan kare ``CenterCrop`` uzun kenardan kirpar. ``antialias=True`` torchvision
+    surumleri arasi tutarlilik icin acikca verilir.
+    """
+    return [
+        transforms.Resize(
+            image_size,
+            interpolation=InterpolationMode.BILINEAR,
+            antialias=True,
+        ),
+        transforms.CenterCrop(image_size),
+    ]
 
 
 class MRIDataset(Dataset):
@@ -60,31 +143,33 @@ class MRIDataset(Dataset):
 def get_transforms(
     image_size: int = 224,
     is_train: bool = True,
-    hflip_p: float = 0.5,
+    hflip_p: float = 0.0,
     rotation_degrees: float = 10.0,
     color_jitter: float = 0.1,
+    *,
+    mean: Sequence[float] = IMAGENET_MEAN,
+    std: Sequence[float] = IMAGENET_STD,
 ) -> transforms.Compose:
-    """Egitim veya degerlendirme icin goruntu donusumleri."""
+    """Egitim veya degerlendirme icin goruntu donusumleri.
+
+    Aspect-ratio koruyan resize + center crop kullanir; raw veri seti (orn.
+    176x208 slice'lar) ile processed kare cikti arasinda tutarli sonuc verir.
+    Normalize istatistikleri varsayilan olarak ImageNet'tir; pretrained=False
+    egitimleri icin caller dataset-bazli mean/std gecebilir.
+    """
+    base_ops = _resize_and_crop(image_size)
+    normalize = transforms.Normalize(mean=list(mean), std=list(std))
     if is_train:
-        ops: list = [transforms.Resize((image_size, image_size))]
+        ops: list = list(base_ops)
         if hflip_p > 0:
             ops.append(transforms.RandomHorizontalFlip(p=hflip_p))
         if rotation_degrees > 0:
             ops.append(transforms.RandomRotation(rotation_degrees))
         if color_jitter > 0:
             ops.append(transforms.ColorJitter(brightness=color_jitter, contrast=color_jitter))
-        ops.extend([
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225]),
-        ])
+        ops.extend([transforms.ToTensor(), normalize])
         return transforms.Compose(ops)
-    return transforms.Compose([
-        transforms.Resize((image_size, image_size)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                             std=[0.229, 0.224, 0.225]),
-    ])
+    return transforms.Compose([*base_ops, transforms.ToTensor(), normalize])
 
 
 def kaynak_id_belirle(dosya_adi: str) -> str:
@@ -231,6 +316,40 @@ def _validate_dataset_separation(
         f"  Test    : {test_dir}\n"
         f"  Ortak grup sayisi: {len(overlap)}\n"
         f"  Ornekler: {sample}"
+    )
+
+
+def _validate_no_cross_class_kaynak(groups: Sequence[str], data_dir: Path) -> None:
+    """Ayni kaynak ID'sinin birden fazla sinif altinda gorunmedigini dogrula.
+
+    Group format: ``"<class>::<kaynak_id>"``. Bazi Kaggle "Augmented Alzheimer"
+    varyantlarinda ayni denek farkli sinif klasorlerine kopyalanabiliyor; bu
+    fonksiyon o tur sessiz sinif sizintisini erken yakalar.
+    """
+    stem_to_classes: Dict[str, set[str]] = defaultdict(set)
+    for group in groups:
+        if "::" not in group:
+            continue
+        class_name, stem = group.split("::", 1)
+        stem_to_classes[stem].add(class_name)
+
+    conflicts = sorted(
+        (stem, sorted(classes))
+        for stem, classes in stem_to_classes.items()
+        if len(classes) > 1
+    )
+    if not conflicts:
+        return
+
+    sample = "; ".join(
+        f"{stem} -> {', '.join(classes)}" for stem, classes in conflicts[:5]
+    )
+    raise ValueError(
+        "Sinif klasorleri arasinda ayni kaynak ID birden fazla sinifa atanmis.\n"
+        f"  Dizin             : {data_dir}\n"
+        f"  Catisma sayisi    : {len(conflicts)}\n"
+        f"  Ilk ornekler      : {sample}\n"
+        "  Bu durum sinif sizintisina yol acar; veri seti etiketleri gozden gecirilmeli."
     )
 
 
@@ -532,9 +651,11 @@ def create_dataloaders(
     seed: int = 42,
     num_workers: int = 0,
     include_test: bool = True,
-    hflip_p: float = 0.5,
+    hflip_p: float = 0.0,
     rotation_degrees: float = 10.0,
     color_jitter: float = 0.1,
+    *,
+    use_dataset_stats: bool = False,
 ) -> Tuple[DataLoader, DataLoader, DataLoader | None, Dict]:
     """
     Train, validation ve test DataLoader'lari olustur.
@@ -565,6 +686,7 @@ def create_dataloaders(
     tv_paths, tv_labels, tv_groups, tv_augmented = collect_images(trainval_dir)
     if len(tv_paths) == 0:
         raise FileNotFoundError(f"Trainval verisi bulunamadi: {trainval_dir}")
+    _validate_no_cross_class_kaynak(tv_groups, trainval_dir)
     tv_group_stats = _summarize_grouping(tv_groups, tv_augmented)
 
     paths_test: List[Path] = []
@@ -576,6 +698,7 @@ def create_dataloaders(
         paths_test, labels_test, test_groups, test_augmented = collect_images(test_dir)
         if len(paths_test) == 0:
             raise FileNotFoundError(f"Test verisi bulunamadi: {test_dir}")
+        _validate_no_cross_class_kaynak(test_groups, test_dir)
         test_group_stats = _summarize_grouping(test_groups, test_augmented)
         _validate_dataset_separation(tv_groups, test_groups, trainval_dir, test_dir)
 
@@ -662,14 +785,27 @@ def create_dataloaders(
     for warning in split_warnings:
         print(f"  [UYARI] {warning}")
 
+    if use_dataset_stats:
+        norm_mean, norm_std = compute_dataset_stats(paths_train, image_size, seed=seed)
+        print(
+            "  [Normalize] Train-bazli mean/std kullaniliyor: "
+            f"mean={[round(v, 4) for v in norm_mean]}, std={[round(v, 4) for v in norm_std]}"
+        )
+    else:
+        norm_mean, norm_std = IMAGENET_MEAN, IMAGENET_STD
+
     train_transform = get_transforms(
         image_size,
         is_train=True,
         hflip_p=hflip_p,
         rotation_degrees=rotation_degrees,
         color_jitter=color_jitter,
+        mean=norm_mean,
+        std=norm_std,
     )
-    eval_transform = get_transforms(image_size, is_train=False)
+    eval_transform = get_transforms(
+        image_size, is_train=False, mean=norm_mean, std=norm_std
+    )
     train_ds = MRIDataset(paths_train, labels_train, train_transform)
     val_ds = MRIDataset(paths_val, labels_val, eval_transform)
     test_ds = (
@@ -727,6 +863,9 @@ def create_dataloaders(
         "test_grouping": test_group_stats,
         "split_warnings": split_warnings,
         "uses_external_test_dir": using_external_test,
+        "normalize_mean": list(norm_mean),
+        "normalize_std": list(norm_std),
+        "normalize_source": "dataset" if use_dataset_stats else "imagenet",
     }
 
     return train_loader, val_loader, test_loader, info
@@ -739,9 +878,11 @@ def create_full_train_test_loaders(
     image_size: int = 224,
     seed: int = 42,
     num_workers: int = 0,
-    hflip_p: float = 0.5,
+    hflip_p: float = 0.0,
     rotation_degrees: float = 10.0,
     color_jitter: float = 0.1,
+    *,
+    use_dataset_stats: bool = False,
 ) -> Tuple[DataLoader, DataLoader, Dict]:
     """
     Final model egitimi icin trainval'in tamami ve harici/original test diziniyle
@@ -757,11 +898,13 @@ def create_full_train_test_loaders(
     tv_paths, tv_labels, tv_groups, tv_augmented = collect_images(trainval_dir)
     if len(tv_paths) == 0:
         raise FileNotFoundError(f"Trainval verisi bulunamadi: {trainval_dir}")
+    _validate_no_cross_class_kaynak(tv_groups, trainval_dir)
     tv_group_stats = _summarize_grouping(tv_groups, tv_augmented)
 
     test_paths, test_labels, test_groups, test_augmented = collect_images(test_dir)
     if len(test_paths) == 0:
         raise FileNotFoundError(f"Test verisi bulunamadi: {test_dir}")
+    _validate_no_cross_class_kaynak(test_groups, test_dir)
     test_group_stats = _summarize_grouping(test_groups, test_augmented)
     _validate_dataset_separation(tv_groups, test_groups, trainval_dir, test_dir)
 
@@ -791,14 +934,27 @@ def create_full_train_test_loaders(
         print(f"    {name}: {labels_test.count(lbl)}")
     print("  [Split] Strateji: full_trainval_external_test")
 
+    if use_dataset_stats:
+        norm_mean, norm_std = compute_dataset_stats(paths_train, image_size, seed=seed)
+        print(
+            "  [Normalize] Train-bazli mean/std kullaniliyor: "
+            f"mean={[round(v, 4) for v in norm_mean]}, std={[round(v, 4) for v in norm_std]}"
+        )
+    else:
+        norm_mean, norm_std = IMAGENET_MEAN, IMAGENET_STD
+
     train_transform = get_transforms(
         image_size,
         is_train=True,
         hflip_p=hflip_p,
         rotation_degrees=rotation_degrees,
         color_jitter=color_jitter,
+        mean=norm_mean,
+        std=norm_std,
     )
-    eval_transform = get_transforms(image_size, is_train=False)
+    eval_transform = get_transforms(
+        image_size, is_train=False, mean=norm_mean, std=norm_std
+    )
     train_ds = MRIDataset(paths_train, labels_train, train_transform)
     test_ds = MRIDataset(paths_test, labels_test, eval_transform)
 
@@ -846,5 +1002,8 @@ def create_full_train_test_loaders(
         "split_warnings": [],
         "uses_external_test_dir": True,
         "full_trainval_run": True,
+        "normalize_mean": list(norm_mean),
+        "normalize_std": list(norm_std),
+        "normalize_source": "dataset" if use_dataset_stats else "imagenet",
     }
     return train_loader, test_loader, info
