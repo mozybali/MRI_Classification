@@ -111,7 +111,7 @@ def test_veri_setini_bol_ve_olceklendir_scaler_ve_csvleri_kaydeder(tmp_path):
     assert (tmp_path / "egitim_scaled.csv").exists()
     assert (tmp_path / "dogrulama_scaled.csv").exists()
     assert (tmp_path / "test_scaled.csv").exists()
-    assert (tmp_path / "goruntu_ozellikleri_scaled.csv").exists()
+    assert not (tmp_path / "goruntu_ozellikleri_scaled.csv").exists()
     assert (tmp_path / SCALER_DOSYA_ADI).exists()
 
     with open(tmp_path / SCALER_DOSYA_ADI, "rb") as file:

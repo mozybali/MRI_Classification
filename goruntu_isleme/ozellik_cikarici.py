@@ -578,18 +578,15 @@ class OzellikCikarici:
         
         Args:
             giris_csv: Okunacak CSV dosyası (None ise varsayılan)
-            cikti_csv: Kaydedilecek CSV dosyası (None ise orijinal üzerine yazar)
+            cikti_csv: Kaydedilecek CSV dosyası (None ise diske yazılmaz, sadece DataFrame dönülür)
             metod: Ölçeklendirme metodu ('minmax', 'robust', 'standard', 'maxabs')
-            
+
         Returns:
             Ölçeklendirilmiş DataFrame
         """
         if giris_csv is None:
             giris_csv = CIKTI_KLASORU / CSV_DOSYA_ADI
-        
-        if cikti_csv is None:
-            cikti_csv = CIKTI_KLASORU / CSV_SCALED_DOSYA_ADI
-        
+
         # CSV'yi oku
         try:
             df = pd.read_csv(giris_csv)
@@ -644,14 +641,17 @@ class OzellikCikarici:
             print(f"\n[UYARI] Olceklendirme sonrasi {nan_after_scaling} NaN degeri korundu")
             print(f"   (sklearn scaler'lari NaN degerleri oldugu gibi birakir)")
         
-        # Kaydet
-        try:
-            df_scaled.to_csv(cikti_csv, index=False, encoding='utf-8')
-            print(f"\n[BASARILI] Olceklendirilmis CSV kaydedildi: {cikti_csv}")
+        if cikti_csv is not None:
+            try:
+                df_scaled.to_csv(cikti_csv, index=False, encoding='utf-8')
+                print(f"\n[BASARILI] Olceklendirilmis CSV kaydedildi: {cikti_csv}")
+                print(f"   Metod: {metod}, Ozellik sayisi: {len(sayisal_sutunlar)}, Satir sayisi: {len(df_scaled)}")
+            except Exception as e:
+                print(f"\n[HATA] CSV kaydedilemedi: {e}")
+                return df
+        else:
+            print(f"\n[BILGI] cikti_csv verilmedi, dosya yazilmadi.")
             print(f"   Metod: {metod}, Ozellik sayisi: {len(sayisal_sutunlar)}, Satir sayisi: {len(df_scaled)}")
-        except Exception as e:
-            print(f"\n[HATA] CSV kaydedilemedi: {e}")
-            return df
 
         return df_scaled
     
@@ -997,8 +997,6 @@ def veri_setini_bol_ve_olceklendir(
     val_scaled.to_csv(cikti_klasoru / DOGRULAMA_SCALED_CSV_DOSYA_ADI, index=False, encoding='utf-8')
     test_scaled.to_csv(cikti_klasoru / TEST_SCALED_CSV_DOSYA_ADI, index=False, encoding='utf-8')
 
-    tum_scaled = pd.concat([train_scaled, val_scaled, test_scaled], ignore_index=True)
-    tum_scaled.to_csv(cikti_klasoru / CSV_SCALED_DOSYA_ADI, index=False, encoding='utf-8')
     cikarici._scaler_kaydet(scaler, sayisal_sutunlar, metod, cikti_klasoru)
 
     print("\n[BASARILI] Leakage-free split + scaling tamamlandi:")

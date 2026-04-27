@@ -119,7 +119,6 @@ goruntu_isleme/cikti/
 - `test_goruntu_ozellikleri.csv`
 - `egitim.csv`, `dogrulama.csv`, `test.csv`
 - `egitim_scaled.csv`, `dogrulama_scaled.csv`, `test_scaled.csv`
-- `goruntu_ozellikleri_scaled.csv`
 - `feature_scaler.pkl`
 
 ## Veri Sızıntısı Notu

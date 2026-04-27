@@ -37,7 +37,7 @@ __all__ = [
     # Veri bölümleme
     "EGITIM_ORANI", "DOGRULAMA_ORANI", "TEST_ORANI", "RASTGELE_TOHUM",
     # CSV
-    "CSV_DOSYA_ADI", "TEST_CSV_DOSYA_ADI", "CSV_SCALED_DOSYA_ADI",
+    "CSV_DOSYA_ADI", "TEST_CSV_DOSYA_ADI",
     "EGITIM_CSV_DOSYA_ADI", "DOGRULAMA_CSV_DOSYA_ADI", "TEST_SPLIT_CSV_DOSYA_ADI",
     "EGITIM_SCALED_CSV_DOSYA_ADI", "DOGRULAMA_SCALED_CSV_DOSYA_ADI",
     "TEST_SCALED_CSV_DOSYA_ADI", "SCALER_DOSYA_ADI", "SCALING_METODU",
@@ -198,7 +198,6 @@ RASTGELE_TOHUM = 42        # Tekrarlanabilirlik için sabit tohum
 # Özelliklerin kaydedileceği CSV dosya isimleri
 CSV_DOSYA_ADI = "goruntu_ozellikleri.csv"          # Ham özellikler
 TEST_CSV_DOSYA_ADI = "test_goruntu_ozellikleri.csv"
-CSV_SCALED_DOSYA_ADI = "goruntu_ozellikleri_scaled.csv"  # Ölçeklendirilmiş özellikler
 EGITIM_CSV_DOSYA_ADI = "egitim.csv"
 DOGRULAMA_CSV_DOSYA_ADI = "dogrulama.csv"
 TEST_SPLIT_CSV_DOSYA_ADI = "test.csv"
