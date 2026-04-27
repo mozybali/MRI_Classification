@@ -1,16 +1,40 @@
-# MRI Beyin Goruntusu Siniflandirma
+# MRI Beyin Görüntüsü Sınıflandırma Projesi
 
-Bu repo, MRI beyin goruntulerinden demans seviyesini siniflandirmaya yonelik uctan uca bir Python projesidir. Kod tabani; kesifsel veri analizi (EDA), 2D goruntu on isleme, ozellik cikarma, PyTorch (ResNet) ve XGBoost tabanli model egitimi, Optuna TPE ile Bayesian hiperparametre arama, inference ve pytest altyapisini tek cati altinda toplar.
+## Proje Amacı
 
-## Moduller
+Bu proje, beyin MRI görüntülerinden demans seviyesini sınıflandırmaya yönelik uçtan uca bir Python çalışma alanıdır. Veri seti inceleme, 2D görüntü ön işleme, özellik çıkarımı, ResNet/PyTorch ve XGBoost tabanlı model eğitimi, hiperparametre araması, inference ve test altyapısı aynı depo içinde düzenlenmiştir.
 
-- [`eda_analiz/README.md`](eda_analiz/README.md): Sinif dagilimi, boyut, yogunluk, korelasyon ve PCA analizleri
-- [`goruntu_isleme/README.md`](goruntu_isleme/README.md): On isleme, ozellik cikarma, leak-free bolme ve olceklendirme akisi
-- [`model/README.md`](model/README.md): ResNet (derin ogrenme) ve XGBoost (sig ogrenme) egitim, HPO ve inference komutlari
-- [`tests/README.md`](tests/README.md): Pytest duzeni, marker'lar, test dosyalari ve calistirma ornekleri
-- [`Veri_Seti/README.md`](Veri_Seti/README.md): Beklenen veri klasor yapisi ve varsayilan veri politikasi
+Proje dört sınıflı bir sınıflandırma problemi üzerinde çalışır:
 
-## Proje Yapisi
+- `NonDemented`
+- `VeryMildDemented`
+- `MildDemented`
+- `ModerateDemented`
+
+Bu README dosyası ana giriş noktasıdır. Modül bazlı ayrıntılar için ilgili alt README dosyalarına bakılmalıdır:
+
+- [`Veri_Seti/README.md`](Veri_Seti/README.md)
+- [`eda_analiz/README.md`](eda_analiz/README.md)
+- [`goruntu_isleme/README.md`](goruntu_isleme/README.md)
+- [`model/README.md`](model/README.md)
+- [`tests/README.md`](tests/README.md)
+
+## Genel Akış
+
+Önerilen proje akışı aşağıdaki sırayı izler:
+
+1. Ham MRI görüntüleri `Veri_Seti/OriginalDataset/<SınıfAdı>/` yapısında tutulur.
+2. İsteğe bağlı olarak EDA modülü ile sınıf dağılımı, görüntü boyutları ve yoğunluk istatistikleri incelenir.
+3. Görüntü işleme modülü ham görüntüleri okur, kalite kontrol ve standartlaştırma uygular, ardından `trainval` ve `test` dizinlerini üretir.
+4. Özellik çıkarımı ve ölçeklendirme adımları, modelleme için CSV ve scaler çıktıları oluşturur.
+5. Model modülü, işlenmiş görüntüler üzerinden ResNet veya XGBoost eğitir.
+6. Hiperparametre optimizasyonu gerekiyorsa `mri-tune` ile Optuna TPE tabanlı arama yapılır.
+7. Eğitilmiş model dosyaları ile tek görüntü veya klasör bazlı tahmin alınır.
+8. `pytest` testleriyle EDA, görüntü işleme, model altyapısı ve CLI akışları doğrulanır.
+
+Varsayılan ve önerilen model eğitim kaynağı ham veri değil, `mri-preprocess` sonrasında oluşan `goruntu_isleme/cikti/trainval` ve `goruntu_isleme/cikti/test` dizinleridir.
+
+## Klasör Yapısı
 
 ```text
 MRI_Classification/
@@ -65,116 +89,116 @@ MRI_Classification/
 |   |-- test_ozellik_cikarici.py
 |   |-- test_pipeline.py
 |   `-- README.md
-|-- LICENSE
 |-- pyproject.toml
 |-- pytest.ini
 |-- requirements.txt
 |-- requirements-torch-cpu.txt
 |-- requirements-torch-cu128.txt
+|-- LICENSE
 `-- README.md
 ```
 
-Not: `eda_analiz/eda_ciktilar/`, `goruntu_isleme/cikti/` ve `model/ciktilar/` calisma sirasinda uretilen cikti dizinleridir ve `.gitignore` ile repo disinda tutulur.
+Çalışma sırasında üretilen `eda_analiz/eda_ciktilar/`, `goruntu_isleme/cikti/` ve `model/ciktilar/` dizinleri kaynak kodun parçası değildir; analiz, ön işleme, eğitim ve değerlendirme çıktıları bu dizinlerde tutulur.
 
-## Gereksinimler
+## Veri Seti
 
-- Python 3.10+
-- `pip`
-- Istege bagli olarak CUDA destekli PyTorch ortami (varsayilan: CUDA 12.8)
+Ham veri için beklenen yapı şöyledir:
 
-## Kurulum
-
-GPU (CUDA 12.8) kurulumu:
-
-```bash
-python3 -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# macOS / Linux:
-source .venv/bin/activate
-pip install -U pip
-pip install -r requirements.txt
-pip install -r requirements-torch-cu128.txt
-pip install -e .[dev] --no-deps
+```text
+Veri_Seti/
+`-- OriginalDataset/
+    |-- NonDemented/
+    |-- VeryMildDemented/
+    |-- MildDemented/
+    `-- ModerateDemented/
 ```
 
-CPU-only kurulum:
+`Veri_Seti/OriginalDataset` ham ve orijinal görüntü kaynağı olarak korunmalıdır. Ön işlenmiş görüntüler, CSV dosyaları, scaler dosyaları, raporlar veya model çıktıları bu klasörün altına yazılmamalıdır.
+
+Bu çalışma alanında doğrulanan veri dağılımı alt README dosyasında belirtilmiştir: toplam `6400` görüntü, dört sınıf altında `.jpg`, `.jpeg` ve `.png` uzantılarıyla okunur. Sınıf adları büyük/küçük harfe duyarlıdır ve kod içinde sabit olarak kullanılmaktadır.
+
+Ayrıntılı veri politikası ve sınıf-etiket eşleşmeleri için [`Veri_Seti/README.md`](Veri_Seti/README.md) dosyasına bakın.
+
+## Keşifsel Veri Analizi
+
+`eda_analiz/` modülü, eğitimden önce veri setini incelemek için kullanılır. Sınıf dağılımı, görüntü boyutu, piksel yoğunluğu, korelasyon ve PCA çıktıları üretir. Kaynak görüntüleri değiştirmez; rapor, grafik ve CSV çıktıları varsayılan olarak `eda_analiz/eda_ciktilar/` altına yazılır.
+
+Örnek kullanım:
 
 ```bash
-pip install -r requirements.txt
-pip install -r requirements-torch-cpu.txt
-pip install -e .[dev] --no-deps
-```
-
-Notlar:
-
-- `requirements.txt` PyTorch disindaki ortak bagimliliklari (numpy, pandas, scikit-learn, xgboost, optuna, scikit-image, SimpleITK, matplotlib, seaborn, tqdm, pytest) icerir.
-- PyTorch wheel'i ayri bir dosyadan kurulur; boylece `torch` paketinin yanlis backend'e kaymasi engellenir.
-- Farkli bir CUDA surumu kullanacaksaniz `requirements-torch-cu128.txt` icindeki PyTorch index URL'sini resmi PyTorch kurulum sayfasindaki komuta gore guncelleyin.
-
-`pip install -e .` veya `pip install -e .[dev]` sonrasinda asagidaki CLI komutlari aktif olur:
-
-- `mri-eda`         → EDA analizleri ([eda_analiz.eda_calistir:main](eda_analiz/eda_calistir.py))
-- `mri-preprocess`  → Goruntu on isleme ve ozellik akisi ([goruntu_isleme.ana_islem:main](goruntu_isleme/ana_islem.py))
-- `mri-train`       → Model egitimi ([model.train:main](model/train.py))
-- `mri-tune`        → Optuna TPE ile hiperparametre arama ([model.hpo:main](model/hpo.py))
-- `mri-infer`       → Tek goruntu veya klasor bazli tahmin ([model.inference:main](model/inference.py))
-
-## Hizli Baslangic
-
-### 1. EDA
-
-```bash
-mri-eda --interactive
 mri-eda --data-dir Veri_Seti/OriginalDataset --output-dir eda_analiz/eda_ciktilar
 ```
 
-### 2. Goruntu on isleme ve ozellik cikarma
-
-Interaktif menu:
+Paket kurulmadan çalıştırmak için:
 
 ```bash
-mri-preprocess --action menu
+python3 -m eda_analiz --data-dir Veri_Seti/OriginalDataset
 ```
 
-Tam 2D akis (`preprocess -> extract -> scale -> report`):
+Daha ayrıntılı açıklama için [`eda_analiz/README.md`](eda_analiz/README.md) dosyasına bakın.
+
+## Görüntü İşleme
+
+`goruntu_isleme/` modülü, ham 2D MRI görüntülerini modelleme akışına hazırlar. Varsayılan akışta görüntüler `Veri_Seti/OriginalDataset` altından okunur ve çıktılar `goruntu_isleme/cikti/` altına yazılır.
+
+Başlıca adımlar:
+
+- Görüntüleri sınıf klasörlerinden okuma.
+- Kalite kontrol uygulama.
+- Gri ton yükleme, percentile normalizasyon, CLAHE ve `256x256` yeniden boyutlandırma.
+- Gerekirse `trainval/test` ayrımı üretme veya mevcut split yapısını koruma.
+- İşlenmiş görüntülerden sayısal özellikler çıkarma.
+- Eğitim, doğrulama ve test CSV dosyaları oluşturma.
+- NaN doldurma ve scaler fit işlemlerini yalnızca eğitim verisi üzerinden yaparak veri sızıntısı riskini azaltma.
+
+Tam akış:
 
 ```bash
 mri-preprocess --action all --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti --yes
 ```
 
-### 3. Model egitimi
-
-ResNet (derin ogrenme):
+Etkileşimli menü:
 
 ```bash
-mri-train --model resnet --epochs 50 --batch-size 32
-mri-train --model resnet --loss focal --lr 3e-4 --pretrained
-mri-train --model resnet --full-trainval --test-dir goruntu_isleme/cikti/test
+mri-preprocess --action menu
 ```
 
-XGBoost (sig ogrenme):
+`mri-preprocess` aksiyonları, varsayılan ayarlar, CSV çıktıları ve leakage-free split politikası için [`goruntu_isleme/README.md`](goruntu_isleme/README.md) dosyasına bakın.
+
+## Model Eğitimi ve Kullanımı
+
+`model/` modülü iki model ailesini destekler:
+
+| Model | Komut değeri | Çıktı |
+| --- | --- | --- |
+| ResNet/PyTorch | `resnet` | `.pt` checkpoint |
+| XGBoost | `xgboost` | `.json` model ve `.meta.json` metadata |
+
+Varsayılan eğitim dizinleri:
+
+- `goruntu_isleme/cikti/trainval`
+- `goruntu_isleme/cikti/test`
+
+ResNet eğitimi:
 
 ```bash
-mri-train --model xgboost
-mri-train --model xgboost --xgb-n-estimators 500 --xgb-max-depth 8
-mri-train --model xgboost --feature-cache model/ciktilar/sl_ozellikler
+mri-train --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
 ```
 
-### 3.1 Bayes search ile hiperparametre optimizasyonu
-
-Desteklenen `--metric` degerleri: `loss`, `accuracy`, `precision`, `recall`, `f1`.
+XGBoost eğitimi:
 
 ```bash
-mri-tune --model resnet --trials 20 --epochs 12 --metric f1
-mri-tune --model resnet --trials 30 --metric loss --search-pretrained --skip-final-train
-mri-tune --model xgboost --trials 30 --metric f1
-mri-tune --model xgboost --trials 50 --metric accuracy --feature-cache model/ciktilar/sl_ozellikler
+mri-train --model xgboost --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test --feature-cache model/ciktilar/sl_ozellikler
 ```
 
-### 4. Tahmin
+Hiperparametre araması:
 
-Model tipi dosya uzantisindan otomatik algilanir (`.pt` → ResNet, `.json` → XGBoost):
+```bash
+mri-tune --model resnet --trials 20 --epochs 12 --metric f1 --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
+mri-tune --model xgboost --trials 30 --metric f1 --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test --feature-cache model/ciktilar/sl_ozellikler
+```
+
+Tahmin alma:
 
 ```bash
 mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --image ornek.jpg
@@ -182,51 +206,124 @@ mri-infer --model-path model/ciktilar/modeller/best_xgboost.json --image ornek.j
 mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --batch ornek_klasor
 ```
 
-## Varsayilan Veri Politikasi
+Model çıktıları varsayılan olarak `model/ciktilar/` altında tutulur. Eğitim parametreleri, HPO seçenekleri, inference davranışı ve çıktı dosyaları için [`model/README.md`](model/README.md) dosyasına bakın.
 
-- Varsayilan egitim kaynagi: `goruntu_isleme/cikti/trainval`
-- Varsayilan test kaynagi: `goruntu_isleme/cikti/test`
-- `Veri_Seti/OriginalDataset/<SinifAdi>/`: tek ham/original veri dizini
-- `goruntu_isleme/preprocess`, ham veriyi once leak-free `trainval/test` olarak ayirir
-- `validation` ve `test` her zaman original-only uretilir; augmentation yalnizca `trainval` tarafinda kalir
-- `--full-trainval` modunda validation ayrilmaz, tum `trainval` uzerinde final egitim yapilir ve degerlendirme harici `test` dizini uzerinden tek seferlik tutulur
+## Testler
 
-Proje akisi varsayilan olarak preprocess ciktilari uzerinden ilerler. Ham veriyle dogrudan calismak isterseniz egitim komutunda `--trainval-dir Veri_Seti/OriginalDataset` vererek orijinal klasoru hedefleyebilirsiniz. Ayrintilar icin [`Veri_Seti/README.md`](Veri_Seti/README.md) dosyasina bakin.
+Test altyapısı `pytest` kullanır. Testler EDA, görüntü işleme, özellik çıkarımı, CLI davranışı, XGBoost hattı ve Torch/ResNet altyapısını kapsar. Testlerin önemli bir bölümü sentetik veri ve geçici dosyalarla çalışır; gerçek veri veya GPU isteyen senaryolar marker ve ortam değişkenleriyle ayrılmıştır.
 
-Sabit sinif adlari: `NonDemented`, `VeryMildDemented`, `MildDemented`, `ModerateDemented`.
-
-## Ciktilar
-
-- `eda_analiz/eda_ciktilar/`: EDA ozet istatistikleri, sinif dagilimi, boyut/yogunluk, korelasyon ve PCA gorselleri
-- `goruntu_isleme/cikti/`: `trainval/`, `test/`, ozellik CSV'leri, olceklenmis CSV'ler, split dosyalari ve `feature_scaler.pkl`
-- `model/ciktilar/modeller/`: Egitilmis `.pt` (ResNet) ve `.json` (XGBoost) checkpoint dosyalari
-- `model/ciktilar/raporlar/`: JSON performans raporlari (timestamp'li)
-- `model/ciktilar/gorseller/`: Confusion matrix, normalize confusion matrix, sinif bazli performans ozeti, tahmin guven dagilimi, ROC/PR egrileri, egitim dashboard'lari ve XGBoost feature importance
-- `model/ciktilar/sl_ozellikler/`: XGBoost ozellik cache (`--feature-cache` ile)
-- `model/ciktilar/hiperparametre_arama/<study>/`: Optuna TPE trial history, study ozeti, trial klasorleri, HPO analiz grafikleri ve `best_run/` (final egitim)
-
-## Test
-
-Tum testler:
+Tüm testleri çalıştırmak için:
 
 ```bash
 pytest
 ```
 
-Veri veya GPU gerektiren testleri disarida birakmak icin:
-
-```bash
-pytest -m "not requires_data and not requires_gpu"
-```
-
-Sadece hizli testler:
+Yavaş, gerçek veri veya GPU gerektiren testleri dışarıda bırakmak için:
 
 ```bash
 pytest -m "not slow and not requires_data and not requires_gpu"
 ```
 
-`pytest.ini` icinde tanimli marker'lar: `unit`, `integration`, `slow`, `requires_data`, `requires_gpu`. Test duzeni icin [`tests/README.md`](tests/README.md) dosyasina bakin.
+Torch bağımlı testleri açıkça çalıştırmak için:
+
+```bash
+MRI_RUN_TORCH_TESTS=1 pytest tests/test_model_altyapi.py tests/test_model_egitici.py
+```
+
+Test dosyalarının görevleri, marker açıklamaları ve yardımcı pipeline kontrolleri için [`tests/README.md`](tests/README.md) dosyasına bakın.
+
+## Kurulum
+
+Python `3.10+` gereklidir. Komutlar proje kök dizininden çalıştırılmalıdır.
+
+Sanal ortam oluşturma:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+```
+
+Windows için aktivasyon:
+
+```powershell
+.venv\Scripts\activate
+```
+
+Ortak bağımlılıkları kurma:
+
+```bash
+pip install -r requirements.txt
+```
+
+CPU-only PyTorch kurulumu:
+
+```bash
+pip install -r requirements-torch-cpu.txt
+```
+
+CUDA 12.8 PyTorch kurulumu:
+
+```bash
+pip install -r requirements-torch-cu128.txt
+```
+
+CLI komutlarını kullanılabilir hale getirmek için:
+
+```bash
+pip install -e .[dev] --no-deps
+```
+
+`pyproject.toml` içinde tanımlı komutlar:
+
+- `mri-eda`
+- `mri-preprocess`
+- `mri-train`
+- `mri-tune`
+- `mri-infer`
+
+## Kullanım
+
+Tipik uçtan uca kullanım:
+
+```bash
+# 1. Veri setini incele
+mri-eda --data-dir Veri_Seti/OriginalDataset --output-dir eda_analiz/eda_ciktilar
+
+# 2. Ön işleme, özellik çıkarımı, ölçeklendirme ve rapor adımlarını çalıştır
+mri-preprocess --action all --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti --yes
+
+# 3. ResNet modeli eğit
+mri-train --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
+
+# 4. Alternatif olarak XGBoost modeli eğit
+mri-train --model xgboost --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test --feature-cache model/ciktilar/sl_ozellikler
+
+# 5. Eğitilmiş modelle tahmin al
+mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --image ornek.jpg
+```
+
+Paket komutları kullanılmadan modül bazlı çalıştırma da mümkündür:
+
+```bash
+python3 -m eda_analiz --data-dir Veri_Seti/OriginalDataset
+python3 -m goruntu_isleme.ana_islem --action all --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti --yes
+python3 -m model.train --model resnet
+python3 -m model.inference --model-path model/ciktilar/modeller/best_resnet.pt --image ornek.jpg
+```
+
+## Notlar / Gereksinimler
+
+- Proje Python `3.10+` ile çalışacak şekilde tanımlanmıştır.
+- `requirements.txt`, PyTorch dışındaki ortak bağımlılıkları içerir.
+- PyTorch kurulumu ortam türüne göre `requirements-torch-cpu.txt` veya `requirements-torch-cu128.txt` üzerinden yapılır.
+- Ham veri kaynağı `Veri_Seti/OriginalDataset` altında korunmalıdır.
+- Model eğitimi için önerilen giriş `goruntu_isleme/cikti/trainval` ve `goruntu_isleme/cikti/test` dizinleridir.
+- Test setinde augmentation kullanılmamalıdır; augmentation etkinleştirilirse eğitim veya `trainval` tarafında kalmalıdır.
+- Validation ve test ayrımları model seçimi ve final değerlendirme açısından ayrı tutulmalıdır.
+- `--full-trainval` modu tüm `trainval` verisiyle final eğitim yapar ve değerlendirme için harici `test` dizini gerektirir.
+- `mri-preprocess --mode 3d` argümanı CLI'da yer alsa da bu repo ağacında opsiyonel 3D modül dosyası bulunmadığından 2D akış varsayılan ve desteklenen ana yoldur.
 
 ## Lisans
 
-MIT. Ayrinti icin [`LICENSE`](LICENSE) dosyasina bakin.
+Bu proje MIT lisansı ile yayımlanmıştır. Ayrıntılar için [`LICENSE`](LICENSE) dosyasına bakın.
