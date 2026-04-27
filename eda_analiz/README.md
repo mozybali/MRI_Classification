@@ -13,9 +13,9 @@ eda_analiz/
 `-- README.md
 ```
 
-- `eda_araclar.py`: `EDAAnaLiz` sınıfını ve analiz/görselleştirme fonksiyonlarını içerir.
+- `eda_araclar.py`: `EDAAnaliz` sınıfını ve analiz/görselleştirme fonksiyonlarını içerir.
 - `eda_calistir.py`: CLI giriş noktasıdır; `mri-eda` komutu buraya bağlanır.
-- `__main__.py`: Modülü `python -m eda_analiz` biçiminde çalıştırmayı destekler.
+- `__main__.py`: Modülü `python3 -m eda_analiz` biçiminde çalıştırmayı destekler.
 
 ## Ne Zaman Kullanılır
 
@@ -35,7 +35,7 @@ mri-eda --interactive
 Doğrudan Python modülüyle:
 
 ```bash
-python -m eda_analiz.eda_calistir --interactive
+python3 -m eda_analiz.eda_calistir --interactive
 ```
 
 Etkileşimsiz örnekler:
@@ -43,7 +43,7 @@ Etkileşimsiz örnekler:
 ```bash
 mri-eda --data-dir Veri_Seti/OriginalDataset --output-dir eda_analiz/eda_ciktilar
 mri-eda --data-dir Veri_Seti --jobs 1
-python -m eda_analiz --data-dir Veri_Seti/OriginalDataset
+python3 -m eda_analiz --data-dir Veri_Seti/OriginalDataset
 ```
 
 ## CLI Parametreleri

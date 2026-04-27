@@ -10,7 +10,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_VERI_KLASORU = PROJECT_ROOT / "Veri_Seti" / "OriginalDataset"
 DEFAULT_CIKTI_KLASORU = Path(__file__).resolve().parent / "eda_ciktilar"
-EDAAnaLiz = None
+EDAAnaliz = None
 
 if __package__ in {None, ""}:
     if str(PROJECT_ROOT) not in sys.path:
@@ -18,34 +18,30 @@ if __package__ in {None, ""}:
 
 
 def _guvenli_print(*args, sep: str = " ", end: str = "\n") -> None:
-    """Konsol encoding'i Unicode desteklemese bile yazdırmayı sürdür."""
-    metin = sep.join(str(arg) for arg in args)
+    # Ağır bağımlılıklar yüklenememişse plain print'e düş.
     try:
-        print(metin, end=end)
-    except UnicodeEncodeError:
-        stdout = sys.stdout
-        encoding = getattr(stdout, "encoding", None) or "utf-8"
-        tampon = getattr(stdout, "buffer", None)
-        guvenli_metin = (metin + end).encode(encoding, errors="replace")
-        if tampon is not None:
-            tampon.write(guvenli_metin)
-            tampon.flush()
+        if __package__ in {None, ""}:
+            from eda_analiz.eda_araclar import _guvenli_print as _impl
         else:
-            print(guvenli_metin.decode(encoding, errors="replace"), end="")
+            from .eda_araclar import _guvenli_print as _impl
+    except Exception:
+        print(*args, sep=sep, end=end)
+        return
+    _impl(*args, sep=sep, end=end)
 
 
 def _load_eda_analiz_sinifi():
     """Ağır EDA bağımlılıklarını sadece analiz çalışırken yükle."""
-    global EDAAnaLiz
-    if EDAAnaLiz is not None:
-        return EDAAnaLiz
+    global EDAAnaliz
+    if EDAAnaliz is not None:
+        return EDAAnaliz
 
     if __package__ in {None, ""}:
-        from eda_analiz.eda_araclar import EDAAnaLiz as analiz_sinifi
+        from eda_analiz.eda_araclar import EDAAnaliz as analiz_sinifi
     else:
-        from .eda_araclar import EDAAnaLiz as analiz_sinifi
+        from .eda_araclar import EDAAnaliz as analiz_sinifi
 
-    EDAAnaLiz = analiz_sinifi
+    EDAAnaliz = analiz_sinifi
     return analiz_sinifi
 
 

@@ -84,7 +84,7 @@ def _istatistik_hesapla_wrapper(satir_dict: Dict) -> Optional[Dict]:
         }
 
 
-class EDAAnaLiz:
+class EDAAnaliz:
     """MRI görüntü veri seti için EDA sınıfı."""
 
     SAYISAL_OZELLIKLER = [
@@ -608,3 +608,6 @@ class EDAAnaLiz:
         _guvenli_print("=" * 70 + "\n")
 
         return df
+
+
+EDAAnaLiz = EDAAnaliz

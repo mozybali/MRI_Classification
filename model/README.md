@@ -82,7 +82,7 @@ mri-train --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir
 Doğrudan Python ile:
 
 ```bash
-python -m model.train --model resnet --epochs 50 --batch-size 32
+python3 -m model.train --model resnet --epochs 50 --batch-size 32
 ```
 
 ## XGBoost Eğitimi
@@ -99,7 +99,7 @@ mri-train --model xgboost --feature-cache model/ciktilar/sl_ozellikler
 Doğrudan Python ile:
 
 ```bash
-python -m model.train --model xgboost --xgb-n-estimators 300 --xgb-max-depth 6
+python3 -m model.train --model xgboost --xgb-n-estimators 300 --xgb-max-depth 6
 ```
 
 ## Eğitim Parametreleri
@@ -139,7 +139,7 @@ Model tipi dosya uzantısından otomatik algılanır: `.pt` ResNet, `.json` XGBo
 mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --image ornek.jpg
 mri-infer --model-path model/ciktilar/modeller/best_xgboost.json --image ornek.jpg
 mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --batch ornek_klasor
-python -m model.inference --model-path model/ciktilar/modeller/best_resnet.pt --image ornek.jpg
+python3 -m model.inference --model-path model/ciktilar/modeller/best_resnet.pt --image ornek.jpg
 ```
 
 XGBoost modelleri kaydedilirken `.meta.json` yan dosyası da üretilir; inference bu dosyadan `image_size` ve sınıf adlarını okuyabilir.

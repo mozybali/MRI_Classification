@@ -30,7 +30,7 @@ mri-preprocess --action menu
 Doğrudan Python modülüyle:
 
 ```bash
-python -m goruntu_isleme.ana_islem --action menu
+python3 -m goruntu_isleme.ana_islem --action menu
 ```
 
 ## Aksiyonlar
@@ -124,10 +124,3 @@ goruntu_isleme/cikti/
 ## Veri Sızıntısı Notu
 
 `preprocess` adımı ham veriyi önce `trainval/test` olarak ayırır. Aynı kaynaktan türeyen görüntüler mümkün olduğunca aynı grupta tutulur. Test tarafında augmentation uygulanmaz; validation ve test CSV'leri original-only satırlardan oluşturulur. Scaler yalnızca eğitim split'ine fit edilir, ardından doğrulama ve test split'lerine uygulanır.
-
-## Yardımcı Komutlar
-
-```bash
-python tests/pipeline_quick_test.py
-python tests/test_pipeline.py ornek_goruntu.jpg
-```

@@ -15,7 +15,7 @@ from PIL import Image
 matplotlib.use("Agg")
 
 from eda_analiz import eda_araclar
-from eda_analiz.eda_araclar import EDAAnaLiz
+from eda_analiz.eda_araclar import EDAAnaliz
 
 
 SINIFLAR = ["NonDemented", "VeryMildDemented", "MildDemented", "ModerateDemented"]
@@ -33,7 +33,7 @@ def _dataset_yapisi_olustur(kok: Path):
         _ornek_goruntu_olustur(kok / sinif, adet=3)
 
 
-class TestEDAAnaLiz:
+class TestEDAAnaliz:
     def test_eda_araclar_bom_ile_baslamaz(self):
         assert Path(eda_araclar.__file__).read_bytes().startswith(b"#!/")
 
@@ -94,13 +94,13 @@ class TestEDAAnaLiz:
         cikti_klasoru = tmp_path / "cikti"
         _dataset_yapisi_olustur(veri_klasoru)
 
-        eda = EDAAnaLiz(veri_klasoru=veri_klasoru, cikti_klasoru=cikti_klasoru)
+        eda = EDAAnaliz(veri_klasoru=veri_klasoru, cikti_klasoru=cikti_klasoru)
 
         assert eda.veri_klasoru == veri_klasoru.resolve()
         assert eda.cikti_klasoru.exists()
 
     def test_veri_yukle_class_dirs(self, test_dataset_structure, tmp_path):
-        eda = EDAAnaLiz(veri_klasoru=test_dataset_structure, cikti_klasoru=tmp_path / "out")
+        eda = EDAAnaliz(veri_klasoru=test_dataset_structure, cikti_klasoru=tmp_path / "out")
 
         df = eda.veri_yukle()
 
@@ -117,7 +117,7 @@ class TestEDAAnaLiz:
         Image.fromarray(arr, mode="L").save(veri_klasoru / "NonDemented" / "b_ornek.png")
         Image.fromarray(arr, mode="L").save(veri_klasoru / "NonDemented" / "a_ornek.png")
 
-        eda = EDAAnaLiz(veri_klasoru=veri_klasoru, cikti_klasoru=tmp_path / "out")
+        eda = EDAAnaliz(veri_klasoru=veri_klasoru, cikti_klasoru=tmp_path / "out")
         df = eda.veri_yukle()
 
         non_demented = (
@@ -130,7 +130,7 @@ class TestEDAAnaLiz:
         original = veri_koku / "OriginalDataset"
         _dataset_yapisi_olustur(original)
 
-        eda = EDAAnaLiz(veri_klasoru=veri_koku, cikti_klasoru=tmp_path / "out")
+        eda = EDAAnaliz(veri_klasoru=veri_koku, cikti_klasoru=tmp_path / "out")
         df = eda.veri_yukle()
 
         assert len(df) == 12
@@ -139,19 +139,19 @@ class TestEDAAnaLiz:
     def test_veri_yukle_bos_ozel_klasorde_varsayilana_dusmez(self, tmp_path):
         veri_klasoru = tmp_path / "bos_veri"
         veri_klasoru.mkdir()
-        eda = EDAAnaLiz(veri_klasoru=veri_klasoru, cikti_klasoru=tmp_path / "out")
+        eda = EDAAnaliz(veri_klasoru=veri_klasoru, cikti_klasoru=tmp_path / "out")
 
         with pytest.raises(FileNotFoundError):
             eda.veri_yukle()
 
     def test_veri_yukle_invalid_path_raises(self, tmp_path):
-        eda = EDAAnaLiz(veri_klasoru=tmp_path / "yok", cikti_klasoru=tmp_path / "out")
+        eda = EDAAnaliz(veri_klasoru=tmp_path / "yok", cikti_klasoru=tmp_path / "out")
 
         with pytest.raises(FileNotFoundError):
             eda.veri_yukle()
 
     def test_goruntu_istatistikleri_hesapla(self, test_dataset_structure, tmp_path):
-        eda = EDAAnaLiz(veri_klasoru=test_dataset_structure, cikti_klasoru=tmp_path / "out")
+        eda = EDAAnaliz(veri_klasoru=test_dataset_structure, cikti_klasoru=tmp_path / "out")
         eda.n_jobs = 1
         df = eda.veri_yukle()
 
@@ -165,7 +165,7 @@ class TestEDAAnaLiz:
     def test_goruntu_istatistikleri_paralel_hata_olursa_tek_cekirdege_duser(
         self, test_dataset_structure, tmp_path, monkeypatch, capsys
     ):
-        eda = EDAAnaLiz(veri_klasoru=test_dataset_structure, cikti_klasoru=tmp_path / "out", n_jobs=2)
+        eda = EDAAnaliz(veri_klasoru=test_dataset_structure, cikti_klasoru=tmp_path / "out", n_jobs=2)
         df = eda.veri_yukle()
 
         class BrokenPool:
@@ -182,7 +182,7 @@ class TestEDAAnaLiz:
         assert "tek cekirdege dusuluyor" in captured.out
 
     def test_goruntu_istatistikleri_hata_raporlar(self, test_dataset_structure, tmp_path, capsys):
-        eda = EDAAnaLiz(veri_klasoru=test_dataset_structure, cikti_klasoru=tmp_path / "out")
+        eda = EDAAnaliz(veri_klasoru=test_dataset_structure, cikti_klasoru=tmp_path / "out")
         eda.n_jobs = 1
         df = eda.veri_yukle()
 
@@ -197,7 +197,7 @@ class TestEDAAnaLiz:
         assert "[UYARI]" in captured.out
 
     def test_grafikler_olusturulur(self, test_dataset_structure, tmp_path):
-        eda = EDAAnaLiz(veri_klasoru=test_dataset_structure, cikti_klasoru=tmp_path / "out")
+        eda = EDAAnaliz(veri_klasoru=test_dataset_structure, cikti_klasoru=tmp_path / "out")
         eda.n_jobs = 1
         df = eda.goruntu_istatistikleri_hesapla(eda.veri_yukle())
 
@@ -216,7 +216,7 @@ class TestEDAAnaLiz:
     def test_korelasyon_analizi_all_nan_ise_atlanir(self, tmp_path, capsys):
         veri_klasoru = tmp_path / "veri"
         _dataset_yapisi_olustur(veri_klasoru)
-        eda = EDAAnaLiz(veri_klasoru=veri_klasoru, cikti_klasoru=tmp_path / "out")
+        eda = EDAAnaliz(veri_klasoru=veri_klasoru, cikti_klasoru=tmp_path / "out")
 
         df = pd.DataFrame(
             {
@@ -239,7 +239,7 @@ class TestEDAAnaLiz:
         assert not (eda.cikti_klasoru / "4_korelasyon_matrisi.png").exists()
 
     def test_yogunluk_analizi_girdi_dataframeini_degistirmez(self, test_dataset_structure, tmp_path):
-        eda = EDAAnaLiz(veri_klasoru=test_dataset_structure, cikti_klasoru=tmp_path / "out")
+        eda = EDAAnaliz(veri_klasoru=test_dataset_structure, cikti_klasoru=tmp_path / "out")
         eda.n_jobs = 1
         df = eda.goruntu_istatistikleri_hesapla(eda.veri_yukle())
         onceki_kolonlar = list(df.columns)
@@ -251,7 +251,7 @@ class TestEDAAnaLiz:
     def test_pca_analizi_olceklenmis_veriyi_kullanir(self, tmp_path, monkeypatch):
         veri_klasoru = tmp_path / "veri"
         _dataset_yapisi_olustur(veri_klasoru)
-        eda = EDAAnaLiz(veri_klasoru=veri_klasoru, cikti_klasoru=tmp_path / "out")
+        eda = EDAAnaliz(veri_klasoru=veri_klasoru, cikti_klasoru=tmp_path / "out")
         gozlem = {}
 
         class FakeScaler:
@@ -292,7 +292,7 @@ class TestEDAAnaLiz:
         np.testing.assert_array_equal(gozlem["pca_input"], gozlem["scaled_output"])
 
     def test_tam_analiz_yap(self, test_dataset_structure, tmp_path):
-        eda = EDAAnaLiz(veri_klasoru=test_dataset_structure, cikti_klasoru=tmp_path / "out")
+        eda = EDAAnaliz(veri_klasoru=test_dataset_structure, cikti_klasoru=tmp_path / "out")
         eda.n_jobs = 1
 
         df = eda.tam_analiz_yap()

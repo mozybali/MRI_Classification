@@ -50,8 +50,8 @@ MRI_RUN_TORCH_TESTS=1 pytest tests/test_model_altyapi.py tests/test_model_egitic
 Görüntü işleme yardımcı kontrolleri:
 
 ```bash
-python tests/pipeline_quick_test.py
-python tests/test_pipeline.py ornek_goruntu.jpg
+python3 tests/pipeline_quick_test.py
+python3 tests/test_pipeline.py ornek_goruntu.jpg
 ```
 
 ## Marker'lar

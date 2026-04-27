@@ -44,7 +44,7 @@ Sınıf klasör adları birebir bu şekilde yazılmalıdır. Projedeki etiket e�
 Veri yapısını ve paket kurulumunu hızlıca kontrol etmek için repo kökünden şu komut çalıştırılabilir:
 
 ```bash
-python tests/pipeline_quick_test.py
+python3 tests/pipeline_quick_test.py
 ```
 
 EDA veya ön işleme başlatmadan önce dört sınıf klasörünün de mevcut olduğundan ve dosya adlarının aynı kaynaktan türeyen kopyaları ayırt edilebilir bıraktığından emin olun.

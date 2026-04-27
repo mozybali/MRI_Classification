@@ -87,7 +87,7 @@ Not: `eda_analiz/eda_ciktilar/`, `goruntu_isleme/cikti/` ve `model/ciktilar/` ca
 GPU (CUDA 12.8) kurulumu:
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 # Windows:
 .venv\Scripts\activate
 # macOS / Linux:

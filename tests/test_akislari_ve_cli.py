@@ -397,7 +397,7 @@ def test_eda_main_analizi_calistirip_csv_yazar(monkeypatch, tmp_path):
         def tam_analiz_yap(self):
             return pd.DataFrame({"label": [0], "int_ort": [123.0]})
 
-    monkeypatch.setattr(eda_calistir, "EDAAnaLiz", DummyAnaliz)
+    monkeypatch.setattr(eda_calistir, "EDAAnaliz", DummyAnaliz)
 
     result = eda_calistir.main(
         [
@@ -423,7 +423,7 @@ def test_eda_main_hata_durumunda_bir_doner(monkeypatch, tmp_path):
         def tam_analiz_yap(self):
             raise RuntimeError("boom")
 
-    monkeypatch.setattr(eda_calistir, "EDAAnaLiz", FailingAnaliz)
+    monkeypatch.setattr(eda_calistir, "EDAAnaliz", FailingAnaliz)
 
     result = eda_calistir.main(
         [
