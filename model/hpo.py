@@ -619,8 +619,8 @@ def _sample_xgb_params(trial, args: argparse.Namespace) -> dict[str, Any]:
 
 def _xgb_objective_factory(args: argparse.Namespace, study_dir: Path):
     # NOT: XGBoost trial'larinda epoch bazli pruning desteklenmemektedir.
-    # MedianPruner tanimli olsa da XGBoost objective'i trial.report() cagirmaz.
-    # Dolayisiyla kotu parametreli trial'lar tam egitime tabi tutulur.
+    # XGBoost mod'unda study NopPruner ile olusturulur (bk. main()) ve
+    # trial.report() cagrilmaz; her trial tam egitime tabi tutulur.
     def objective(trial) -> float:
         params = _sample_xgb_params(trial, args)
         trial_dir = _trial_dir(study_dir, trial.number)
@@ -946,10 +946,16 @@ def main(argv: list[str] | None = None) -> int:
         multivariate=True,
         warn_independent_sampling=False, #Mevcut durumda rastgele degerlerin denenmesini istedigimiz icin bu uyari kapatildi.
     )
-    pruner = optuna.pruners.MedianPruner(
-        n_startup_trials=args.pruner_startup_trials,
-        n_warmup_steps=args.pruner_warmup_epochs,
-    )
+    if args.model == "xgboost":
+        # XGBoost objective trial.report() cagirmiyor; MedianPruner anlamsiz
+        # calisirdi, bu yuzden NopPruner ile devre disi birakilir.
+        pruner = optuna.pruners.NopPruner()
+        print("[INFO] XGBoost modunda epoch-bazli pruning desteklenmiyor; pruner devre disi.")
+    else:
+        pruner = optuna.pruners.MedianPruner(
+            n_startup_trials=args.pruner_startup_trials,
+            n_warmup_steps=args.pruner_warmup_epochs,
+        )
     study = optuna.create_study(
         study_name=study_name,
         direction=_selection_mode_for_metric(args.metric),

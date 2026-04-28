@@ -44,8 +44,6 @@ from .dl.utils import (
 )
 from .common.evaluation import (
     build_detailed_eval_report as _build_detailed_eval_report,
-    compute_valid_multiclass_auc_ap as _compute_valid_multiclass_auc_ap,
-    round_or_none as _round_or_none,
     scalar_metrics as _scalar_metrics,
 )
 
@@ -265,18 +263,27 @@ def _build_output_dirs(output_root: Path) -> dict[str, Path]:
 def _checkpoint_payload(
     config: TrainingConfig,
     epoch: int,
-    best_val_loss: float,
+    selection_loss: float | None,
+    selection_source: Literal["val", "train"],
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     num_classes: int,
     normalize_mean: list[float] | None = None,
     normalize_std: list[float] | None = None,
 ) -> dict[str, Any]:
+    """Checkpoint sozlugu olustur.
+
+    ``val_loss`` yalnizca validation seti varken doldurulur. Full-trainval
+    modunda secim sinyali train kayipi oldugundan ``selection_source="train"``
+    ile ``selection_loss`` saklanir ve ``val_loss=None`` birakilir.
+    """
     return {
         "epoch": epoch,
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
-        "val_loss": best_val_loss,
+        "val_loss": selection_loss if selection_source == "val" else None,
+        "selection_loss": selection_loss,
+        "selection_source": selection_source,
         "model_name": config.model,
         "pretrained": config.pretrained,
         "num_classes": num_classes,
@@ -386,7 +393,18 @@ def run_training(
         print(f"\n[INFO] Model: {config.model.upper()}")
         print(f"  Egitilebilir parametre: {param_count:,}")
 
-    class_weights = compute_class_weights(info["train_labels"], num_classes).to(device)
+    # Class weights orijinal egitim orneklerinden hesaplanir; aug-kopyalari
+    # post-augmentasyon dagilimi yansittigi icin loss'u cifte duzeltebilir.
+    if "train_original_labels" in info:
+        class_weight_labels = info["train_original_labels"]
+        if class_weight_labels is None or len(class_weight_labels) == 0:
+            raise RuntimeError(
+                "Original-only train etiketleri bos; class weight hesaplamak icin "
+                "train split'inde en az bir original ornek bulunmali."
+            )
+    else:
+        class_weight_labels = info["train_labels"]
+    class_weights = compute_class_weights(class_weight_labels, num_classes).to(device)
     if config.loss == "focal":
         criterion = FocalLoss(alpha=class_weights, gamma=config.focal_gamma)
     else:
@@ -443,6 +461,7 @@ def run_training(
     best_selection_value: float | None = None
     selected_epoch_val_loss: float | None = None
     selected_epoch_train_loss: float | None = None
+    best_val_eval_cache: dict[str, Any] | None = None
 
     if verbose:
         print(f"\n{'=' * 70}")
@@ -510,12 +529,14 @@ def run_training(
             best_val_metrics = dict(val_scalars)
             best_state_dict = copy.deepcopy(model.state_dict())
             selected_epoch_val_loss = val_scalars["loss"]
+            best_val_eval_cache = val_metrics
             if best_checkpoint_path is not None:
                 torch.save(
                     _checkpoint_payload(
                         config=config,
                         epoch=epoch,
-                        best_val_loss=val_scalars["loss"],
+                        selection_loss=val_scalars["loss"],
+                        selection_source="val",
                         model=model,
                         optimizer=optimizer,
                         num_classes=num_classes,
@@ -547,7 +568,8 @@ def run_training(
                 _checkpoint_payload(
                     config=config,
                     epoch=best_epoch,
-                    best_val_loss=selected_epoch_train_loss,
+                    selection_loss=selected_epoch_train_loss,
+                    selection_source="train",
                     model=model,
                     optimizer=optimizer,
                     num_classes=num_classes,
@@ -564,6 +586,8 @@ def run_training(
         best_epoch = epoch
         best_selection_value = float(val_scalars[selection_metric])
         selected_epoch_val_loss = val_scalars["loss"]
+        if best_val_eval_cache is None:
+            best_val_eval_cache = val_metrics
     elif best_state_dict is None:
         raise RuntimeError(
             "Egitim calismadi: config.epochs >= 1 olmali veya --full-trainval kullanilmali."
@@ -572,13 +596,12 @@ def run_training(
     model.load_state_dict(best_state_dict)
 
     best_val_detailed_metrics = None
-    if not full_trainval:
-        best_val_eval = evaluate(model, val_loader, criterion, device)
-        if {"labels", "preds"}.issubset(best_val_eval):
+    if not full_trainval and best_val_eval_cache is not None:
+        if {"labels", "preds"}.issubset(best_val_eval_cache):
             best_val_detailed_metrics = _build_detailed_eval_report(
-                best_val_eval["labels"],
-                best_val_eval["preds"],
-                best_val_eval.get("probs"),
+                best_val_eval_cache["labels"],
+                best_val_eval_cache["preds"],
+                best_val_eval_cache.get("probs"),
                 SINIF_ISIMLERI,
             )
 

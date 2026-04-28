@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import warnings
-from collections import defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -268,30 +267,6 @@ def _split_feature_matrix(
         "uses_external_test_dir": False,
     }
     return X_train, y_train, X_val, y_val, X_test, y_test, info
-
-
-def _group_split_feature_matrix(
-    X: np.ndarray,
-    y: np.ndarray,
-    groups: list[str],
-    paths: list[str] | None = None,
-    *,
-    val_ratio: float,
-    seed: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]:
-    """Ozellik matrisini grup-bazli train/val olarak bol."""
-    paths = paths if paths is not None else [group.split("::")[-1] for group in groups]
-    X_train, y_train, X_val, y_val, _X_test, _y_test, info = _split_feature_matrix(
-        X,
-        y,
-        groups,
-        paths,
-        val_ratio=val_ratio,
-        test_ratio=0.0,
-        seed=seed,
-        include_test=False,
-    )
-    return X_train, y_train, X_val, y_val, info
 
 
 # ==================== Cikti dizinleri ====================
@@ -560,7 +535,9 @@ def run_sl_training(
     best_iteration = getattr(model, "best_iteration", None)
     evals_result = model.evals_result()
 
-    # Val metrikleri
+    # Val metrikleri — predict/predict_proba erken durdurma sonrasi best_iteration
+    # kullanir; train_loss da ayni iteration'a karsilik gelsin diye predict_proba
+    # uzerinden log_loss ile hesaplanir.
     best_val_metrics: dict[str, float] | None = None
     best_val_detailed: dict[str, Any] | None = None
     if X_val is not None and y_val is not None:
@@ -570,15 +547,9 @@ def run_sl_training(
         prec, rec, f1, _ = precision_recall_fscore_support(
             y_val, val_preds, labels=list(range(num_classes)), zero_division=0, average="macro",
         )
-        # val logloss from evals_result — best_iteration varsa onu kullan
-        val_logloss_list = list(evals_result.get("validation_1", {}).get("mlogloss", []))
-        if val_logloss_list:
-            bi = best_iteration if best_iteration is not None and best_iteration < len(val_logloss_list) else len(val_logloss_list) - 1
-            val_loss = val_logloss_list[bi]
-        else:
-            val_loss = 0.0
+        val_loss = float(log_loss(y_val, val_probs, labels=list(range(num_classes))))
         best_val_metrics = {
-            "loss": float(val_loss),
+            "loss": val_loss,
             "accuracy": val_acc,
             "precision": float(prec),
             "recall": float(rec),
@@ -593,10 +564,9 @@ def run_sl_training(
     t_prec, t_rec, t_f1, _ = precision_recall_fscore_support(
         y_train, train_preds, labels=list(range(num_classes)), zero_division=0, average="macro",
     )
-    train_logloss_list = list(evals_result.get("validation_0", {}).get("mlogloss", []))
-    train_loss = train_logloss_list[-1] if train_logloss_list else 0.0
+    train_loss = float(log_loss(y_train, train_probs, labels=list(range(num_classes))))
     best_train_metrics = {
-        "loss": float(train_loss),
+        "loss": train_loss,
         "accuracy": train_acc,
         "precision": float(t_prec),
         "recall": float(t_rec),

@@ -30,9 +30,6 @@ GORUNTU_UZANTILARI = {".jpg", ".jpeg", ".png"}
 IMAGENET_MEAN: Tuple[float, float, float] = (0.485, 0.456, 0.406)
 IMAGENET_STD: Tuple[float, float, float] = (0.229, 0.224, 0.225)
 
-_DATASET_STATS_CACHE: Dict[Tuple[int, int], Tuple[Tuple[float, float, float], Tuple[float, float, float]]] = {}
-
-
 def _seed_worker(worker_id: int) -> None:
     """DataLoader worker'larinda tekrar uretilebilir RNG durumu kur."""
     worker_seed = torch.initial_seed() % (2 ** 32)
@@ -53,8 +50,9 @@ def compute_dataset_stats(
     """RGB-replicated egitim goruntulerinden kanal bazli mean/std hesapla.
 
     Sonuclari ``[0, 1]`` araligindaki tensor degerleri uzerinden, yani
-    ``transforms.ToTensor`` ciktisina uygun olcekte dondurur. Hesaplama maliyeti
-    process bazli bir cache ile bir HPO calismasi icinde tek seferlik tutulur.
+    ``transforms.ToTensor`` ciktisina uygun olcekte dondurur. Tipik bir
+    egitim/HPO trial'i icinde bu fonksiyon yalnizca bir kez cagrilir; bu yuzden
+    process-genelinde cache tutmak yerine her cagrida yeniden hesaplanir.
     """
     if not image_paths:
         raise ValueError("Stats hesaplamak icin gorseller bos olamaz.")
@@ -64,11 +62,6 @@ def compute_dataset_stats(
         rng = np.random.default_rng(seed)
         idxs = rng.choice(len(paths), size=max_samples, replace=False)
         paths = [paths[i] for i in sorted(idxs.tolist())]
-
-    cache_key = (id(image_paths), image_size, len(paths))
-    cached = _DATASET_STATS_CACHE.get(cache_key)
-    if cached is not None:
-        return cached
 
     sum_ = np.zeros(3, dtype=np.float64)
     sum_sq = np.zeros(3, dtype=np.float64)
@@ -92,12 +85,10 @@ def compute_dataset_stats(
     # Numerik gurultuye karsi std taban degeri
     std = np.maximum(std, 1e-6)
 
-    result = (
+    return (
         (float(mean[0]), float(mean[1]), float(mean[2])),
         (float(std[0]), float(std[1]), float(std[2])),
     )
-    _DATASET_STATS_CACHE[cache_key] = result
-    return result
 
 
 def _resize_and_crop(image_size: int) -> List[transforms.Compose]:
@@ -304,17 +295,58 @@ def _validate_dataset_separation(
     trainval_dir: Path,
     test_dir: Path,
 ) -> None:
-    """Train/val ve test veri kaynaklarinin ayrik oldugunu dogrula."""
+    """Train/val ve test veri kaynaklarinin ayrik oldugunu dogrula.
+
+    Iki tur sizinti kontrol edilir:
+    1) Tam grup anahtari (``"<class>::<kaynak_id>"``) ortakligi: ayni denek
+       ayni sinif altinda iki tarafta da gorunuyor.
+    2) Cross-class kaynak ortakligi: ayni kaynak ID'si farkli sinif klasorleri
+       altinda iki tarafa dagitilmis (etiket tutarsizligi/sizinti).
+    """
     overlap = sorted(set(trainval_groups) & set(test_groups))
-    if not overlap:
+    if overlap:
+        sample = ", ".join(overlap[:5])
+        raise ValueError(
+            "Train/validation kaynagi ile harici test dizini arasinda ortak kaynak grup bulundu.\n"
+            f"  TrainVal: {trainval_dir}\n"
+            f"  Test    : {test_dir}\n"
+            f"  Ortak grup sayisi: {len(overlap)}\n"
+            f"  Ornekler: {sample}"
+        )
+
+    tv_stems_to_classes: Dict[str, set[str]] = defaultdict(set)
+    for group in trainval_groups:
+        if "::" not in group:
+            continue
+        cls, stem = group.split("::", 1)
+        tv_stems_to_classes[stem].add(cls)
+    te_stems_to_classes: Dict[str, set[str]] = defaultdict(set)
+    for group in test_groups:
+        if "::" not in group:
+            continue
+        cls, stem = group.split("::", 1)
+        te_stems_to_classes[stem].add(cls)
+
+    # Ilk kontrol shared ``class::stem`` cakismalarini yakaladigi icin burada
+    # yalnizca cross-class durum kalir.
+    cross_class_overlaps = sorted(
+        tv_stems_to_classes.keys() & te_stems_to_classes.keys()
+    )
+    if not cross_class_overlaps:
         return
 
-    sample = ", ".join(overlap[:5])
+    sample_lines = []
+    for stem in cross_class_overlaps[:5]:
+        tv_cls = sorted(tv_stems_to_classes[stem])
+        te_cls = sorted(te_stems_to_classes[stem])
+        sample_lines.append(f"{stem}: trainval={tv_cls} test={te_cls}")
+    sample = "; ".join(sample_lines)
     raise ValueError(
-        "Train/validation kaynagi ile harici test dizini arasinda ortak kaynak grup bulundu.\n"
+        "Train/validation kaynagi ile test dizini arasinda ayni kaynak ID farkli sinif "
+        "klasorleri altinda paylasilmis (cross-class kaynak sizintisi).\n"
         f"  TrainVal: {trainval_dir}\n"
         f"  Test    : {test_dir}\n"
-        f"  Ortak grup sayisi: {len(overlap)}\n"
+        f"  Catisan kaynak sayisi: {len(cross_class_overlaps)}\n"
         f"  Ornekler: {sample}"
     )
 
@@ -730,6 +762,9 @@ def create_dataloaders(
     )
 
     train_idxs = _indices_for_groups(tv_groups, tv_augmented, train_group_keys, original_only=False)
+    train_original_idxs = _indices_for_groups(
+        tv_groups, tv_augmented, train_group_keys, original_only=True
+    )
     val_idxs = _indices_for_groups(tv_groups, tv_augmented, val_group_keys, original_only=True)
     internal_test_idxs = _indices_for_groups(
         tv_groups,
@@ -740,6 +775,7 @@ def create_dataloaders(
 
     paths_train = [tv_paths[i] for i in train_idxs]
     labels_train = [tv_labels[i] for i in train_idxs]
+    labels_train_original = [tv_labels[i] for i in train_original_idxs]
     paths_val = [tv_paths[i] for i in val_idxs]
     labels_val = [tv_labels[i] for i in val_idxs]
     train_missing_classes = _missing_class_names(labels_train, len(SINIF_ISIMLERI))
@@ -850,6 +886,7 @@ def create_dataloaders(
         "val_size": len(val_ds),
         "test_size": len(test_ds) if test_ds is not None else 0,
         "train_labels": labels_train,
+        "train_original_labels": labels_train_original,
         "val_labels": labels_val,
         "test_labels": labels_test,
         "train_groups": len({tv_groups[i] for i in train_idxs}),
@@ -909,10 +946,14 @@ def create_full_train_test_loaders(
     _validate_dataset_separation(tv_groups, test_groups, trainval_dir, test_dir)
 
     train_idxs = _indices_for_groups(tv_groups, tv_augmented, set(tv_groups), original_only=False)
+    train_original_idxs = _indices_for_groups(
+        tv_groups, tv_augmented, set(tv_groups), original_only=True
+    )
     test_idxs = _indices_for_groups(test_groups, test_augmented, set(test_groups), original_only=True)
 
     paths_train = [tv_paths[i] for i in train_idxs]
     labels_train = [tv_labels[i] for i in train_idxs]
+    labels_train_original = [tv_labels[i] for i in train_original_idxs]
     paths_test = [test_paths[i] for i in test_idxs]
     labels_test = [test_labels[i] for i in test_idxs]
 
@@ -988,6 +1029,7 @@ def create_full_train_test_loaders(
         "val_size": 0,
         "test_size": len(test_ds),
         "train_labels": labels_train,
+        "train_original_labels": labels_train_original,
         "val_labels": [],
         "test_labels": labels_test,
         "train_groups": len(set(tv_groups)),

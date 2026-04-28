@@ -44,6 +44,8 @@ def train_one_epoch(
         all_labels.extend(labels.cpu().numpy())
 
     n = len(all_labels)
+    if n == 0:
+        raise RuntimeError("train_one_epoch: bos veri yukleyici alindi, egitim adimi atilamiyor.")
     return {
         "loss": running_loss / n,
         "accuracy": accuracy_score(all_labels, all_preds),
@@ -80,6 +82,8 @@ def evaluate(
         all_probs.extend(probs.cpu().numpy())
 
     n = len(all_labels)
+    if n == 0:
+        raise RuntimeError("evaluate: bos veri yukleyici alindi, metrik hesaplanamiyor.")
     probs_arr = np.array(all_probs, dtype=np.float32)
     confidences = probs_arr.max(axis=1) if probs_arr.size else np.array([], dtype=np.float32)
     return {

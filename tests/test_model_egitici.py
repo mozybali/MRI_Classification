@@ -677,6 +677,100 @@ def test_run_training_hedef_metrige_gore_best_epoch_secer(monkeypatch):
     assert "train_f1" in result["history"]
 
 
+def test_run_training_class_weightleri_original_train_etiketlerinden_hesaplar(monkeypatch):
+    captured = {}
+
+    def fake_create_dataloaders(**_kwargs):
+        info = {
+            "num_classes": 4,
+            "train_size": 12,
+            "val_size": 4,
+            "test_size": 0,
+            "train_groups": 4,
+            "val_groups": 2,
+            "split_strategy": "group_stratified",
+            "split_warnings": [],
+            "train_labels": [0, 0, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3],
+            "train_original_labels": [0, 1, 2, 3],
+            "trainval_grouping": {"grouping_reliable": True},
+            "test_grouping": None,
+            "test_labels": [],
+        }
+        return object(), object(), None, info
+
+    def fake_compute_class_weights(labels, num_classes):
+        captured["labels"] = list(labels)
+        captured["num_classes"] = num_classes
+        return torch.ones(num_classes, dtype=torch.float32)
+
+    monkeypatch.setattr(training_runner, "set_seed", lambda seed: None)
+    monkeypatch.setattr(training_runner, "get_device", lambda verbose=True: torch.device("cpu"))
+    monkeypatch.setattr(training_runner, "create_dataloaders", fake_create_dataloaders)
+    monkeypatch.setattr(training_runner, "build_model", lambda *args, **kwargs: torch.nn.Linear(1, 1))
+    monkeypatch.setattr(training_runner, "compute_class_weights", fake_compute_class_weights)
+    monkeypatch.setattr(
+        training_runner,
+        "train_one_epoch",
+        lambda *_args, **_kwargs: {
+            "loss": 0.5,
+            "accuracy": 0.5,
+            "precision": 0.5,
+            "recall": 0.5,
+            "f1": 0.5,
+        },
+    )
+    monkeypatch.setattr(
+        training_runner,
+        "evaluate",
+        lambda *_args, **_kwargs: {
+            "loss": 0.4,
+            "accuracy": 0.6,
+            "precision": 0.6,
+            "recall": 0.6,
+            "f1": 0.6,
+        },
+    )
+
+    trainval_dir = Path("tmp_test_artifacts") / f"train_weights_{uuid4().hex}"
+    trainval_dir.mkdir(parents=True, exist_ok=True)
+
+    training_runner.run_training(
+        training_runner.TrainingConfig(
+            model="resnet",
+            epochs=1,
+            batch_size=2,
+            trainval_dir=trainval_dir,
+            test_dir=None,
+            test_ratio=0.2,
+        ),
+        save_artifacts=False,
+        evaluate_test_set=False,
+        verbose=False,
+    )
+
+    assert captured["labels"] == [0, 1, 2, 3]
+    assert captured["num_classes"] == 4
+
+
+def test_checkpoint_payload_full_trainval_validation_loss_metadata_bos():
+    model = torch.nn.Linear(1, 1)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+
+    payload = training_runner._checkpoint_payload(
+        config=training_runner.TrainingConfig(model="resnet"),
+        epoch=3,
+        selection_loss=0.123,
+        selection_source="train",
+        model=model,
+        optimizer=optimizer,
+        num_classes=4,
+    )
+
+    assert payload["val_loss"] is None
+    assert payload["selection_loss"] == pytest.approx(0.123)
+    assert payload["selection_source"] == "train"
+
+
 def test_run_training_full_trainval_modunda_validation_atlamaz(monkeypatch):
     create_calls = {}
     eval_metrics = iter(
@@ -853,3 +947,78 @@ def test_hpo_main_storage_varken_trials_hedef_toplam_olarak_yorumlanir(monkeypat
 
     assert result == 0
     assert optimize_calls == []
+
+
+def test_hpo_main_xgboost_modunda_nop_pruner_kullanir(monkeypatch):
+    calls = {"median": 0, "nop": 0, "pruner": None}
+
+    class FakeTrialState:
+        name = "COMPLETE"
+
+    class FakeTrial:
+        def __init__(self):
+            self.number = 0
+            self.value = 0.8
+            self.params = {}
+            self.user_attrs = {}
+            self.state = FakeTrialState()
+
+    class FakeStudy:
+        def __init__(self):
+            self.trials = [FakeTrial()]
+            self.best_trial = self.trials[0]
+            self.best_value = self.best_trial.value
+
+        def optimize(self, *_args, **_kwargs):
+            raise AssertionError("Yeni trial calistirilmamali")
+
+    fake_study = FakeStudy()
+
+    def fake_create_study(**kwargs):
+        calls["pruner"] = kwargs["pruner"]
+        return fake_study
+
+    fake_optuna = type(
+        "FakeOptuna",
+        (),
+        {
+            "samplers": type("Samplers", (), {"TPESampler": staticmethod(lambda **kwargs: object())}),
+            "pruners": type(
+                "Pruners",
+                (),
+                {
+                    "MedianPruner": staticmethod(
+                        lambda **kwargs: calls.__setitem__("median", calls["median"] + 1) or "median"
+                    ),
+                    "NopPruner": staticmethod(
+                        lambda: calls.__setitem__("nop", calls["nop"] + 1) or "nop"
+                    ),
+                },
+            ),
+            "create_study": staticmethod(fake_create_study),
+        },
+    )()
+
+    monkeypatch.setattr(hpo, "optuna", fake_optuna)
+    monkeypatch.setattr(hpo, "validate_search_args", lambda args: None)
+    monkeypatch.setattr(hpo, "_save_study_artifacts", lambda **kwargs: None)
+
+    output_dir = Path("tmp_test_artifacts") / f"hpo_xgb_{uuid4().hex}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    result = hpo.main(
+        [
+            "--model",
+            "xgboost",
+            "--trials",
+            "1",
+            "--skip-final-train",
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+
+    assert result == 0
+    assert calls["nop"] == 1
+    assert calls["median"] == 0
+    assert calls["pruner"] == "nop"

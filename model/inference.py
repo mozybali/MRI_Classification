@@ -37,7 +37,7 @@ if __package__ in {None, ""}:
     )
     from model.dl.utils import get_device, load_checkpoint
     from model.training_runner import build_model
-    from model.sl.xgb_classifier import load_xgb_model, load_xgb_model_with_meta
+    from model.sl.xgb_classifier import load_xgb_model_with_meta
     from model.sl.features import extract_features as _extract_features
 else:
     from .dl.dataset import (
@@ -48,7 +48,7 @@ else:
     )
     from .dl.utils import get_device, load_checkpoint
     from .training_runner import build_model
-    from .sl.xgb_classifier import load_xgb_model, load_xgb_model_with_meta
+    from .sl.xgb_classifier import load_xgb_model_with_meta
     from .sl.features import extract_features as _extract_features
 
 
