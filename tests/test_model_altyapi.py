@@ -24,6 +24,7 @@ from model.dl.dataset import (
     get_transforms,
     kaynak_id_belirle,
     _validate_class_match,
+    _validate_dataset_separation,
 )
 from model.dl.engine import EarlyStopping, evaluate, train_one_epoch
 from model.inference import collect_batch_images, load_model, main as inference_main, predict_image
@@ -107,6 +108,23 @@ def test_evaluate_returns_numpy_predictions_and_labels():
     assert metrics["labels"].shape == (2,)
     assert metrics["probs"].shape == (2, 2)
     assert metrics["confidences"].shape == (2,)
+
+
+def test_train_one_epoch_rejects_empty_loader():
+    model = nn.Linear(2, 2)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+
+    with pytest.raises(RuntimeError, match="bos veri yukleyici"):
+        train_one_epoch(model, [], criterion, optimizer, torch.device("cpu"))
+
+
+def test_evaluate_rejects_empty_loader():
+    model = nn.Linear(2, 2)
+    criterion = nn.CrossEntropyLoss()
+
+    with pytest.raises(RuntimeError, match="bos veri yukleyici"):
+        evaluate(model, [], criterion, torch.device("cpu"))
 
 
 def test_early_stopping_patience_and_reset():
@@ -194,6 +212,9 @@ def test_create_dataloaders_builds_leak_free_splits(tmp_path):
     assert len(train_loader.dataset) == info["train_size"]
     assert len(val_loader.dataset) == info["val_size"]
     assert len(test_loader.dataset) == info["test_size"]
+    assert "train_original_labels" in info
+    assert len(info["train_original_labels"]) == info["train_groups"]
+    assert len(info["train_original_labels"]) < len(info["train_labels"])
 
     train_sources = {kaynak_id_belirle(path.name) for path in train_loader.dataset.image_paths}
     val_sources = {kaynak_id_belirle(path.name) for path in val_loader.dataset.image_paths}
@@ -269,6 +290,8 @@ def test_create_full_train_test_loaders_trainvalin_tamamini_ve_harici_testi_kull
     assert info["test_size"] == 8
     assert len(train_loader.dataset) == info["train_size"]
     assert len(test_loader.dataset) == info["test_size"]
+    assert len(info["train_original_labels"]) == info["train_groups"]
+    assert len(info["train_original_labels"]) < len(info["train_labels"])
     assert any("(" in path.name for path in train_loader.dataset.image_paths)
     assert all("(" not in path.name for path in test_loader.dataset.image_paths)
 
@@ -289,6 +312,25 @@ def test_create_dataloaders_rejects_trainval_test_source_overlap(tmp_path):
             seed=42,
             num_workers=0,
         )
+
+
+def test_validate_dataset_separation_rejects_cross_class_source_stem_overlap():
+    trainval_dir = Path("trainval")
+    test_dir = Path("test")
+
+    with pytest.raises(ValueError) as exc_info:
+        _validate_dataset_separation(
+            ["NonDemented::subject_001"],
+            ["MildDemented::subject_001"],
+            trainval_dir,
+            test_dir,
+        )
+
+    message = str(exc_info.value)
+    assert "cross-class kaynak sizintisi" in message
+    assert "subject_001" in message
+    assert "NonDemented" in message
+    assert "MildDemented" in message
 
 
 def test_load_model_uses_checkpoint_metadata(monkeypatch, tmp_path):
@@ -329,7 +371,10 @@ def test_load_model_uses_checkpoint_metadata(monkeypatch, tmp_path):
         checkpoint_path,
     )
 
-    model, image_size, class_names = load_model(checkpoint_path, torch.device("cpu"))
+    model, image_size, class_names, normalize_mean, normalize_std = load_model(
+        checkpoint_path,
+        torch.device("cpu"),
+    )
 
     assert isinstance(model, DummyModel)
     assert model.num_classes == 3
@@ -337,6 +382,8 @@ def test_load_model_uses_checkpoint_metadata(monkeypatch, tmp_path):
     assert model.eval_called is True
     assert image_size == 96
     assert class_names == ["A", "B", "C"]
+    assert normalize_mean == pytest.approx((0.485, 0.456, 0.406))
+    assert normalize_std == pytest.approx((0.229, 0.224, 0.225))
 
 
 def test_predict_image_returns_ranked_probabilities(tmp_path):
