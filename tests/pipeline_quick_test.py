@@ -125,20 +125,15 @@ def _check_modul():
     try:
         from goruntu_isleme import ayarlar
         from goruntu_isleme.goruntu_isleyici import GorselIsleyici
-        from goruntu_isleme.ozellik_cikarici import OzellikCikarici
 
         print("[OK] ayarlar.py yuklendi")
         print("[OK] goruntu_isleyici.py yuklendi")
-        print("[OK] ozellik_cikarici.py yuklendi")
 
         isleyici = GorselIsleyici()
         print("[OK] GorselIsleyici nesnesi olusturuldu")
 
-        cikarici = OzellikCikarici()
-        print("[OK] OzellikCikarici nesnesi olusturuldu")
-
         # Referansi canli tutarak import zincirini dogruladigimizi belirtiyoruz.
-        _ = ayarlar, isleyici, cikarici
+        _ = ayarlar, isleyici
         return True
     except Exception as exc:
         print(f"[HATA] Modul yukleme hatasi: {exc}")

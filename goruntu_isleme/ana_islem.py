@@ -14,99 +14,15 @@ if __package__ in {None, ""}:
 
     from goruntu_isleme.ayarlar import (
         CIKTI_KLASORU,
-        CSV_DOSYA_ADI,
-        DOGRULAMA_ORANI,
-        EGITIM_ORANI,
         ON_ISLEME_VARSAYILAN_GIRIS_KLASORU,
-        SCALING_METODU,
-        SINIF_KLASORLERI,
-        TEST_CSV_DOSYA_ADI,
-        TEST_ORANI,
     )
     from goruntu_isleme.goruntu_isleyici import GorselIsleyici
-    from goruntu_isleme.ozellik_cikarici import (
-        OzellikCikarici,
-        veri_boluntule,
-        veri_setini_bol_ve_olceklendir,
-    )
 else:
     from .ayarlar import (
         CIKTI_KLASORU,
-        CSV_DOSYA_ADI,
-        DOGRULAMA_ORANI,
-        EGITIM_ORANI,
         ON_ISLEME_VARSAYILAN_GIRIS_KLASORU,
-        SCALING_METODU,
-        SINIF_KLASORLERI,
-        TEST_CSV_DOSYA_ADI,
-        TEST_ORANI,
     )
     from .goruntu_isleyici import GorselIsleyici
-    from .ozellik_cikarici import (
-        OzellikCikarici,
-        veri_boluntule,
-        veri_setini_bol_ve_olceklendir,
-    )
-
-NAN_METODLARI = {"drop", "mean", "median", "zero"}
-SCALING_METODLARI = {"minmax", "robust", "standard", "maxabs"}
-
-
-def _resolve_processed_split_dirs(klasor: Path) -> tuple[Path, Path | None]:
-    """Islenmis goruntu kokunden trainval/test alt dizinlerini cozumle."""
-    klasor = Path(klasor)
-    trainval_dir = klasor / "trainval"
-    test_dir = klasor / "test"
-    if _sinif_klasorleri_var_mi(trainval_dir):
-        return trainval_dir, test_dir if _sinif_klasorleri_var_mi(test_dir) else None
-    return klasor, None
-
-
-def _sinif_klasorleri_var_mi(klasor_yolu: Path) -> bool:
-    """Verilen klasorde en az bir bilinen sinif klasoru var mi?"""
-    klasor_yolu = Path(klasor_yolu)
-    return any((klasor_yolu / sinif).exists() for sinif in SINIF_KLASORLERI)
-
-
-def _resolve_feature_csv_paths(cikti_klasoru: Path, csv_yolu: Path | None = None) -> tuple[Path, Path]:
-    """Trainval ve test ozellik CSV yollarini belirle."""
-    cikti_klasoru = Path(cikti_klasoru)
-    if csv_yolu is None:
-        return cikti_klasoru / CSV_DOSYA_ADI, cikti_klasoru / TEST_CSV_DOSYA_ADI
-    csv_yolu = Path(csv_yolu)
-    test_csv = csv_yolu.with_name(f"test_{csv_yolu.name}")
-    return csv_yolu, test_csv
-
-
-def _auto_detect_test_csv(
-    *,
-    trainval_csv_dosyasi: Path | None,
-    cikti_klasoru: Path | None,
-    test_csv_dosyasi: Path | None,
-) -> Path | None:
-    """Harici test CSV belirtilmediyse preprocess ciktilarindan otomatik bul."""
-    if test_csv_dosyasi is not None:
-        return Path(test_csv_dosyasi)
-
-    adaylar: list[Path] = []
-    if cikti_klasoru is not None:
-        adaylar.append(Path(cikti_klasoru) / TEST_CSV_DOSYA_ADI)
-    if trainval_csv_dosyasi is not None:
-        _, eslesen_test_csv = _resolve_feature_csv_paths(
-            Path(trainval_csv_dosyasi).parent,
-            Path(trainval_csv_dosyasi),
-        )
-        adaylar.append(eslesen_test_csv)
-
-    gorulenler: set[Path] = set()
-    for aday in adaylar:
-        aday = Path(aday)
-        if aday in gorulenler:
-            continue
-        gorulenler.add(aday)
-        if aday.exists():
-            return aday
-    return None
 
 
 def parse_args(argv=None):
@@ -116,48 +32,13 @@ def parse_args(argv=None):
     )
     parser.add_argument(
         "--action",
-        choices=["menu", "preprocess", "extract", "clean-nan", "scale", "report", "split", "all"],
+        choices=["menu", "preprocess"],
         default="menu",
         help="Calistirilacak islem. Varsayilan interaktif menu.",
     )
     parser.add_argument("--input-dir", type=Path, default=None, help="Girdi klasoru")
     parser.add_argument("--output-dir", type=Path, default=None, help="Cikti klasoru")
-    parser.add_argument("--csv-path", type=Path, default=None, help="CSV dosya yolu")
-    parser.add_argument(
-        "--test-csv-path",
-        type=Path,
-        default=None,
-        help="Original test ozellik CSV yolu",
-    )
-    parser.add_argument(
-        "--method",
-        type=str,
-        default=None,
-        help="Action'a bagli metod. clean-nan icin drop/mean/median/zero; scale/all icin minmax/robust/standard/maxabs",
-    )
-    parser.add_argument(
-        "--yes",
-        action="store_true",
-        help="Toplu islemlerde etkilesimli onay isteme.",
-    )
-    args = parser.parse_args(argv)
-    if args.method is None:
-        return args
-    if args.action == "clean-nan":
-        if args.method not in NAN_METODLARI:
-            parser.error(
-                "--action clean-nan icin --method su degerlerden biri olmali: "
-                + ", ".join(sorted(NAN_METODLARI))
-            )
-    elif args.action in {"scale", "all"}:
-        if args.method not in SCALING_METODLARI:
-            parser.error(
-                "--action scale/all icin --method su degerlerden biri olmali: "
-                + ", ".join(sorted(SCALING_METODLARI))
-            )
-    else:
-        parser.error("--method yalnizca clean-nan, scale veya all action'lariyla kullanilabilir")
-    return args
+    return parser.parse_args(argv)
 
 
 def ana_menu():
@@ -166,12 +47,6 @@ def ana_menu():
     print("MRI GORUNTU ISLEME SISTEMI")
     print("=" * 60)
     print("\n1. Goruntuleri on isle")
-    print("2. Ozellik cikar ve CSV olustur")
-    print("3. CSV'deki NaN degerleri temizle")
-    print("4. Veri setini bol + egitim setine gore olceklendir")
-    print("5. Istatistik raporu goster")
-    print("6. Veri setini bol (ham CSV)")
-    print("7. TUM ISLEMLERI OTOMATIK YAP")
     print("0. Cikis")
     print("\n" + "=" * 60)
 
@@ -201,184 +76,6 @@ def goruntu_on_isleme(
     return istatistikler
 
 
-def ozellik_cikar(giris_klasoru: Path | None = None, cikti_csv: Path | None = None):
-    """Islenmis goruntulerden ozellik cikar."""
-    print("\n[2] OZELLIK CIKARMA VE CSV OLUSTURMA")
-    print("-" * 60)
-
-    cikarici = OzellikCikarici()
-    giris_klasoru = Path(giris_klasoru) if giris_klasoru else CIKTI_KLASORU
-    trainval_dir, test_dir = _resolve_processed_split_dirs(giris_klasoru)
-    trainval_csv, test_csv = _resolve_feature_csv_paths(giris_klasoru, cikti_csv)
-
-    df = cikarici.csv_olustur(trainval_dir, cikti_csv=trainval_csv)
-    if test_dir is not None:
-        test_df = cikarici.csv_olustur(test_dir, cikti_csv=test_csv)
-        if test_df.empty:
-            print("\n[HATA] Harici test ozellik cikarimi basarisiz.")
-            return None
-        print(f"[BILGI] Harici test ozellik CSV'si olusturuldu: {test_csv}")
-    if not df.empty:
-        print("\n[BASARILI] Ozellik cikarimi tamamlandi.")
-    else:
-        print("\n[HATA] Ozellik cikarimi basarisiz.")
-        return None
-    return df
-
-
-def nan_temizle(csv_dosyasi: Path | None = None, metod: str = "drop"):
-    """CSV'deki NaN degerleri temizle."""
-    print("\n[3] NaN DEGERLERI TEMIZLEME")
-    print("-" * 60)
-
-    cikarici = OzellikCikarici()
-    df = cikarici.nan_temizle(csv_dosyasi=csv_dosyasi, metod=metod)
-    if not df.empty:
-        print("\n[BASARILI] NaN temizleme tamamlandi.")
-    else:
-        print("\n[HATA] NaN temizleme basarisiz.")
-    return df
-
-
-def scaling_uygula(
-    csv_dosyasi: Path | None = None,
-    cikti_klasoru: Path | None = None,
-    metod: str = SCALING_METODU,
-    test_csv_dosyasi: Path | None = None,
-):
-    """Leakage-free split ve scaling uygula."""
-    print("\n[4] VERI BOLME + OLCEKLENDIRME")
-    print("-" * 60)
-    print("\nScaler once egitim setine fit edilir, sonra dogrulama ve teste uygulanir.")
-    print(f"Mevcut metod: {metod}")
-
-    test_csv_dosyasi = _auto_detect_test_csv(
-        trainval_csv_dosyasi=csv_dosyasi,
-        cikti_klasoru=cikti_klasoru,
-        test_csv_dosyasi=test_csv_dosyasi,
-    )
-
-    splitler = veri_setini_bol_ve_olceklendir(
-        csv_dosyasi=csv_dosyasi,
-        cikti_klasoru=cikti_klasoru,
-        metod=metod,
-        test_csv_dosyasi=test_csv_dosyasi,
-    )
-    if splitler and all(not df.empty for df in splitler):
-        print("\n[BASARILI] Veri bolme ve olceklendirme tamamlandi.")
-    else:
-        print("\n[HATA] Veri bolme ve olceklendirme basarisiz.")
-    return splitler
-
-
-def istatistik_goster(csv_dosyasi: Path | None = None):
-    """Istatistik raporu goster."""
-    print("\n[5] ISTATISTIK RAPORU")
-    print("-" * 60)
-    cikarici = OzellikCikarici()
-    return cikarici.istatistik_raporu(csv_dosyasi=csv_dosyasi)
-
-
-def veri_bol(
-    csv_dosyasi: Path | None = None,
-    cikti_klasoru: Path | None = None,
-    test_csv_dosyasi: Path | None = None,
-):
-    """Ham CSV uzerinden veri setini bol."""
-    print("\n[6] VERI SETI BOLME")
-    print("-" * 60)
-    print(f"\nOranlar: Egitim={EGITIM_ORANI}, Dogrulama={DOGRULAMA_ORANI}, Test={TEST_ORANI}")
-    test_csv_dosyasi = _auto_detect_test_csv(
-        trainval_csv_dosyasi=csv_dosyasi,
-        cikti_klasoru=cikti_klasoru,
-        test_csv_dosyasi=test_csv_dosyasi,
-    )
-    return veri_boluntule(
-        csv_dosyasi=csv_dosyasi,
-        cikti_klasoru=cikti_klasoru,
-        test_csv_dosyasi=test_csv_dosyasi,
-    )
-
-
-def tum_islemleri_yap(
-    giris_klasoru: Path | None = None,
-    cikti_klasoru: Path | None = None,
-    metod: str = SCALING_METODU,
-    skip_confirmation: bool = False,
-):
-    """Tum islemleri otomatik ve guvenli sirada yap."""
-    print("\n[7] TUM ISLEMLER OTOMATIK")
-    print("-" * 60)
-    print("\nSu islemler sirayla yapilacak:")
-    print("  1. Goruntu on isleme")
-    print("  2. Ozellik cikarma")
-    print("  3. Veri bolme + egitim setine gore NaN temizligi + olceklendirme")
-    print("  4. Istatistik raporu")
-
-    if not skip_confirmation:
-        onay = input("\nDevam etmek istiyor musunuz? (e/h): ").strip().lower()
-    else:
-        onay = "e"
-    if onay != "e":
-        print("Islem iptal edildi.")
-        return None
-
-    giris_klasoru = Path(giris_klasoru) if giris_klasoru else ON_ISLEME_VARSAYILAN_GIRIS_KLASORU
-    cikti_klasoru = Path(cikti_klasoru) if cikti_klasoru else CIKTI_KLASORU
-    ozellik_csv, test_ozellik_csv = _resolve_feature_csv_paths(cikti_klasoru)
-
-    print("\n\n" + "=" * 60)
-    print("ADIM 1/4: GORUNTU ON ISLEME")
-    print("=" * 60)
-    isleyici = GorselIsleyici()
-    splitli_islem = getattr(isleyici, "tum_gorselleri_isle_ve_bol", None)
-    if callable(splitli_islem):
-        splitli_islem(cikti_klasoru, giris_klasoru=giris_klasoru)
-    else:
-        isleyici.tum_gorselleri_isle(cikti_klasoru, giris_klasoru=giris_klasoru)
-
-    print("\n\n" + "=" * 60)
-    print("ADIM 2/4: OZELLIK CIKARMA")
-    print("=" * 60)
-    cikarici = OzellikCikarici()
-    trainval_dir, test_dir = _resolve_processed_split_dirs(cikti_klasoru)
-    df = cikarici.csv_olustur(trainval_dir, cikti_csv=ozellik_csv)
-    if test_dir is not None:
-        test_df = cikarici.csv_olustur(test_dir, cikti_csv=test_ozellik_csv)
-        if test_df.empty:
-            print("\n[HATA] Test ozellik cikarimi basarisiz. Islem durduruluyor.")
-            return None
-    if df.empty:
-        print("\n[HATA] Ozellik cikarimi basarisiz. Islem durduruluyor.")
-        return None
-
-    print("\n\n" + "=" * 60)
-    print("ADIM 3/4: VERI BOLME + OLCEKLENDIRME")
-    print("=" * 60)
-    print("[BILGI] Sayisal NaN degerler varsa yalnizca egitim seti medyani ile temizlenecek.")
-    split_kwargs = {
-        "csv_dosyasi": ozellik_csv,
-        "cikti_klasoru": cikti_klasoru,
-        "metod": metod,
-    }
-    if test_dir is not None:
-        split_kwargs["test_csv_dosyasi"] = test_ozellik_csv
-    sonuc = veri_setini_bol_ve_olceklendir(**split_kwargs)
-    if sonuc is None:
-        print("\n[HATA] Veri bolme ve olceklendirme basarisiz. Islem durduruluyor.")
-        return None
-
-    print("\n\n" + "=" * 60)
-    print("ADIM 4/4: ISTATISTIK RAPORU")
-    print("=" * 60)
-    cikarici.istatistik_raporu(csv_dosyasi=ozellik_csv)
-
-    print("\n\n" + "=" * 60)
-    print("[BASARILI] Tum islemler tamamlandi.")
-    print("=" * 60)
-    return sonuc
-
-
 def _interactive_preprocess():
     """Interaktif on isleme akisi."""
     giris = input(f"\nGirdi klasoru (varsayilan: {ON_ISLEME_VARSAYILAN_GIRIS_KLASORU}): ").strip()
@@ -389,75 +86,12 @@ def _interactive_preprocess():
     )
 
 
-def _interactive_feature_extraction():
-    """Interaktif ozellik cikarma akisi."""
-    giris = input(f"\nIslenmis goruntuler klasoru (varsayilan: {CIKTI_KLASORU}): ").strip()
-    return ozellik_cikar(giris_klasoru=Path(giris) if giris else None)
-
-
-def _interactive_nan_clean():
-    """Interaktif NaN temizleme akisi."""
-    print("\nMevcut temizleme metodlari:")
-    print("  1. drop   - NaN iceren satirlari cikar")
-    print("  2. mean   - NaN'lari sutun ortalamasi ile doldur")
-    print("  3. median - NaN'lari sutun medyani ile doldur")
-    print("  4. zero   - NaN'lari 0 ile doldur")
-
-    metod = input("\nMetod secin (drop/mean/median/zero, Enter=drop): ").strip().lower() or "drop"
-    if metod not in ["drop", "mean", "median", "zero"]:
-        print("[HATA] Gecersiz metod.")
-        return None
-    return nan_temizle(metod=metod)
-
-
-def _interactive_scaling():
-    """Interaktif scaling akisi."""
-    print(f"Mevcut metod: {SCALING_METODU}")
-    print("\nMetodlar:")
-    print("  1. minmax")
-    print("  2. robust")
-    print("  3. standard")
-    print("  4. maxabs")
-
-    metod = input("\nMetod secin (minmax/robust/standard/maxabs, Enter=varsayilan): ").strip().lower() or SCALING_METODU
-    if metod not in ["minmax", "robust", "standard", "maxabs"]:
-        print("[HATA] Gecersiz metod.")
-        return None
-    return scaling_uygula(metod=metod)
-
-
 def run_action(args):
     """CLI action'i calistir."""
     if args.action == "preprocess":
         return goruntu_on_isleme(
             giris_klasoru=args.input_dir,
             cikti_klasoru=args.output_dir,
-        )
-    if args.action == "extract":
-        return ozellik_cikar(giris_klasoru=args.input_dir, cikti_csv=args.csv_path)
-    if args.action == "clean-nan":
-        return nan_temizle(csv_dosyasi=args.csv_path, metod=args.method or "drop")
-    if args.action == "scale":
-        return scaling_uygula(
-            csv_dosyasi=args.csv_path,
-            cikti_klasoru=args.output_dir,
-            metod=args.method or SCALING_METODU,
-            test_csv_dosyasi=args.test_csv_path,
-        )
-    if args.action == "report":
-        return istatistik_goster(csv_dosyasi=args.csv_path)
-    if args.action == "split":
-        return veri_bol(
-            csv_dosyasi=args.csv_path,
-            cikti_klasoru=args.output_dir,
-            test_csv_dosyasi=args.test_csv_path,
-        )
-    if args.action == "all":
-        return tum_islemleri_yap(
-            giris_klasoru=args.input_dir,
-            cikti_klasoru=args.output_dir,
-            metod=args.method or SCALING_METODU,
-            skip_confirmation=args.yes,
         )
     return None
 
@@ -479,20 +113,8 @@ def main(argv=None):
                 break
             if secim == "1":
                 _interactive_preprocess()
-            elif secim == "2":
-                _interactive_feature_extraction()
-            elif secim == "3":
-                _interactive_nan_clean()
-            elif secim == "4":
-                _interactive_scaling()
-            elif secim == "5":
-                istatistik_goster()
-            elif secim == "6":
-                veri_bol()
-            elif secim == "7":
-                tum_islemleri_yap()
             else:
-                print("\n[HATA] Gecersiz secim. Lutfen 0-7 arasi bir sayi girin.")
+                print("\n[HATA] Gecersiz secim. Lutfen 0 veya 1 girin.")
 
             input("\nDevam etmek icin Enter'a basin...")
 

@@ -34,12 +34,7 @@ __all__ = [
     "GAUSSIAN_NOISE_AKTIF", "GAUSSIAN_NOISE_MEAN", "GAUSSIAN_NOISE_SIGMA",
     "INTENSITY_SHIFT_AKTIF", "INTENSITY_SHIFT_LIMIT",
     # Veri bölümleme
-    "EGITIM_ORANI", "DOGRULAMA_ORANI", "TEST_ORANI", "RASTGELE_TOHUM",
-    # CSV
-    "CSV_DOSYA_ADI", "TEST_CSV_DOSYA_ADI",
-    "EGITIM_CSV_DOSYA_ADI", "DOGRULAMA_CSV_DOSYA_ADI", "TEST_SPLIT_CSV_DOSYA_ADI",
-    "EGITIM_SCALED_CSV_DOSYA_ADI", "DOGRULAMA_SCALED_CSV_DOSYA_ADI",
-    "TEST_SCALED_CSV_DOSYA_ADI", "SCALER_DOSYA_ADI", "SCALING_METODU",
+    "TEST_ORANI", "RASTGELE_TOHUM",
     # Kalite kontrol
     "KALITE_KONTROL_AKTIF", "MIN_MEAN_INTENSITY", "MAX_MEAN_INTENSITY",
     "MIN_STD_INTENSITY", "MAX_BLACK_RATIO",
@@ -181,33 +176,11 @@ INTENSITY_SHIFT_AKTIF = True
 INTENSITY_SHIFT_LIMIT = 0.03      # Yogunluk kaymasi limiti (%3)
 
 # ==================== VERİ BÖLÜMLEME AYARLARI ====================
-# Veri seti üç parçaya bölünür:
-# - Eğitim (Training): Modeli eğitmek için
-# - Doğrulama (Validation): Hiperparametre ayarlama ve erken durdurma için
-# - Test: Son performans değerlendirmesi için (model hiç görmemiş)
-EGITIM_ORANI = 0.70        # %70 eğitim
-DOGRULAMA_ORANI = 0.15     # %15 doğrulama
+# Trainval/test kaynak grubu bolmesi icin kullanilir
+# (goruntu_isleyici.veri_dosyalarini_bol). Egitim/dogrulama orani egitim
+# tarafinda model/dl/dataset.py icindeki splitter tarafindan belirlenir.
 TEST_ORANI = 0.15          # %15 test
 RASTGELE_TOHUM = 42        # Tekrarlanabilirlik için sabit tohum
-
-# ==================== CSV AYARLARI ====================
-# Özelliklerin kaydedileceği CSV dosya isimleri
-CSV_DOSYA_ADI = "goruntu_ozellikleri.csv"          # Ham özellikler
-TEST_CSV_DOSYA_ADI = "test_goruntu_ozellikleri.csv"
-EGITIM_CSV_DOSYA_ADI = "egitim.csv"
-DOGRULAMA_CSV_DOSYA_ADI = "dogrulama.csv"
-TEST_SPLIT_CSV_DOSYA_ADI = "test.csv"
-EGITIM_SCALED_CSV_DOSYA_ADI = "egitim_scaled.csv"
-DOGRULAMA_SCALED_CSV_DOSYA_ADI = "dogrulama_scaled.csv"
-TEST_SCALED_CSV_DOSYA_ADI = "test_scaled.csv"
-SCALER_DOSYA_ADI = "feature_scaler.pkl"
-
-# Ölçeklendirme (Scaling) metodu
-# "minmax": Tüm değerleri 0-1 aralığına sıkıştırır
-# "robust": Aykırı değerlere karşı daha dayanıklı, medyan ve IQR kullanır
-# "standard": Z-score normalizasyonu (mean=0, std=1)
-# "maxabs": [-1, 1] aralığına ölçeklendirir
-SCALING_METODU = "robust"
 
 # ==================== KALİTE KONTROL AYARLARI ====================
 # Görüntü kalite kontrol eşikleri
