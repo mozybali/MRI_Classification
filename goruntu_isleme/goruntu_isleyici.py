@@ -480,38 +480,30 @@ class GorselIsleyici:
         """
         Görüntüden gürültüyü temizle.
 
-        MRI görüntülerinde sıkça salt-and-pepper ve Gaussian gürültü görülür.
-        Bu gürültüler model performansını düşürür, temizlenmesi gerekir.
-
         Args:
             goruntu: Girdi görüntüsü
-            metod: 'auto', 'median', 'gaussian' veya 'bilateral'
+            metod: 'auto' (FILTRE_METODU ayarini kullanir), 'off', 'median',
+                   'gaussian' veya 'bilateral'.
 
         Returns:
             Gürültüsü azaltılmış görüntü
         """
         if metod == 'auto':
-            if GELISMIS_FILTRE_AKTIF:
-                if BILATERAL_FILTRE_AKTIF and CV2_AVAILABLE:
-                    return self._bilateral_filtre_uygula(goruntu)
-                if GAUSSIAN_BLUR_AKTIF:
-                    return self.gurultu_gider(goruntu, metod='gaussian')
-            # Filtreler kapaliyken median 3x3'e dusmek kortikal dokuyu siler;
-            # explicit olarak hicbir filtre etkin degilse goruntuyu degistirme.
-            return goruntu
+            metod = FILTRE_METODU
 
+        if metod == 'off':
+            # auto+off durumunda median 3x3'e dusmek kortikal dokuyu siler;
+            # bu yuzden goruntu aynen donulur.
+            return goruntu
         if metod == 'median':
-            # Median filtre: Salt-and-pepper gürültüsü için ideal
             filtered = ndimage.median_filter(goruntu, size=3)
             return np.clip(filtered, 0, 255).astype(np.uint8)
-        elif metod == 'gaussian' and GAUSSIAN_BLUR_AKTIF:
-            # Gaussian filtre: Genel gürültü azaltma
+        if metod == 'gaussian':
             filtered = ndimage.gaussian_filter(goruntu, sigma=GAUSSIAN_BLUR_SIGMA)
             return np.clip(filtered, 0, 255).astype(np.uint8)
-        elif metod == 'bilateral' and BILATERAL_FILTRE_AKTIF and CV2_AVAILABLE:
+        if metod == 'bilateral' and CV2_AVAILABLE:
             return self._bilateral_filtre_uygula(goruntu)
-        else:
-            return goruntu
+        return goruntu
     
     def skull_strip(self, goruntu: np.ndarray) -> np.ndarray:
         """
@@ -916,10 +908,11 @@ class GorselIsleyici:
     _Z_SCORE_RANGE_SIGMA = 2.5
 
     def z_score_normalize(self, goruntu: np.ndarray) -> np.ndarray:
-        """Robust z-score: mean/std cikarip +/- 2.5 sigma'yi [0, 255]'e dogrusal esle."""
-        if not Z_SCORE_NORMALIZASYON_AKTIF:
-            return goruntu
+        """Robust z-score: mean/std cikarip +/- 2.5 sigma'yi [0, 255]'e dogrusal esle.
 
+        Strateji bazli cagrilir: yalnizca NORMALIZASYON_STRATEJISI="aggressive"
+        oldugunda _apply_normalization_strategy bu metodu kullanir.
+        """
         arr = goruntu.astype(np.float32)
         mean = float(arr.mean())
         std = float(arr.std())

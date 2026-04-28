@@ -16,9 +16,8 @@ __all__ = [
     # Görüntü işleme
     "HEDEF_GENISLIK", "HEDEF_YUKSEKLIK", "GORUNTU_UZANTILARI",
     "KIRPMA_YUZDELERI", "NORMALIZASYON_STRATEJISI",
-    "Z_SCORE_NORMALIZASYON_AKTIF", "HISTOGRAM_ESITLEME_AKTIF", "CLAHE_CLIP_LIMIT",
-    "GELISMIS_FILTRE_AKTIF", "BILATERAL_FILTRE_AKTIF",
-    "GAUSSIAN_BLUR_AKTIF", "GAUSSIAN_BLUR_SIGMA",
+    "HISTOGRAM_ESITLEME_AKTIF", "CLAHE_CLIP_LIMIT",
+    "FILTRE_METODU", "GAUSSIAN_BLUR_SIGMA",
     "MASKE_KENAR_PAYI",
     "SKULL_STRIPPING_AKTIF", "SKULL_STRIPPING_METHOD",
     "BIAS_FIELD_CORRECTION_AKTIF", "BIAS_FIELD_METHOD",
@@ -96,14 +95,11 @@ GORUNTU_UZANTILARI = [".jpg", ".jpeg", ".png"]
 # (%1 en düşük ve %1 en yüksek değerler kırpılır)
 KIRPMA_YUZDELERI = (1, 99)
 
-# Normalizasyon stratejisi
+# Normalizasyon stratejisi - z-score yalnizca "aggressive" stratejide uygulanir.
 # "minimal": Sadece percentile clipping + resize
 # "standard": percentile + CLAHE + resize (önerilen)
 # "aggressive": percentile + CLAHE + z-score + resize
 NORMALIZASYON_STRATEJISI = "standard"  # "minimal", "standard", "aggressive"
-
-# Z-score normalizasyonu: Ortalama=0, Std=1 yapma (isteğe bağlı)
-Z_SCORE_NORMALIZASYON_AKTIF = True
 
 # Histogram eşitleme (CLAHE) - Kontrast iyileştirme.
 # Train ve test arasinda deterministik olmasi icin sabit clip_limit kullanilir
@@ -111,12 +107,12 @@ Z_SCORE_NORMALIZASYON_AKTIF = True
 HISTOGRAM_ESITLEME_AKTIF = True
 CLAHE_CLIP_LIMIT = 2.0  # Sabit clip limit (orta seviye kontrast iyilestirme)
 
-# Filtreler - Gelişmiş görüntü filtreleme seçenekleri
-GELISMIS_FILTRE_AKTIF = False
-BILATERAL_FILTRE_AKTIF = False  # Bilateral filtreleme (kenar koruma)
-
-GAUSSIAN_BLUR_AKTIF = False  # Gaussian bulanıklaştırma (gürültü azaltma)
-GAUSSIAN_BLUR_SIGMA = 0.5    # Bulanıklaştırma şiddeti
+# Gurultu giderme metodu (gurultu_gider auto modu icin tek kaynak).
+# "off"       : filtre uygulanmaz (default)
+# "bilateral" : kenar koruyan bilateral filtre (cv2 gerekli)
+# "gaussian"  : Gaussian blur (sigma=GAUSSIAN_BLUR_SIGMA)
+FILTRE_METODU = "off"
+GAUSSIAN_BLUR_SIGMA = 0.5  # "gaussian" modunda kullanilir
 
 # Arka plan işleme
 MASKE_KENAR_PAYI = 2

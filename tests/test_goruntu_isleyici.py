@@ -113,15 +113,13 @@ class TestGorselIsleyici:
         assert resized.dtype == np.uint8
 
     def test_gurultu_gider_auto_filtreler_kapaliyken_no_op(self, monkeypatch):
-        """Tum filtreler kapaliyken auto mod goruntuyu degistirmeden dondurmeli.
+        """FILTRE_METODU='off' iken auto mod goruntuyu degistirmeden dondurmeli.
 
-        Eski davranis: GELISMIS_FILTRE_AKTIF=False iken median 3x3'e dusuluyordu;
-        bu kortikal dokuyu sessizce siliyordu. Yeni sozlesme: hicbir filtre
-        secilmemisse goruntu aynen donulur.
+        Eski davranis: filtreler kapaliyken median 3x3'e dusuluyordu; bu
+        kortikal dokuyu sessizce siliyordu. Yeni sozlesme: 'off' modu
+        goruntuyu aynen dondurur.
         """
-        monkeypatch.setattr(gi, "GELISMIS_FILTRE_AKTIF", False)
-        monkeypatch.setattr(gi, "GAUSSIAN_BLUR_AKTIF", False)
-        monkeypatch.setattr(gi, "BILATERAL_FILTRE_AKTIF", False)
+        monkeypatch.setattr(gi, "FILTRE_METODU", "off")
 
         isleyici = GorselIsleyici()
         test_img = np.full((9, 9), 128, dtype=np.uint8)
