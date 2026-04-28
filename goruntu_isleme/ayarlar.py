@@ -113,7 +113,7 @@ CLAHE_CLIP_LIMIT = 2.0  # Sabit clip limit (orta seviye kontrast iyilestirme)
 
 # Filtreler - Gelişmiş görüntü filtreleme seçenekleri
 GELISMIS_FILTRE_AKTIF = False
-BILATERAL_FILTRE_AKTIF = True  # Bilateral filtreleme (kenar koruma)
+BILATERAL_FILTRE_AKTIF = False  # Bilateral filtreleme (kenar koruma)
 
 GAUSSIAN_BLUR_AKTIF = False  # Gaussian bulanıklaştırma (gürültü azaltma)
 GAUSSIAN_BLUR_SIGMA = 0.5    # Bulanıklaştırma şiddeti

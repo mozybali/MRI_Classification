@@ -4,8 +4,6 @@
 """MRI goruntu isleme ana menu ve CLI giris noktasi."""
 
 import argparse
-import importlib
-import importlib.util
 import sys
 from pathlib import Path
 
@@ -50,12 +48,6 @@ else:
         veri_setini_bol_ve_olceklendir,
     )
 
-OPTIONAL_3D_MODULES = (
-    "goruntu_isleme.uc_boyutlu_isleme",
-    "goruntu_isleme.three_d_isleme",
-    "uc_boyutlu_isleme",
-    "three_d_isleme",
-)
 NAN_METODLARI = {"drop", "mean", "median", "zero"}
 SCALING_METODLARI = {"minmax", "robust", "standard", "maxabs"}
 
@@ -117,15 +109,6 @@ def _auto_detect_test_csv(
     return None
 
 
-def _load_optional_3d_module():
-    """Opsiyonel 3D modulunu varsa yukle."""
-    for module_name in OPTIONAL_3D_MODULES:
-        if importlib.util.find_spec(module_name) is None:
-            continue
-        return importlib.import_module(module_name)
-    return None
-
-
 def parse_args(argv=None):
     """Komut satiri argumanlarini ayrisirt."""
     parser = argparse.ArgumentParser(
@@ -136,12 +119,6 @@ def parse_args(argv=None):
         choices=["menu", "preprocess", "extract", "clean-nan", "scale", "report", "split", "all"],
         default="menu",
         help="Calistirilacak islem. Varsayilan interaktif menu.",
-    )
-    parser.add_argument(
-        "--mode",
-        choices=["2d", "3d"],
-        default="2d",
-        help="On isleme modu. 3D ancak opsiyonel modul varsa kullanilabilir.",
     )
     parser.add_argument("--input-dir", type=Path, default=None, help="Girdi klasoru")
     parser.add_argument("--output-dir", type=Path, default=None, help="Cikti klasoru")
@@ -158,9 +135,6 @@ def parse_args(argv=None):
         default=None,
         help="Action'a bagli metod. clean-nan icin drop/mean/median/zero; scale/all icin minmax/robust/standard/maxabs",
     )
-    parser.add_argument("--volume-path", type=Path, default=None, help="3D hacim dosyasi veya DICOM klasoru")
-    parser.add_argument("--class-name", type=str, default=None, help="3D islem icin sinif adi")
-    parser.add_argument("--model-path", type=Path, default=None, help="3D model dosyasi")
     parser.add_argument(
         "--yes",
         action="store_true",
@@ -192,8 +166,6 @@ def ana_menu():
     print("MRI GORUNTU ISLEME SISTEMI")
     print("=" * 60)
     print("\n1. Goruntuleri on isle")
-    if _load_optional_3d_module() is not None:
-        print("   3D destek modulu algilandi")
     print("2. Ozellik cikar ve CSV olustur")
     print("3. CSV'deki NaN degerleri temizle")
     print("4. Veri setini bol + egitim setine gore olceklendir")
@@ -204,78 +176,13 @@ def ana_menu():
     print("\n" + "=" * 60)
 
 
-def _resolve_3d_module_or_warn():
-    """3D modul varsa dondur, yoksa acik mesaj yaz."""
-    module = _load_optional_3d_module()
-    if module is None:
-        print("[HATA] 3D islem modulu bu repoda kurulu degil.")
-        print("       3D secenegi modul eklenmeden kullanilamaz.")
-    return module
-
-
-def _run_3d_inference(
-    islem3d,
-    hacim_yolu: Path | None,
-    sinif_adi: str,
-    model_yolu: Path | None = None,
-    cikti_klasoru: Path | None = None,
-):
-    """Opsiyonel 3D akisini calistir."""
-    if hacim_yolu is None:
-        print("[HATA] 3D islem icin hacim yolu gerekli.")
-        return None
-    if sinif_adi not in SINIF_KLASORLERI:
-        print(f"[HATA] Gecersiz sinif: {sinif_adi}")
-        return None
-
-    default_model_path = getattr(islem3d, "DEFAULT_MODEL_PATH", None)
-    if model_yolu is None:
-        model_yolu = default_model_path
-    if cikti_klasoru is None:
-        cikti_klasoru = CIKTI_KLASORU / "3d"
-
-    if model_yolu is None:
-        print("[HATA] 3D modulunde varsayilan model yolu tanimli degil.")
-        return None
-
-    try:
-        kayit = islem3d.calistir_3d_infer(
-            Path(hacim_yolu),
-            model_path=Path(model_yolu),
-            output_dir=Path(cikti_klasoru),
-            sinif_adi=sinif_adi,
-        )
-        print(f"\n3D islem tamamlandi. Maske: {kayit}")
-        return kayit
-    except Exception as exc:
-        print(f"[HATA] 3D islem basarisiz: {exc}")
-        return None
-
-
 def goruntu_on_isleme(
     giris_klasoru: Path | None = None,
     cikti_klasoru: Path | None = None,
-    mode: str = "2d",
-    volume_path: Path | None = None,
-    class_name: str | None = None,
-    model_path: Path | None = None,
 ):
     """Ham goruntuleri on isle."""
     print("\n[1] GORUNTU ON ISLEME")
     print("-" * 60)
-
-    if mode == "3d":
-        islem3d = _resolve_3d_module_or_warn()
-        if islem3d is None:
-            return None
-        sinif_adi = class_name or SINIF_KLASORLERI[0]
-        return _run_3d_inference(
-            islem3d=islem3d,
-            hacim_yolu=Path(volume_path) if volume_path else None,
-            sinif_adi=sinif_adi,
-            model_yolu=Path(model_path) if model_path else None,
-            cikti_klasoru=Path(cikti_klasoru) if cikti_klasoru else None,
-        )
 
     isleyici = GorselIsleyici()
     giris_klasoru = Path(giris_klasoru) if giris_klasoru else ON_ISLEME_VARSAYILAN_GIRIS_KLASORU
@@ -474,40 +381,11 @@ def tum_islemleri_yap(
 
 def _interactive_preprocess():
     """Interaktif on isleme akisi."""
-    three_d_module = _load_optional_3d_module()
-    mode_prompt = "2d/3d" if three_d_module is not None else "2d"
-    mode = input(f"\nIsleme modu ({mode_prompt}, Enter=2d): ").strip().lower() or "2d"
-    if mode == "3d":
-        if three_d_module is None:
-            _resolve_3d_module_or_warn()
-            return None
-
-        hacim_yolu = input("3D hacim dosyasi (nii/nii.gz/npy) veya DICOM klasoru: ").strip()
-        if not hacim_yolu:
-            print("[HATA] Hacim yolu gerekli.")
-            return None
-
-        sinif_adi = input(f"Sinif adi ({'/'.join(SINIF_KLASORLERI)}): ").strip() or SINIF_KLASORLERI[0]
-        default_model_path = getattr(three_d_module, "DEFAULT_MODEL_PATH", "")
-        model_yolu_girdi = input(f"3D model yolu (varsayilan: {default_model_path}): ").strip()
-        model_yolu = Path(model_yolu_girdi) if model_yolu_girdi else None
-
-        cikti3d_girdi = input(f"3D cikti klasoru (varsayilan: {CIKTI_KLASORU / '3d'}): ").strip()
-        cikti3d = Path(cikti3d_girdi) if cikti3d_girdi else CIKTI_KLASORU / "3d"
-        return goruntu_on_isleme(
-            cikti_klasoru=cikti3d,
-            mode="3d",
-            volume_path=Path(hacim_yolu),
-            class_name=sinif_adi,
-            model_path=model_yolu,
-        )
-
     giris = input(f"\nGirdi klasoru (varsayilan: {ON_ISLEME_VARSAYILAN_GIRIS_KLASORU}): ").strip()
     cikis = input(f"Cikti klasoru (varsayilan: {CIKTI_KLASORU}): ").strip()
     return goruntu_on_isleme(
         giris_klasoru=Path(giris) if giris else None,
         cikti_klasoru=Path(cikis) if cikis else None,
-        mode="2d",
     )
 
 
@@ -554,10 +432,6 @@ def run_action(args):
         return goruntu_on_isleme(
             giris_klasoru=args.input_dir,
             cikti_klasoru=args.output_dir,
-            mode=args.mode,
-            volume_path=args.volume_path,
-            class_name=args.class_name,
-            model_path=args.model_path,
         )
     if args.action == "extract":
         return ozellik_cikar(giris_klasoru=args.input_dir, cikti_csv=args.csv_path)

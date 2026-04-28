@@ -247,8 +247,6 @@ def test_run_action_preprocess_parametreleri_iletir(monkeypatch, tmp_path):
             str(tmp_path / "in"),
             "--output-dir",
             str(tmp_path / "out"),
-            "--mode",
-            "2d",
         ]
     )
 
@@ -257,7 +255,6 @@ def test_run_action_preprocess_parametreleri_iletir(monkeypatch, tmp_path):
     assert result == {"ok": True}
     assert captured["giris_klasoru"] == tmp_path / "in"
     assert captured["cikti_klasoru"] == tmp_path / "out"
-    assert captured["mode"] == "2d"
 
 
 def test_main_non_menu_sonucuna_gore_cikis_kodu_verir(monkeypatch):
