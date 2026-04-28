@@ -1,10 +1,21 @@
 # Görüntü İşleme Modülü
 
-`goruntu_isleme`, MRI görüntülerini modelleme akışına hazırlayan 2D ön işleme ve özellik çıkarma modülüdür. Varsayılan akış `Veri_Seti/OriginalDataset` altındaki sınıf klasörlerini okur, görüntüleri kalite kontrolden geçirip standartlaştırır, işlenmiş görüntüleri `trainval/test` olarak kaydeder, görüntü özelliklerinden CSV üretir ve eğitim/doğrulama/test bölme ile leakage-free ölçeklendirme yapar.
+`goruntu_isleme`, ham 2D beyin MRI görüntülerini modelleme aşamasına hazırlayan ön işleme modülüdür. Bu modülün ana sorumluluğu `Veri_Seti/OriginalDataset` altındaki sınıf klasörlerini okumak, görüntüleri kalite kontrol ve standartlaştırma adımlarından geçirmek, ardından işlenmiş görüntüleri `goruntu_isleme/cikti/trainval` ve `goruntu_isleme/cikti/test` yapısında kaydetmektir.
+
+Özellik matrisi, XGBoost özellik cache'i, model eğitimi ve inference adımları `model/` modülü tarafında yürütülür. Bu nedenle bu klasördeki README, yalnızca görüntü ön işleme akışını anlatır.
+
+## Projedeki Yeri
+
+Tipik proje akışı şu sırayı izler:
+
+1. Ham görüntüler `Veri_Seti/OriginalDataset/<SinifAdi>/` altında tutulur.
+2. Bu modül `mri-preprocess` ile ham görüntüleri işler ve leak-free `trainval/test` klasörlerini üretir.
+3. `model/` modülü bu işlenmiş klasörleri kullanarak ResNet veya XGBoost eğitir.
+4. XGBoost için gerekli HOG, LBP, GLCM ve histogram özellikleri `model/sl/features.py` ve `model/sl/dataset.py` tarafında çıkarılır.
 
 ## Dosya Yapısı
 
-Kaynak ağaç şu dosyalardan oluşur:
+Güncel kaynak ağacı:
 
 ```text
 goruntu_isleme/
@@ -12,143 +23,141 @@ goruntu_isleme/
 |-- ana_islem.py
 |-- ayarlar.py
 |-- goruntu_isleyici.py
-|-- ozellik_cikarici.py
 `-- README.md
 ```
 
-`__pycache__/` Python tarafından çalışma sırasında üretilebilir. `goruntu_isleme/cikti/` ise pipeline çalıştırıldığında oluşan çıktı klasörüdür; kaynak dosya olarak düşünülmemelidir.
+Çalışma sırasında oluşabilecek dizinler:
+
+```text
+goruntu_isleme/
+|-- __pycache__/
+`-- cikti/
+    |-- trainval/
+    `-- test/
+```
+
+`__pycache__/` Python tarafından üretilir. `cikti/` ise ön işleme sonucudur; kaynak kodun parçası değildir.
 
 ## Python Dosyaları
 
-- `ana_islem.py`: Komut satırı giriş noktasıdır. `mri-preprocess` komutunu, etkileşimli menüyü ve `preprocess`, `extract`, `clean-nan`, `scale`, `report`, `split`, `all` aksiyonlarını yönetir.
-- `ayarlar.py`: Proje kökü, varsayılan giriş/çıkış yolları, sınıflar, görüntü ön işleme ayarları, augmentation ayarları, split oranları, CSV adları ve varsayılan scaling metodunu tutar.
-- `goruntu_isleyici.py`: `GorselIsleyici` sınıfını içerir. Görüntü listeleme, kalite kontrol, gri ton yükleme, percentile normalizasyon, CLAHE, isteğe bağlı filtreleme/skull stripping/bias correction/registration, resize, augmentation ve `trainval/test` görüntü üretiminden sorumludur.
-- `ozellik_cikarici.py`: `OzellikCikarici` sınıfını ve `veri_boluntule`, `veri_setini_bol_ve_olceklendir` yardımcılarını içerir. İşlenmiş görüntülerden sayısal özellik çıkarır, CSV yazar, NaN temizler, grup bazlı split yapar, scaler'ı yalnızca eğitim verisine fit eder ve scaler dosyasını kaydeder.
-- `__init__.py`: Paket dışına `GorselIsleyici`, `OzellikCikarici`, `veri_boluntule` ve `veri_setini_bol_ve_olceklendir` isimlerini açar.
+- `ana_islem.py`: `mri-preprocess` komutunun ve interaktif menünün giriş noktasıdır. Mevcut CLI aksiyonları `menu` ve `preprocess` değerleridir.
+- `ayarlar.py`: Proje kökü, veri seti yolları, sınıf adları, etiketler, hedef görüntü boyutu, normalizasyon, kalite kontrol, augmentation ve test split oranını merkezi olarak tanımlar.
+- `goruntu_isleyici.py`: `GorselIsleyici` sınıfını içerir. Görüntü listeleme, kaynak grup belirleme, `trainval/test` bölme, kalite kontrol, gri ton yükleme, normalize etme, CLAHE, opsiyonel filtreleme/skull stripping/bias correction/registration, resize, augmentation ve toplu kayıt işlemlerinden sorumludur.
+- `__init__.py`: Paket dışına `GorselIsleyici` sınıfını açar.
+
+## Beklenen Girdi Yapısı
+
+Varsayılan girdi klasörü:
+
+```text
+Veri_Seti/
+`-- OriginalDataset/
+    |-- NonDemented/
+    |-- VeryMildDemented/
+    |-- MildDemented/
+    `-- ModerateDemented/
+```
+
+Desteklenen uzantılar:
+
+- `.jpg`
+- `.jpeg`
+- `.png`
+
+`GorselIsleyici`, doğrudan sınıf klasörlerini içeren bir klasörü de okuyabilir. Klasör kökünde `OriginalDataset/` varsa bu alt klasörü otomatik çözmeye çalışır. Girdi zaten `trainval/test` yapısındaysa mevcut split korunur.
 
 ## Komut Satırından Çalıştırma
 
-`pyproject.toml` içinde tanımlı komut:
+Komutun kullanılabilmesi için paket proje kökünden kurulmuş olmalıdır:
+
+```bash
+pip install -e .[dev] --no-deps
+```
+
+İnteraktif menü:
 
 ```bash
 mri-preprocess --action menu
 ```
 
-Bu komutun kullanılabilmesi için proje paket olarak kurulmuş olmalıdır:
-
-```bash
-pip install -e .
-```
-
-Paket kurulmadan doğrudan modül olarak da çalıştırılabilir:
-
-```bash
-python3 -m goruntu_isleme.ana_islem --action menu
-```
-
-Temel bağımlılıklar `requirements.txt` ve `pyproject.toml` içinde tanımlıdır.
-
-## Aksiyonlar
-
-| Aksiyon | Açıklama |
-| --- | --- |
-| `menu` | Etkileşimli menüyü açar. Varsayılan aksiyondur. |
-| `preprocess` | Ham 2D görüntüleri işler. Girdi zaten `trainval/test` yapısındaysa split'i korur; değilse kaynak gruplara göre `trainval/test` ayırır. |
-| `extract` | İşlenmiş görüntülerden özellik CSV'si üretir. `trainval/test` yapısı algılanırsa trainval ve test için ayrı CSV yazar. |
-| `clean-nan` | Bir CSV'deki NaN değerleri seçilen yöntemle temizler, CSV'yi yerinde günceller ve `.csv.bak` yedeği oluşturur. |
-| `scale` | Özellik CSV'sini eğitim/doğrulama/test olarak böler, sayısal NaN'ları eğitim medyanıyla doldurur, scaler'ı eğitim setine fit eder ve tüm split'lere uygular. |
-| `report` | CSV için sınıf dağılımı, temel istatistikler ve eksik değer raporu basar. |
-| `split` | Ham özellik CSV'sini eğitim/doğrulama/test CSV'lerine böler; scaling uygulamaz. |
-| `all` | `preprocess -> extract -> scale -> report` sırasını çalıştırır. `--yes` verilmezse onay ister. |
-
-`--mode 3d` argümanı CLI'da yer alır, ancak bu repo ağacında opsiyonel 3D modül dosyası bulunmadığı için 3D işlem modül eklenmeden çalışmaz.
-
-## Sık Kullanılan Örnekler
-
-Tam 2D akışı çalıştır:
-
-```bash
-mri-preprocess --action all --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti --method robust --yes
-```
-
-Sadece ön işleme yap:
+Ön işleme akışını doğrudan çalıştırma:
 
 ```bash
 mri-preprocess --action preprocess --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti
 ```
 
-İşlenmiş görüntülerden özellik çıkar:
+Paket kurulmadan modül olarak çalıştırma:
 
 ```bash
-mri-preprocess --action extract --input-dir goruntu_isleme/cikti --csv-path goruntu_isleme/cikti/goruntu_ozellikleri.csv
+python3 -m goruntu_isleme.ana_islem --action preprocess --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti
 ```
 
-NaN değerleri medyan ile temizle:
+`--action` verilmezse varsayılan olarak interaktif menü açılır.
 
-```bash
-mri-preprocess --action clean-nan --csv-path goruntu_isleme/cikti/goruntu_ozellikleri.csv --method median
-```
+## CLI Parametreleri
 
-Train/validation/test split ve robust scaling uygula:
+| Parametre | Açıklama |
+| --- | --- |
+| `--action` | Çalıştırılacak işlem. Geçerli değerler: `menu`, `preprocess`. Varsayılan `menu`. |
+| `--input-dir` | Girdi klasörü. Verilmezse `Veri_Seti/OriginalDataset` kullanılır. |
+| `--output-dir` | Çıktı klasörü. Verilmezse `goruntu_isleme/cikti` kullanılır. |
 
-```bash
-mri-preprocess --action scale --csv-path goruntu_isleme/cikti/goruntu_ozellikleri.csv --output-dir goruntu_isleme/cikti --method robust
-```
+Bu modülde `all`, `extract`, `scale`, `report`, `clean-nan`, `split` veya `--mode 3d` aksiyonları bulunmaz. CSV/scaler üretimi bu klasörün güncel görev kapsamı dışındadır.
 
-Harici test CSV yolunu açıkça ver:
+## Ön İşleme Adımları
 
-```bash
-mri-preprocess --action scale --csv-path goruntu_isleme/cikti/goruntu_ozellikleri.csv --test-csv-path goruntu_isleme/cikti/test_goruntu_ozellikleri.csv --output-dir goruntu_isleme/cikti
-```
+Tek görüntü için uygulanan temel sıra:
 
-Sadece split CSV'lerini üret:
+1. Görüntüyü PIL ile aç ve gri tona çevir.
+2. Kalite kontrol uygula.
+3. Ayara bağlı gürültü giderme uygula.
+4. Ayara bağlı bias field correction uygula.
+5. Ayara bağlı skull stripping uygula.
+6. Ayara bağlı registration/hizalama uygula.
+7. Normalizasyon stratejisini uygula.
+8. Görüntüyü hedef boyuta getir.
+9. İşlenmiş görüntüyü `.png` olarak kaydet.
 
-```bash
-mri-preprocess --action split --csv-path goruntu_isleme/cikti/goruntu_ozellikleri.csv --output-dir goruntu_isleme/cikti
-```
+Varsayılan normalizasyon stratejisi `standard` değeridir:
 
-Rapor göster:
+- `%1-%99` percentile clipping.
+- `0-255` aralığına yoğunluk normalizasyonu.
+- Sabit `CLAHE_CLIP_LIMIT=2.0` ile CLAHE.
+- `256x256` yeniden boyutlandırma.
 
-```bash
-mri-preprocess --action report --csv-path goruntu_isleme/cikti/goruntu_ozellikleri.csv
-```
+## Varsayılan Ayarlar
 
-## Önemli CLI Parametreleri
+Temel ayarlar `ayarlar.py` içinde tutulur:
 
-- `--action`: Çalıştırılacak aksiyon. Geçerli değerler: `menu`, `preprocess`, `extract`, `clean-nan`, `scale`, `report`, `split`, `all`.
-- `--mode`: Ön işleme modu. Varsayılan `2d`; `3d` yalnızca opsiyonel 3D modül mevcutsa anlamlıdır.
-- `--input-dir`: Girdi klasörü. `preprocess`, `extract` ve `all` içinde kullanılır.
-- `--output-dir`: Çıktı klasörü. `preprocess`, `scale`, `split` ve `all` içinde kullanılır.
-- `--csv-path`: Okunacak veya yazılacak ana CSV yolu.
-- `--test-csv-path`: Harici/original test özellik CSV yolu. Verilmezse `--output-dir/test_goruntu_ozellikleri.csv` veya `--csv-path` ile aynı klasörde `test_<csv_adı>` aranır.
-- `--method`: `clean-nan` için `drop`, `mean`, `median`, `zero`; `scale` ve `all` için `minmax`, `robust`, `standard`, `maxabs`.
-- `--yes`: `all` aksiyonundaki etkileşimli onayı atlar.
-- `--volume-path`, `--class-name`, `--model-path`: Sadece opsiyonel 3D akış için ayrılmış parametrelerdir.
+| Ayar | Varsayılan |
+| --- | --- |
+| Girdi klasörü | `Veri_Seti/OriginalDataset` |
+| Çıktı klasörü | `goruntu_isleme/cikti` |
+| Hedef boyut | `256x256` |
+| Test oranı | `0.15` |
+| Rastgele tohum | `42` |
+| Normalizasyon stratejisi | `standard` |
+| Kalite kontrol | Aktif |
+| Disk üzerinde augmentation | Kapalı |
+| Filtre metodu | `off` |
+| Skull stripping | Kapalı |
+| Bias field correction | Kapalı |
+| Registration | Kapalı |
 
-## Varsayılan Yollar ve Ayarlar
+Sınıf ve etiket eşleşmesi:
 
-- Varsayılan girdi klasörü: `Veri_Seti/OriginalDataset`
-- Varsayılan çıktı klasörü: `goruntu_isleme/cikti`
-- Beklenen sınıf klasörleri: `NonDemented`, `VeryMildDemented`, `MildDemented`, `ModerateDemented`
-- Sınıf etiketleri: `NonDemented=0`, `VeryMildDemented=1`, `MildDemented=2`, `ModerateDemented=3`
-- Desteklenen görüntü uzantıları: `.jpg`, `.jpeg`, `.png`
-- Hedef görüntü boyutu: `256x256`
-- Split oranları: eğitim `%70`, doğrulama `%15`, test `%15`
-- Rastgele tohum: `42`
-- Varsayılan scaling metodu: `robust`
+| Sınıf | Etiket |
+| --- | --- |
+| `NonDemented` | `0` |
+| `VeryMildDemented` | `1` |
+| `MildDemented` | `2` |
+| `ModerateDemented` | `3` |
 
-Varsayılan 2D ön işleme ayarları:
-
-- Kalite kontrol aktiftir. Çok karanlık, çok aydınlık, düşük kontrastlı veya siyah piksel oranı yüksek görüntüler elenir.
-- Normalizasyon stratejisi `standard`: `%1-%99` percentile clipping, `0-255` ölçekleme, sabit `CLAHE_CLIP_LIMIT=2.0` ile CLAHE ve ardından resize uygulanır.
-- `Z_SCORE_NORMALIZASYON_AKTIF=True` olsa da varsayılan `standard` stratejisinde z-score uygulanmaz; z-score yalnızca `NORMALIZASYON_STRATEJISI="aggressive"` olduğunda kullanılır.
-- `SKULL_STRIPPING_AKTIF=False`, `BIAS_FIELD_CORRECTION_AKTIF=False`, `REGISTRATION_AKTIF=False`.
-- `GELISMIS_FILTRE_AKTIF=False`; bu nedenle varsayılan `auto` filtreleme görüntüyü değiştirmez.
-- `VERI_ARTIRMA_AKTIF=False` ve `ARTIRMA_CARPANI=0`; disk üzerinde augmentation varsayılan olarak üretilmez.
+Kalite kontrol varsayılan olarak çok karanlık, çok aydınlık, düşük kontrastlı veya siyah piksel oranı çok yüksek görüntüleri eler.
 
 ## Beklenen Çıktı Yapısı
 
-`preprocess` sonrası işlenmiş görüntüler şu yapıda üretilir:
+`preprocess` tamamlandığında çıktı şu yapıda olur:
 
 ```text
 goruntu_isleme/cikti/
@@ -164,42 +173,40 @@ goruntu_isleme/cikti/
     `-- ModerateDemented/
 ```
 
-İşlenmiş görüntüler `.png` olarak kaydedilir. Kaynak dosya adı ve orijinal uzantı korunarak örneğin `ornek.jpg` için `ornek_jpg.png` üretilir. Augmentation açıksa ek dosyalar `ornek_jpg_aug1.png` biçiminde yazılır.
-
-`extract`, `split`, `scale` ve `all` çalıştırıldığında çıktı klasöründe şu dosyalar oluşabilir:
+Kaydedilen dosyalar `.png` formatındadır. Kaynak dosya köküne orijinal uzantı eklenerek ad çakışması engellenir:
 
 ```text
-goruntu_isleme/cikti/
-|-- goruntu_ozellikleri.csv
-|-- test_goruntu_ozellikleri.csv
-|-- egitim.csv
-|-- dogrulama.csv
-|-- test.csv
-|-- egitim_scaled.csv
-|-- dogrulama_scaled.csv
-|-- test_scaled.csv
-`-- feature_scaler.pkl
+ornek.jpg  -> ornek_jpg.png
+ornek.png  -> ornek_png.png
 ```
 
-`--csv-path` özel bir dosya adıyla verilirse test özellik CSV adı aynı klasörde `test_<csv_adı>` olarak belirlenir.
+Augmentation aktif edilirse ek dosyalar şu biçimde yazılır:
 
-## CSV ve Scaler Çıktıları
+```text
+ornek_jpg_aug1.png
+ornek_jpg_aug2.png
+```
 
-- `goruntu_ozellikleri.csv`: Train/validation tarafı için çıkarılan ham özellikler.
-- `test_goruntu_ozellikleri.csv`: `test/` görüntü klasörü varsa test tarafı için çıkarılan ham özellikler.
-- `egitim.csv`, `dogrulama.csv`, `test.csv`: Scaling öncesi split CSV'leri.
-- `egitim_scaled.csv`, `dogrulama_scaled.csv`, `test_scaled.csv`: Sayısal özellikleri ölçeklendirilmiş split CSV'leri.
-- `feature_scaler.pkl`: Eğitim setine fit edilen scaler, ölçeklenen kolon listesi ve metod bilgisini içeren pickle dosyası.
-- `<csv>.csv.bak`: `clean-nan` aksiyonu çalıştırıldığında orijinal CSV yedeği.
+Varsayılan ayarlarda augmentation kapalı olduğu için bu ek dosyalar üretilmez. Test split'i işlenirken augmentation çarpanı sıfırlanır.
 
-Özellik CSV'lerinde dosya ve sınıf bilgileri yanında yoğunluk istatistikleri, histogram/entropi, kontrast, homojenlik, enerji, çarpıklık, basıklık, gradyan ve Otsu eşiği gibi sayısal özellikler bulunur. `model.sl.features.extract_texture_summary` import edilebilirse ek doku özet metrikleri de CSV'ye eklenir.
+## Split ve Veri Sızıntısı Politikası
 
-## Split, Augmentation ve Veri Sızıntısı Notları
+- Ham veri doğrudan sınıf klasörlerinden geliyorsa `tum_gorselleri_isle_ve_bol`, veriyi kaynak grup bazında `trainval` ve `test` olarak ayırır.
+- Kaynak grup, sınıf adı ve dosya kökünden türetilir. `_augN` ve `(1)` gibi türev ekleri temizlenerek aynı kaynaktan gelen görüntüler aynı grupta tutulur.
+- Her sınıfta harici test split'i için yeterli kaynak grup bulunmalıdır; aksi durumda işlem hata verir.
+- Girdi zaten `trainval/test` klasörlerini içeriyorsa yeniden bölme yapılmaz, mevcut split korunur.
+- `trainval` ve `test` klasörlerinin kalite kontrol sonrasında beklenen sınıfları koruduğu doğrulanır.
 
-- `preprocess`, girdi doğrudan sınıf klasörlerini içeriyorsa ham görüntüleri önce kaynak grup bazında `trainval/test` olarak böler. Girdi zaten `trainval/test` yapısındaysa mevcut split korunur.
-- Kaynak grup, sınıf adı ve dosya kökünden türetilir. `_augN` ve `(1)` gibi türev adları aynı kaynak görüntüye bağlamak için temizlenir.
-- Harici test seti oluşturulurken her sınıfta yeterli sayıda farklı kaynak grup olması gerekir; aksi durumda işlem hata verir.
-- Test split'inde augmentation uygulanmaz. Augmentation aktif edilirse trainval tarafında üretilebilir; doğrulama ve test CSV'leri original-only satırlardan seçilir.
-- `scale` ve `all` akışında NaN doldurma değerleri yalnızca eğitim setinden hesaplanan medyanlarla belirlenir.
-- Scaler yalnızca `egitim.csv` üzerinden fit edilir; aynı scaler daha sonra `dogrulama.csv` ve `test.csv` üzerine uygulanır.
-- Grup ayrımı doğrulanır. Aynı `kaynak_grup` değerinin eğitim, doğrulama ve test arasında paylaşılması veri sızıntısı olarak hata kabul edilir.
+## Model Modülüne Devam
+
+Ön işleme bittikten sonra model eğitimi için önerilen komutlar:
+
+```bash
+mri-train --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
+```
+
+```bash
+mri-train --model xgboost --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test --feature-cache model/ciktilar/sl_ozellikler
+```
+
+XGBoost eğitiminde özellik matrisi `model/sl/dataset.py` tarafından klasör ağacından üretilir ve istenirse `model/ciktilar/sl_ozellikler` altında `.npz` cache olarak tutulur.
