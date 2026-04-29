@@ -28,11 +28,13 @@ if __package__ in {None, ""}:
         SUPPORTED_SELECTION_METRICS,
         TrainingConfig,
         _selection_mode_for_metric,
+        run_cv_training,
         run_training,
         validate_training_config,
     )
     from model.sl.training_runner import (
         SLTrainingConfig,
+        run_sl_cv_training,
         run_sl_training,
         validate_sl_config,
     )
@@ -42,11 +44,13 @@ else:
         SUPPORTED_SELECTION_METRICS,
         TrainingConfig,
         _selection_mode_for_metric,
+        run_cv_training,
         run_training,
         validate_training_config,
     )
     from .sl.training_runner import (
         SLTrainingConfig,
+        run_sl_cv_training,
         run_sl_training,
         validate_sl_config,
     )
@@ -201,6 +205,16 @@ Ornekler:
         type=str,
         default=None,
         help="XGBoost ozellik cache dizini (disk .npz)",
+    )
+    parser.add_argument(
+        "--hpo-folds",
+        type=int,
+        default=1,
+        help=(
+            "Her trial'i K-fold cross-validation ile degerlendir (>=2). 1 ise tek "
+            "hold-out kullanilir (varsayilan). >1 iken epoch-bazli pruning devre "
+            "disi birakilir; objective fold val metriklerinin ortalamasidir."
+        ),
     )
     return parser
 
@@ -375,6 +389,8 @@ def validate_search_args(args: argparse.Namespace) -> None:
         raise ValueError("--pruner-startup-trials negatif olamaz.")
     if args.pruner_warmup_epochs < 0:
         raise ValueError("--pruner-warmup-epochs negatif olamaz.")
+    if args.hpo_folds < 1:
+        raise ValueError("--hpo-folds en az 1 olmali.")
 
     if args.model == "xgboost":
         base_sl_config = SLTrainingConfig(
@@ -500,6 +516,8 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _objective_factory(args: argparse.Namespace, study_dir: Path):
+    use_cv = args.hpo_folds > 1
+
     def objective(trial) -> float:
         params = _sample_params(trial, args)
         trial_dir = _trial_dir(study_dir, trial.number)
@@ -524,19 +542,29 @@ def _objective_factory(args: argparse.Namespace, study_dir: Path):
         )
 
         try:
-            results = run_training(
-                config,
-                save_artifacts=False,
-                evaluate_test_set=False,
-                verbose=args.verbose_trials,
-                selection_metric=args.metric,
-                on_epoch_end=lambda epoch, _train, val: _on_epoch_end(
-                    trial,
-                    args.metric,
-                    epoch,
-                    val,
-                ),
-            )
+            if use_cv:
+                cv_results = run_cv_training(
+                    config,
+                    n_folds=args.hpo_folds,
+                    save_artifacts=False,
+                    evaluate_test_set=False,
+                    verbose=args.verbose_trials,
+                    selection_metric=args.metric,
+                )
+            else:
+                results = run_training(
+                    config,
+                    save_artifacts=False,
+                    evaluate_test_set=False,
+                    verbose=args.verbose_trials,
+                    selection_metric=args.metric,
+                    on_epoch_end=lambda epoch, _train, val: _on_epoch_end(
+                        trial,
+                        args.metric,
+                        epoch,
+                        val,
+                    ),
+                )
         except Exception as exc:
             if optuna is not None and isinstance(exc, optuna.TrialPruned):
                 _write_json(
@@ -562,6 +590,48 @@ def _objective_factory(args: argparse.Namespace, study_dir: Path):
                 },
             )
             raise
+
+        if use_cv:
+            aggregate = cv_results["aggregate"]
+            val_summary = aggregate.get("val") or {}
+            metric_summary = val_summary.get(args.metric)
+            if metric_summary is None:
+                raise RuntimeError(
+                    f"CV val metrikleri eksik: '{args.metric}' bulunamadi."
+                )
+            objective_value = float(metric_summary["mean"])
+            trial.set_user_attr("trial_dir", str(trial_dir))
+            trial.set_user_attr("hpo_folds", args.hpo_folds)
+            trial.set_user_attr(f"val_{args.metric}_mean", metric_summary["mean"])
+            trial.set_user_attr(f"val_{args.metric}_std", metric_summary["std"])
+            f1_summary = val_summary.get("f1")
+            if f1_summary is not None:
+                trial.set_user_attr("best_val_f1_mean", f1_summary["mean"])
+                trial.set_user_attr("best_val_f1_std", f1_summary["std"])
+
+            best_epochs = [
+                int(r["best_epoch"]) for r in cv_results["fold_results"]
+                if r.get("best_epoch") is not None
+            ]
+            if best_epochs:
+                rounded = int(round(sum(best_epochs) / len(best_epochs)))
+                trial.set_user_attr("best_epoch", rounded)
+                trial.set_user_attr("best_epochs_per_fold", best_epochs)
+
+            _write_json(
+                trial_dir / "trial_summary.json",
+                {
+                    "trial_number": trial.number,
+                    "state": "COMPLETE",
+                    "metric": args.metric,
+                    "objective_value": objective_value,
+                    "params": params,
+                    "hpo_folds": args.hpo_folds,
+                    "cv_aggregate": aggregate,
+                    "config": cv_results["config"],
+                },
+            )
+            return objective_value
 
         best_val_metrics = results["best_val_metrics"]
         objective_value = float(best_val_metrics[args.metric])
@@ -621,6 +691,8 @@ def _xgb_objective_factory(args: argparse.Namespace, study_dir: Path):
     # NOT: XGBoost trial'larinda epoch bazli pruning desteklenmemektedir.
     # XGBoost mod'unda study NopPruner ile olusturulur (bk. main()) ve
     # trial.report() cagrilmaz; her trial tam egitime tabi tutulur.
+    use_cv = args.hpo_folds > 1
+
     def objective(trial) -> float:
         params = _sample_xgb_params(trial, args)
         trial_dir = _trial_dir(study_dir, trial.number)
@@ -644,13 +716,23 @@ def _xgb_objective_factory(args: argparse.Namespace, study_dir: Path):
         )
 
         try:
-            results = run_sl_training(
-                config,
-                save_artifacts=False,
-                evaluate_test_set=False,
-                verbose=args.verbose_trials,
-                selection_metric=args.metric,
-            )
+            if use_cv:
+                cv_results = run_sl_cv_training(
+                    config,
+                    n_folds=args.hpo_folds,
+                    save_artifacts=False,
+                    evaluate_test_set=False,
+                    verbose=args.verbose_trials,
+                    selection_metric=args.metric,
+                )
+            else:
+                results = run_sl_training(
+                    config,
+                    save_artifacts=False,
+                    evaluate_test_set=False,
+                    verbose=args.verbose_trials,
+                    selection_metric=args.metric,
+                )
         except Exception as exc:
             _write_json(
                 trial_dir / "trial_summary.json",
@@ -663,6 +745,50 @@ def _xgb_objective_factory(args: argparse.Namespace, study_dir: Path):
                 },
             )
             raise
+
+        if use_cv:
+            aggregate = cv_results["aggregate"]
+            val_summary = aggregate.get("val") or {}
+            metric_summary = val_summary.get(args.metric)
+            if metric_summary is None:
+                raise RuntimeError(
+                    f"XGBoost CV val metrikleri eksik: '{args.metric}' bulunamadi."
+                )
+            objective_value = float(metric_summary["mean"])
+            best_iterations = [
+                int(r["best_iteration"]) for r in cv_results["fold_results"]
+                if r.get("best_iteration") is not None
+            ]
+            best_iteration_avg = (
+                int(round(sum(best_iterations) / len(best_iterations)))
+                if best_iterations
+                else None
+            )
+            trial.set_user_attr("trial_dir", str(trial_dir))
+            trial.set_user_attr("hpo_folds", args.hpo_folds)
+            trial.set_user_attr(f"val_{args.metric}_mean", metric_summary["mean"])
+            trial.set_user_attr(f"val_{args.metric}_std", metric_summary["std"])
+            f1_summary = val_summary.get("f1")
+            if f1_summary is not None:
+                trial.set_user_attr("best_val_f1_mean", f1_summary["mean"])
+            if best_iteration_avg is not None:
+                trial.set_user_attr("best_iteration", best_iteration_avg)
+                trial.set_user_attr("best_iterations_per_fold", best_iterations)
+            _write_json(
+                trial_dir / "trial_summary.json",
+                {
+                    "trial_number": trial.number,
+                    "state": "COMPLETE",
+                    "metric": args.metric,
+                    "objective_value": objective_value,
+                    "params": params,
+                    "hpo_folds": args.hpo_folds,
+                    "cv_aggregate": aggregate,
+                    "best_iteration": best_iteration_avg,
+                    "config": cv_results["config"],
+                },
+            )
+            return objective_value
 
         best_val_metrics = results["best_val_metrics"]
         if best_val_metrics is None:
@@ -905,6 +1031,7 @@ def _save_study_artifacts(
         "study_name": study_name,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "search_type": "bayesian_tpe",
+        "hpo_folds": args.hpo_folds,
         "metric": args.metric,
         "direction": _selection_mode_for_metric(args.metric),
         "trials_requested": args.trials,
@@ -951,6 +1078,14 @@ def main(argv: list[str] | None = None) -> int:
         # calisirdi, bu yuzden NopPruner ile devre disi birakilir.
         pruner = optuna.pruners.NopPruner()
         print("[INFO] XGBoost modunda epoch-bazli pruning desteklenmiyor; pruner devre disi.")
+    elif args.hpo_folds > 1:
+        # CV modunda her trial K bagimsiz egitimden olusur; epoch-bazli rapor
+        # tek fold'a karsilik gelmedigi icin median pruning anlamli degil.
+        pruner = optuna.pruners.NopPruner()
+        print(
+            "[INFO] HPO CV modunda (--hpo-folds>1) epoch-bazli pruning devre disi; "
+            "her trial K fold'un val ortalamasiyla degerlendirilir."
+        )
     else:
         pruner = optuna.pruners.MedianPruner(
             n_startup_trials=args.pruner_startup_trials,

@@ -22,7 +22,11 @@ if os.environ.get("MRI_RUN_TORCH_TESTS") != "1":
 import torch
 import torch.nn.functional as F
 
-from model.dl.dataset import kaynak_id_belirle, _group_stratified_train_val_split
+from model.dl.dataset import (
+    kaynak_id_belirle,
+    _group_stratified_train_val_split,
+    _split_group_keys_kfold,
+)
 from model.dl.losses import FocalLoss, compute_class_weights
 from model.dl.models.resnet_classifier import ResNetClassifier
 from model.dl.utils import (
@@ -108,6 +112,78 @@ def test_group_split_tek_kaynakli_sinifta_best_effort_bolme_yapar():
 
     assert set(train_idxs).isdisjoint(val_idxs)
     assert len(train_idxs) + len(val_idxs) == len(labels)
+
+
+def test_split_group_keys_kfold_grup_sizintisini_onler():
+    labels = [0, 0, 1, 1, 2, 2, 3, 3, 0, 1, 2, 3]
+    groups = [
+        "A::g1", "A::g1",
+        "B::g1", "B::g1",
+        "C::g1", "C::g1",
+        "D::g1", "D::g1",
+        "A::g2", "B::g2", "C::g2", "D::g2",
+    ]
+
+    fold_assignments, test_groups, strategy = _split_group_keys_kfold(
+        labels=labels,
+        groups=groups,
+        n_folds=2,
+        test_ratio=0.0,
+        seed=42,
+        use_group_split=True,
+    )
+
+    assert strategy == "group_stratified_kfold"
+    assert test_groups == set()
+    assert len(fold_assignments) == 2
+    all_val_groups = set()
+    for train_groups, val_groups in fold_assignments:
+        assert train_groups.isdisjoint(val_groups)
+        all_val_groups.update(val_groups)
+    # Her kaynak grup tam olarak bir fold'un val'inde
+    assert all_val_groups == set(groups)
+
+
+def test_split_group_keys_kfold_test_ratio_onceden_grubu_ayirir():
+    # Her sinifta 4 farkli kaynak grup -> test_ratio sonrasi her sinifta yeterli grup kalir
+    labels = [0] * 4 + [1] * 4 + [2] * 4 + [3] * 4
+    groups = [
+        "A::g1", "A::g2", "A::g3", "A::g4",
+        "B::g1", "B::g2", "B::g3", "B::g4",
+        "C::g1", "C::g2", "C::g3", "C::g4",
+        "D::g1", "D::g2", "D::g3", "D::g4",
+    ]
+
+    fold_assignments, test_groups, _strategy = _split_group_keys_kfold(
+        labels=labels,
+        groups=groups,
+        n_folds=2,
+        test_ratio=0.25,
+        seed=42,
+        use_group_split=True,
+    )
+
+    assert len(test_groups) > 0
+    for train_groups, val_groups in fold_assignments:
+        assert train_groups.isdisjoint(val_groups)
+        # Test setine ayrilan gruplar fold'larda gorunmemeli
+        assert train_groups.isdisjoint(test_groups)
+        assert val_groups.isdisjoint(test_groups)
+
+
+def test_split_group_keys_kfold_yetersiz_grup_hata_verir():
+    labels = [0, 0, 1, 1]
+    groups = ["A::g1", "A::g1", "B::g1", "B::g1"]
+
+    with pytest.raises(ValueError, match="yeterli kaynak grup yok"):
+        _split_group_keys_kfold(
+            labels=labels,
+            groups=groups,
+            n_folds=5,
+            test_ratio=0.0,
+            seed=42,
+            use_group_split=True,
+        )
 
 
 def test_group_split_strict_modda_eksik_sinif_kapsamini_reddeder():
@@ -1022,3 +1098,238 @@ def test_hpo_main_xgboost_modunda_nop_pruner_kullanir(monkeypatch):
     assert calls["nop"] == 1
     assert calls["median"] == 0
     assert calls["pruner"] == "nop"
+
+
+def test_train_parse_args_folds_flagini_cozer():
+    args = parse_train_args(["--folds", "5"])
+    assert args.folds == 5
+
+    args_default = parse_train_args([])
+    assert args_default.folds == 1
+
+
+def test_hpo_parse_args_hpo_folds_flagini_cozer():
+    args = hpo.parse_args(["--trials", "2", "--hpo-folds", "3"])
+    assert args.hpo_folds == 3
+
+
+def test_hpo_validate_args_hpo_folds_negatif_reddeder(monkeypatch):
+    monkeypatch.setattr(hpo, "optuna", object())
+    monkeypatch.setattr(hpo, "validate_training_config", lambda *a, **k: None)
+
+    args = hpo.parse_args(["--trials", "1", "--hpo-folds", "0", "--skip-final-train"])
+    with pytest.raises(ValueError, match="--hpo-folds en az 1"):
+        hpo.validate_search_args(args)
+
+
+def test_hpo_main_cv_modunda_nop_pruner_kullanir(monkeypatch):
+    calls = {"median": 0, "nop": 0, "pruner": None}
+
+    class FakeTrialState:
+        name = "COMPLETE"
+
+    class FakeTrial:
+        def __init__(self):
+            self.number = 0
+            self.value = 0.8
+            self.params = {}
+            self.user_attrs = {}
+            self.state = FakeTrialState()
+
+    class FakeStudy:
+        def __init__(self):
+            self.trials = [FakeTrial()]
+            self.best_trial = self.trials[0]
+            self.best_value = self.best_trial.value
+
+        def optimize(self, *_args, **_kwargs):
+            raise AssertionError("Yeni trial calistirilmamali")
+
+    fake_study = FakeStudy()
+
+    def fake_create_study(**kwargs):
+        calls["pruner"] = kwargs["pruner"]
+        return fake_study
+
+    fake_optuna = type(
+        "FakeOptuna",
+        (),
+        {
+            "samplers": type(
+                "Samplers",
+                (),
+                {"TPESampler": staticmethod(lambda **kwargs: object())},
+            ),
+            "pruners": type(
+                "Pruners",
+                (),
+                {
+                    "MedianPruner": staticmethod(
+                        lambda **kwargs: calls.__setitem__("median", calls["median"] + 1) or "median"
+                    ),
+                    "NopPruner": staticmethod(
+                        lambda: calls.__setitem__("nop", calls["nop"] + 1) or "nop"
+                    ),
+                },
+            ),
+            "create_study": staticmethod(fake_create_study),
+        },
+    )()
+
+    monkeypatch.setattr(hpo, "optuna", fake_optuna)
+    monkeypatch.setattr(hpo, "validate_search_args", lambda args: None)
+    monkeypatch.setattr(hpo, "_save_study_artifacts", lambda **kwargs: None)
+
+    output_dir = Path("tmp_test_artifacts") / f"hpo_cv_{uuid4().hex}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    result = hpo.main(
+        [
+            "--model",
+            "resnet",
+            "--trials",
+            "1",
+            "--hpo-folds",
+            "3",
+            "--skip-final-train",
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+
+    assert result == 0
+    assert calls["nop"] == 1
+    assert calls["median"] == 0
+    assert calls["pruner"] == "nop"
+
+
+def test_aggregate_cv_metrics_mean_ve_std_uretir():
+    fold_results = [
+        {
+            "best_val_metrics": {
+                "loss": 0.40, "accuracy": 0.80, "precision": 0.78, "recall": 0.81, "f1": 0.79,
+            },
+            "test_metrics": {
+                "loss": 0.45, "accuracy": 0.75, "precision": 0.73, "recall": 0.76, "f1": 0.74,
+            },
+            "best_selection_value": 0.79,
+        },
+        {
+            "best_val_metrics": {
+                "loss": 0.50, "accuracy": 0.70, "precision": 0.69, "recall": 0.72, "f1": 0.71,
+            },
+            "test_metrics": {
+                "loss": 0.55, "accuracy": 0.65, "precision": 0.63, "recall": 0.66, "f1": 0.64,
+            },
+            "best_selection_value": 0.71,
+        },
+    ]
+
+    aggregate = training_runner._aggregate_cv_metrics(fold_results, selection_metric="f1")
+
+    assert aggregate["completed_folds"] == 2
+    assert aggregate["val"]["f1"]["mean"] == pytest.approx(0.75)
+    assert aggregate["val"]["f1"]["std"] == pytest.approx(0.04)
+    assert aggregate["test"]["accuracy"]["mean"] == pytest.approx(0.70)
+    assert aggregate["selection"]["mean"] == pytest.approx(0.75)
+    assert aggregate["selection"]["values"] == [0.79, 0.71]
+
+
+def test_run_cv_training_n_folds_iki_alti_reddeder():
+    config = training_runner.TrainingConfig()
+    with pytest.raises(ValueError, match="--folds en az 2"):
+        training_runner.run_cv_training(config, n_folds=1)
+
+
+def test_run_cv_training_fold_basina_run_training_cagrir(monkeypatch, tmp_path):
+    captured_calls = []
+
+    def fake_iter_kfold(**kwargs):
+        captured_calls.append({"kfold_kwargs": kwargs})
+        for fold_idx in range(kwargs["n_folds"]):
+            yield fold_idx, "train_loader", "val_loader", "test_loader", {
+                "fold_index": fold_idx,
+                "n_folds": kwargs["n_folds"],
+            }
+
+    def fake_run_training(config, **kwargs):
+        captured_calls.append({"run_training_kwargs": kwargs})
+        # train.py'nin run_training arabirimine uygun donus
+        return {
+            "best_epoch": 5,
+            "best_val_metrics": {
+                "loss": 0.4 + 0.05 * kwargs["extra_report"]["fold_index"],
+                "accuracy": 0.7,
+                "precision": 0.7,
+                "recall": 0.7,
+                "f1": 0.75,
+            },
+            "best_selection_value": 0.75,
+            "test_metrics": {
+                "loss": 0.5,
+                "accuracy": 0.65,
+                "precision": 0.65,
+                "recall": 0.65,
+                "f1": 0.7,
+            },
+            "report_path": tmp_path / f"fold_{kwargs['extra_report']['fold_index']}_report.json",
+            "checkpoint_path": tmp_path / f"fold_{kwargs['extra_report']['fold_index']}.pt",
+        }
+
+    monkeypatch.setattr(training_runner, "iter_kfold_dataloaders", fake_iter_kfold)
+    monkeypatch.setattr(training_runner, "validate_training_config", lambda *a, **k: None)
+    monkeypatch.setattr(
+        training_runner,
+        "resolve_data_dirs",
+        lambda config: (tmp_path / "trainval", tmp_path / "test"),
+    )
+    monkeypatch.setattr(training_runner, "run_training", fake_run_training)
+
+    config = training_runner.TrainingConfig(model="resnet", epochs=3, batch_size=2)
+
+    result = training_runner.run_cv_training(
+        config,
+        n_folds=3,
+        output_root=tmp_path / "cv_out",
+        artifact_tag="cv_test",
+        save_artifacts=False,
+        evaluate_test_set=True,
+        verbose=False,
+        selection_metric="f1",
+    )
+
+    assert result["n_folds"] == 3
+    assert len(result["fold_results"]) == 3
+    assert result["aggregate"]["val"]["f1"]["mean"] == pytest.approx(0.75)
+    assert result["aggregate"]["completed_folds"] == 3
+    # Run_training her fold icin fold_index iceren extra_report ile cagrildi
+    run_training_calls = [c for c in captured_calls if "run_training_kwargs" in c]
+    assert len(run_training_calls) == 3
+    fold_indices = [c["run_training_kwargs"]["extra_report"]["fold_index"] for c in run_training_calls]
+    assert fold_indices == [0, 1, 2]
+    # preloaded_loaders enjekte edildigini dogrula
+    for c in run_training_calls:
+        assert c["run_training_kwargs"]["preloaded_loaders"] == (
+            "train_loader", "val_loader", "test_loader",
+            {"fold_index": fold_indices[run_training_calls.index(c)], "n_folds": 3},
+        )
+
+
+def test_train_main_folds_full_trainval_birlikte_reddeder():
+    project_root = Path(__file__).resolve().parent.parent
+    cmd = [
+        sys.executable,
+        str(project_root / "model" / "train.py"),
+        "--folds", "5",
+        "--full-trainval",
+    ]
+
+    result = subprocess.run(
+        cmd,
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "--folds > 1 ile --full-trainval birlikte kullanilamaz" in result.stdout

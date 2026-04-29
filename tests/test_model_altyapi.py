@@ -22,6 +22,7 @@ from model.dl.dataset import (
     create_dataloaders,
     create_full_train_test_loaders,
     get_transforms,
+    iter_kfold_dataloaders,
     kaynak_id_belirle,
     _validate_class_match,
     _validate_dataset_separation,
@@ -294,6 +295,78 @@ def test_create_full_train_test_loaders_trainvalin_tamamini_ve_harici_testi_kull
     assert len(info["train_original_labels"]) < len(info["train_labels"])
     assert any("(" in path.name for path in train_loader.dataset.image_paths)
     assert all("(" not in path.name for path in test_loader.dataset.image_paths)
+
+
+def test_iter_kfold_dataloaders_grup_sizintisini_onler(tmp_path):
+    trainval_dir = tmp_path / "trainval"
+    _create_grouped_class_dataset(
+        trainval_dir, groups_per_class=4, copies_per_group=2, prefix="train"
+    )
+
+    folds = list(
+        iter_kfold_dataloaders(
+            trainval_dir=trainval_dir,
+            test_dir=None,
+            n_folds=2,
+            batch_size=2,
+            image_size=32,
+            test_ratio=0.25,
+            seed=42,
+            num_workers=0,
+        )
+    )
+
+    assert len(folds) == 2
+    test_sources_seen: set[str] | None = None
+    union_val_sources: set[str] = set()
+    for fold_index, train_loader, val_loader, test_loader, info in folds:
+        assert info["fold_index"] == fold_index
+        assert info["n_folds"] == 2
+        assert info["split_strategy"] == "group_stratified_kfold"
+        train_sources = {
+            kaynak_id_belirle(p.name) for p in train_loader.dataset.image_paths
+        }
+        val_sources = {
+            kaynak_id_belirle(p.name) for p in val_loader.dataset.image_paths
+        }
+        assert train_sources.isdisjoint(val_sources)
+        union_val_sources.update(val_sources)
+        assert all("(" not in p.name for p in val_loader.dataset.image_paths)
+        # test split tum fold'lar arasinda paylasilmali
+        if test_loader is not None:
+            this_test_sources = {
+                kaynak_id_belirle(p.name) for p in test_loader.dataset.image_paths
+            }
+            assert this_test_sources.isdisjoint(train_sources)
+            assert this_test_sources.isdisjoint(val_sources)
+            if test_sources_seen is None:
+                test_sources_seen = this_test_sources
+            else:
+                assert this_test_sources == test_sources_seen
+    # Iki fold birlestirildiginde tum CV gruplari kapsanmali
+    assert len(union_val_sources) > 0
+
+
+def test_iter_kfold_dataloaders_n_folds_iki_alti_reddeder(tmp_path):
+    trainval_dir = tmp_path / "trainval"
+    _create_grouped_class_dataset(
+        trainval_dir, groups_per_class=4, copies_per_group=1, prefix="train"
+    )
+
+    with pytest.raises(ValueError, match="n_folds en az 2"):
+        next(
+            iter_kfold_dataloaders(
+                trainval_dir=trainval_dir,
+                test_dir=None,
+                n_folds=1,
+                batch_size=2,
+                image_size=32,
+                test_ratio=0.0,
+                seed=42,
+                num_workers=0,
+                include_test=False,
+            )
+        )
 
 
 def test_create_dataloaders_rejects_trainval_test_source_overlap(tmp_path):

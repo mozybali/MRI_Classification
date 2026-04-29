@@ -22,12 +22,30 @@ if __package__ in {None, ""}:
         sys.path.insert(0, str(PROJECT_ROOT))
 
     from model.ayarlar import VARSAYILAN_EARLY_STOPPING_SABIR
-    from model.training_runner import TrainingConfig, build_model, run_training
-    from model.sl.training_runner import SLTrainingConfig, run_sl_training
+    from model.training_runner import (
+        TrainingConfig,
+        build_model,
+        run_cv_training,
+        run_training,
+    )
+    from model.sl.training_runner import (
+        SLTrainingConfig,
+        run_sl_cv_training,
+        run_sl_training,
+    )
 else:
     from .ayarlar import VARSAYILAN_EARLY_STOPPING_SABIR
-    from .training_runner import TrainingConfig, build_model, run_training
-    from .sl.training_runner import SLTrainingConfig, run_sl_training
+    from .training_runner import (
+        TrainingConfig,
+        build_model,
+        run_cv_training,
+        run_training,
+    )
+    from .sl.training_runner import (
+        SLTrainingConfig,
+        run_sl_cv_training,
+        run_sl_training,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,6 +62,8 @@ Ornekler:
   python model/train.py --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
   python model/train.py --model resnet --val-ratio 0.2
   python model/train.py --model xgboost --xgb-max-depth 6 --xgb-n-estimators 300
+  python model/train.py --model resnet --folds 5
+  python model/train.py --model xgboost --folds 5
         """,
     )
     parser.add_argument(
@@ -165,6 +185,15 @@ Ornekler:
             "test icin harici test dizini gerekir."
         ),
     )
+    parser.add_argument(
+        "--folds",
+        type=int,
+        default=1,
+        help=(
+            "K-fold cross-validation icin fold sayisi (>=2). 1 ise tek hold-out "
+            "egitimi yapilir (varsayilan davranis). DL ve XGBoost icin desteklenir."
+        ),
+    )
 
     # XGBoost parametreleri
     xgb_group = parser.add_argument_group("XGBoost")
@@ -186,6 +215,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+
+    if args.folds < 1:
+        print("[HATA] --folds en az 1 olmali.")
+        return 1
+    if args.folds > 1 and args.full_trainval:
+        print("[HATA] --folds > 1 ile --full-trainval birlikte kullanilamaz.")
+        return 1
 
     if args.model == "xgboost":
         # DL'ye ozgu argumanlarin kullanilip kullanilmadigini kontrol et
@@ -231,11 +267,18 @@ def main(argv: list[str] | None = None) -> int:
             feature_cache=args.feature_cache,
         )
         try:
-            run_sl_training(
-                config,
-                artifact_tag="xgboost",
-                full_trainval=args.full_trainval,
-            )
+            if args.folds > 1:
+                run_sl_cv_training(
+                    config,
+                    n_folds=args.folds,
+                    artifact_tag="xgboost",
+                )
+            else:
+                run_sl_training(
+                    config,
+                    artifact_tag="xgboost",
+                    full_trainval=args.full_trainval,
+                )
         except (FileNotFoundError, RuntimeError, ValueError) as exc:
             print(f"[HATA] {exc}")
             return 1
@@ -269,11 +312,18 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     try:
-        run_training(
-            config,
-            artifact_tag=args.model,
-            full_trainval=args.full_trainval,
-        )
+        if args.folds > 1:
+            run_cv_training(
+                config,
+                n_folds=args.folds,
+                artifact_tag=args.model,
+            )
+        else:
+            run_training(
+                config,
+                artifact_tag=args.model,
+                full_trainval=args.full_trainval,
+            )
     except (FileNotFoundError, RuntimeError, ValueError) as exc:
         print(f"[HATA] {exc}")
         return 1

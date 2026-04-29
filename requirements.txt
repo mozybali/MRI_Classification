@@ -25,6 +25,8 @@ SimpleITK>=2.0.0
 optuna>=3.5.0
 
 # -------------------- ML Utilities --------------------
+# scikit-learn 1.4.2: K-fold cross validation icin StratifiedKFold da bu
+# pakete dahildir; ek bir bagimlilik gerekmez.
 scikit-learn==1.4.2
 xgboost>=2.0
 

@@ -11,7 +11,7 @@ aksi halde uyari ile stratified fallback kullanir.
 """
 
 from pathlib import Path
-from typing import Tuple, List, Dict, Any, Sequence
+from typing import Iterator, Tuple, List, Dict, Any, Sequence
 import re
 import random
 from collections import Counter, defaultdict
@@ -659,6 +659,80 @@ def _split_group_keys(
     return train_groups, val_groups, test_groups, split_strategy
 
 
+def _split_group_keys_kfold(
+    labels: List[int],
+    groups: List[str],
+    *,
+    n_folds: int,
+    test_ratio: float,
+    seed: int,
+    use_group_split: bool,
+) -> tuple[list[tuple[set[str], set[str]]], set[str], str]:
+    """Trainval'i K stratified fold'a ayir; opsiyonel olarak once test grubunu cikar.
+
+    Bolme her zaman grup seviyesinde calisir (her kaynak ID tek bir fold'un
+    val'inde); bu sayede augment turevleri ve cross-fold sizinti engellenir.
+    Sinif dengesi sklearn StratifiedKFold ile saglanir.
+
+    Returns:
+        fold_assignments: her fold icin (train_group_keys, val_group_keys) ciftleri
+        test_groups: test_ratio>0 ise ayrilan test kaynak gruplari, aksi halde bos
+        split_strategy: 'group_stratified_kfold' veya 'stratified_kfold_without_groups'
+    """
+    from sklearn.model_selection import StratifiedKFold
+
+    if n_folds < 2:
+        raise ValueError(f"n_folds en az 2 olmali (verilen: {n_folds}).")
+    if test_ratio < 0.0 or test_ratio >= 1.0:
+        raise ValueError("test_ratio 0 ile 1 arasinda olmali.")
+
+    group_labels, group_keys = _build_group_level_records(labels, groups)
+    if len(group_keys) < n_folds:
+        raise ValueError(
+            f"K-fold icin yeterli kaynak grup yok: bulunan={len(group_keys)}, n_folds={n_folds}."
+        )
+
+    test_groups: set[str] = set()
+    cv_indices = list(range(len(group_keys)))
+    if test_ratio > 0:
+        if use_group_split:
+            split_fn = _group_stratified_train_val_split
+            split_kwargs: dict[str, Any] = dict(labels=group_labels, groups=group_keys)
+        else:
+            split_fn = _stratified_train_val_split
+            split_kwargs = dict(labels=group_labels)
+
+        cv_idxs, test_idxs = split_fn(
+            **split_kwargs,
+            val_ratio=test_ratio,
+            seed=seed,
+            num_classes=len(SINIF_ISIMLERI),
+        )
+        test_groups = {group_keys[i] for i in test_idxs}
+        cv_indices = list(cv_idxs)
+
+    cv_labels = [group_labels[i] for i in cv_indices]
+    cv_keys = [group_keys[i] for i in cv_indices]
+    if len(cv_keys) < n_folds:
+        raise ValueError(
+            "Test ayrildiktan sonra K-fold icin yeterli kaynak grup kalmadi: "
+            f"kalan={len(cv_keys)}, n_folds={n_folds}."
+        )
+
+    splitter = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=seed)
+    X_dummy = np.zeros((len(cv_keys), 1), dtype=np.float32)
+    fold_assignments: list[tuple[set[str], set[str]]] = []
+    for train_local_idxs, val_local_idxs in splitter.split(X_dummy, cv_labels):
+        train_groups = {cv_keys[i] for i in train_local_idxs}
+        val_groups = {cv_keys[i] for i in val_local_idxs}
+        if train_groups & val_groups:
+            raise RuntimeError("K-fold split sonrasi grup sizintisi tespit edildi.")
+        fold_assignments.append((train_groups, val_groups))
+
+    strategy = "group_stratified_kfold" if use_group_split else "stratified_kfold_without_groups"
+    return fold_assignments, test_groups, strategy
+
+
 def _indices_for_groups(
     groups: List[str],
     augmented_flags: List[bool],
@@ -906,6 +980,237 @@ def create_dataloaders(
     }
 
     return train_loader, val_loader, test_loader, info
+
+
+def iter_kfold_dataloaders(
+    trainval_dir: Path,
+    test_dir: Path | None,
+    *,
+    n_folds: int,
+    batch_size: int = 32,
+    image_size: int = 224,
+    test_ratio: float = 0.15,
+    seed: int = 42,
+    num_workers: int = 0,
+    include_test: bool = True,
+    hflip_p: float = 0.0,
+    rotation_degrees: float = 10.0,
+    color_jitter: float = 0.1,
+    use_dataset_stats: bool = False,
+) -> Iterator[Tuple[int, DataLoader, DataLoader, DataLoader | None, Dict]]:
+    """K-fold cross validation icin fold basina (train_loader, val_loader, test_loader, info) uretir.
+
+    Test seti tum fold'lar arasinda paylasilir (harici dizinden veya tek seferlik
+    test_ratio ile cikarilan ic split'ten). Train/Val bolmesi her fold icin
+    grup-bazli StratifiedKFold ile yapilir; ayni kaynak ID birden fazla fold'un
+    val'inda gorunmez. Train fold'lari augment turevlerini icerebilirken val
+    yalnizca original goruntulerden kurulur.
+    """
+    if n_folds < 2:
+        raise ValueError(f"n_folds en az 2 olmali (verilen: {n_folds}).")
+    if test_ratio < 0 or test_ratio >= 1.0:
+        raise ValueError("test_ratio 0 ile 1 arasinda olmali.")
+
+    _validate_expected_classes(trainval_dir, "Trainval")
+    using_external_test = bool(
+        include_test
+        and test_dir is not None
+        and test_dir.resolve() != trainval_dir.resolve()
+    )
+    if include_test and not using_external_test and test_ratio <= 0:
+        raise ValueError(
+            "Harici test dizini yoksa test_ratio pozitif olmali."
+        )
+    if using_external_test and test_dir is not None:
+        _validate_class_match(trainval_dir, test_dir)
+
+    tv_paths, tv_labels, tv_groups, tv_augmented = collect_images(trainval_dir)
+    if len(tv_paths) == 0:
+        raise FileNotFoundError(f"Trainval verisi bulunamadi: {trainval_dir}")
+    _validate_no_cross_class_kaynak(tv_groups, trainval_dir)
+    tv_group_stats = _summarize_grouping(tv_groups, tv_augmented)
+
+    paths_test_external: List[Path] = []
+    labels_test_external: List[int] = []
+    test_group_stats: Dict[str, Any] | None = None
+    if using_external_test and test_dir is not None:
+        ext_paths, ext_labels, ext_groups, ext_augmented = collect_images(test_dir)
+        if len(ext_paths) == 0:
+            raise FileNotFoundError(f"Test verisi bulunamadi: {test_dir}")
+        _validate_no_cross_class_kaynak(ext_groups, test_dir)
+        test_group_stats = _summarize_grouping(ext_groups, ext_augmented)
+        _validate_dataset_separation(tv_groups, ext_groups, trainval_dir, test_dir)
+        external_test_idxs = _indices_for_groups(
+            ext_groups, ext_augmented, set(ext_groups), original_only=True
+        )
+        if not external_test_idxs:
+            raise RuntimeError(
+                "Harici test dizininde original goruntu bulunamadi; test split olusturulamiyor."
+            )
+        paths_test_external = [ext_paths[i] for i in external_test_idxs]
+        labels_test_external = [ext_labels[i] for i in external_test_idxs]
+        if _missing_class_names(labels_test_external, len(SINIF_ISIMLERI)):
+            missing = _missing_class_names(labels_test_external, len(SINIF_ISIMLERI))
+            raise RuntimeError(f"Test split'inde eksik siniflar: {', '.join(missing)}")
+
+    split_warnings: List[str] = []
+    use_group_split = tv_group_stats["grouping_reliable"]
+    if not use_group_split and tv_group_stats["augmented_samples"] > 0:
+        split_warnings.append(
+            "TrainVal dosya adlarindan tekrarli kaynak grup cikarilamadi; "
+            "stratified K-fold kullanildi ve augment turevleri icin leak-free garanti verilemiyor."
+        )
+
+    internal_test_ratio = 0.0 if (using_external_test or not include_test) else test_ratio
+    fold_assignments, internal_test_groups, split_strategy = _split_group_keys_kfold(
+        labels=tv_labels,
+        groups=tv_groups,
+        n_folds=n_folds,
+        test_ratio=internal_test_ratio,
+        seed=seed,
+        use_group_split=use_group_split,
+    )
+
+    if include_test and not using_external_test:
+        internal_test_idxs = _indices_for_groups(
+            tv_groups, tv_augmented, internal_test_groups, original_only=True
+        )
+        if not internal_test_idxs:
+            raise RuntimeError(
+                "Test split olusturulamadi; original test ornekleri bulunamadi."
+            )
+        paths_test = [tv_paths[i] for i in internal_test_idxs]
+        labels_test = [tv_labels[i] for i in internal_test_idxs]
+        if _missing_class_names(labels_test, len(SINIF_ISIMLERI)):
+            missing = _missing_class_names(labels_test, len(SINIF_ISIMLERI))
+            raise RuntimeError(f"Test split'inde eksik siniflar: {', '.join(missing)}")
+    elif using_external_test:
+        paths_test = paths_test_external
+        labels_test = labels_test_external
+    else:
+        paths_test = []
+        labels_test = []
+
+    pin_memory = torch.cuda.is_available()
+
+    print(f"  [TrainVal] Kaynak: {trainval_dir}")
+    print(f"  [TrainVal] Toplam goruntu: {len(tv_paths)}")
+    print(f"  [TrainVal] Kaynak grup sayisi: {tv_group_stats['unique_groups']}")
+    print(f"  [Split] Strateji: {split_strategy}, n_folds={n_folds}")
+    if include_test:
+        kaynak_label = test_dir if using_external_test else f"{trainval_dir} (internal split)"
+        print(f"  [Test] Kaynak: {kaynak_label}")
+        print(f"  [Test] Toplam goruntu: {len(paths_test)}")
+    for warning in split_warnings:
+        print(f"  [UYARI] {warning}")
+
+    for fold_index, (train_group_keys, val_group_keys) in enumerate(fold_assignments):
+        train_idxs = _indices_for_groups(
+            tv_groups, tv_augmented, train_group_keys, original_only=False
+        )
+        train_original_idxs = _indices_for_groups(
+            tv_groups, tv_augmented, train_group_keys, original_only=True
+        )
+        val_idxs = _indices_for_groups(
+            tv_groups, tv_augmented, val_group_keys, original_only=True
+        )
+
+        paths_train = [tv_paths[i] for i in train_idxs]
+        labels_train = [tv_labels[i] for i in train_idxs]
+        labels_train_original = [tv_labels[i] for i in train_original_idxs]
+        paths_val = [tv_paths[i] for i in val_idxs]
+        labels_val = [tv_labels[i] for i in val_idxs]
+
+        train_missing = _missing_class_names(labels_train, len(SINIF_ISIMLERI))
+        val_missing = _missing_class_names(labels_val, len(SINIF_ISIMLERI))
+        if train_missing:
+            raise RuntimeError(
+                f"Fold {fold_index} train split'inde eksik siniflar: {', '.join(train_missing)}"
+            )
+        if val_missing:
+            raise RuntimeError(
+                f"Fold {fold_index} validation split'inde eksik siniflar: {', '.join(val_missing)}"
+            )
+
+        if use_dataset_stats:
+            norm_mean, norm_std = compute_dataset_stats(paths_train, image_size, seed=seed + fold_index)
+        else:
+            norm_mean, norm_std = IMAGENET_MEAN, IMAGENET_STD
+
+        train_transform = get_transforms(
+            image_size,
+            is_train=True,
+            hflip_p=hflip_p,
+            rotation_degrees=rotation_degrees,
+            color_jitter=color_jitter,
+            mean=norm_mean,
+            std=norm_std,
+        )
+        eval_transform = get_transforms(
+            image_size, is_train=False, mean=norm_mean, std=norm_std
+        )
+
+        train_ds = MRIDataset(paths_train, labels_train, train_transform)
+        val_ds = MRIDataset(paths_val, labels_val, eval_transform)
+        test_ds = (
+            MRIDataset(paths_test, labels_test, eval_transform)
+            if include_test and paths_test
+            else None
+        )
+
+        fold_seed = seed + fold_index
+        train_loader = DataLoader(
+            train_ds, batch_size=batch_size, shuffle=True,
+            num_workers=num_workers, pin_memory=pin_memory,
+            worker_init_fn=_seed_worker,
+            generator=torch.Generator().manual_seed(fold_seed),
+        )
+        val_loader = DataLoader(
+            val_ds, batch_size=batch_size, shuffle=False,
+            num_workers=num_workers, pin_memory=pin_memory,
+            worker_init_fn=_seed_worker,
+            generator=torch.Generator().manual_seed(fold_seed + 1),
+        )
+        test_loader = (
+            DataLoader(
+                test_ds, batch_size=batch_size, shuffle=False,
+                num_workers=num_workers, pin_memory=pin_memory,
+                worker_init_fn=_seed_worker,
+                generator=torch.Generator().manual_seed(fold_seed + 2),
+            )
+            if test_ds is not None
+            else None
+        )
+
+        info = {
+            "num_classes": len(SINIF_ISIMLERI),
+            "class_names": SINIF_ISIMLERI,
+            "fold_index": fold_index,
+            "n_folds": n_folds,
+            "train_size": len(train_ds),
+            "val_size": len(val_ds),
+            "test_size": len(test_ds) if test_ds is not None else 0,
+            "train_labels": labels_train,
+            "train_original_labels": labels_train_original,
+            "val_labels": labels_val,
+            "test_labels": labels_test,
+            "train_groups": len({tv_groups[i] for i in train_idxs}),
+            "val_groups": len({tv_groups[i] for i in val_idxs}),
+            "trainval_dir": str(trainval_dir),
+            "test_dir": str(test_dir) if test_dir is not None else None,
+            "val_ratio": None,
+            "test_ratio": test_ratio if include_test and not using_external_test else None,
+            "split_strategy": split_strategy,
+            "trainval_grouping": tv_group_stats,
+            "test_grouping": test_group_stats,
+            "split_warnings": split_warnings,
+            "uses_external_test_dir": using_external_test,
+            "normalize_mean": list(norm_mean),
+            "normalize_std": list(norm_std),
+            "normalize_source": "dataset" if use_dataset_stats else "imagenet",
+        }
+
+        yield fold_index, train_loader, val_loader, test_loader, info
 
 
 def create_full_train_test_loaders(
