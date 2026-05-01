@@ -31,6 +31,30 @@ except ImportError:
 
 
 class GorselOnIslemeMixin:
+    @staticmethod
+    def _uint8_goruntu(goruntu: np.ndarray) -> np.ndarray:
+        """OpenCV islemleri icin goruntuyu guvenli uint8 araligina al."""
+        arr = np.asarray(goruntu)
+        if arr.dtype == np.uint8:
+            return arr
+        return np.clip(arr, 0, 255).astype(np.uint8)
+
+    @staticmethod
+    def _bool_maske_uint8(mask: np.ndarray) -> np.ndarray:
+        """Bool maskeyi OpenCV'nin bekledigi 0/255 uint8 formuna cevir."""
+        return (mask.astype(bool) * 255).astype(np.uint8)
+
+    @staticmethod
+    def _gaussian_blur_cv(goruntu: np.ndarray, sigma: float) -> np.ndarray:
+        """SciPy gaussian_filter yerine OpenCV GaussianBlur uygula."""
+        return cv2.GaussianBlur(
+            goruntu,
+            (0, 0),
+            sigmaX=float(sigma),
+            sigmaY=float(sigma),
+            borderType=cv2.BORDER_REFLECT_101,
+        )
+
     def yogunluk_normalize(self, goruntu: np.ndarray) -> np.ndarray:
         """
         Görüntü yoğunluğunu normalize et.
@@ -65,7 +89,7 @@ class GorselOnIslemeMixin:
         norm = (goruntu_kirp - alt_deger) / (ust_deger - alt_deger)
         # 0-255 aralığına ölçeklendir ve uint8'e çevir
         return (norm * 255.0).astype(np.uint8)
-    
+
     def histogram_esitle(self, goruntu: np.ndarray, adaptive: bool = False) -> np.ndarray:
         """
         CLAHE (Contrast Limited Adaptive Histogram Equalization) uygula.
@@ -216,9 +240,18 @@ class GorselOnIslemeMixin:
             # bu yuzden goruntu aynen donulur.
             return goruntu
         if metod == 'median':
+            if CV2_AVAILABLE:
+                filtered = cv2.medianBlur(self._uint8_goruntu(goruntu), 3)
+                return filtered.astype(np.uint8)
             filtered = ndimage.median_filter(goruntu, size=3)
             return np.clip(filtered, 0, 255).astype(np.uint8)
         if metod == 'gaussian':
+            if CV2_AVAILABLE:
+                filtered = self._gaussian_blur_cv(
+                    self._uint8_goruntu(goruntu),
+                    sigma=GAUSSIAN_BLUR_SIGMA,
+                )
+                return filtered.astype(np.uint8)
             filtered = ndimage.gaussian_filter(goruntu, sigma=GAUSSIAN_BLUR_SIGMA)
             return np.clip(filtered, 0, 255).astype(np.uint8)
         if metod == 'bilateral' and CV2_AVAILABLE:
@@ -291,6 +324,33 @@ class GorselOnIslemeMixin:
 
         temel = self._morfolojik_yapi()
         close_kernel = self._morfolojik_yapi(MORFOLOJIK_KERNEL_BOYUTU * max(1, closing_scale))
+        if CV2_AVAILABLE:
+            maske_u8 = self._bool_maske_uint8(duzenli)
+            maske_u8 = cv2.morphologyEx(
+                maske_u8,
+                cv2.MORPH_OPEN,
+                temel.astype(np.uint8),
+                borderType=cv2.BORDER_CONSTANT,
+                borderValue=0,
+            )
+            maske_u8 = cv2.morphologyEx(
+                maske_u8,
+                cv2.MORPH_CLOSE,
+                close_kernel.astype(np.uint8),
+                borderType=cv2.BORDER_CONSTANT,
+                borderValue=0,
+            )
+
+            if dilation_scale > 0:
+                dilate_kernel = self._morfolojik_yapi(MORFOLOJIK_KERNEL_BOYUTU * dilation_scale)
+                maske_u8 = cv2.dilate(
+                    maske_u8,
+                    dilate_kernel.astype(np.uint8),
+                    borderType=cv2.BORDER_CONSTANT,
+                    borderValue=0,
+                )
+            return maske_u8 > 0
+
         duzenli = ndimage.binary_opening(duzenli, structure=temel)
         duzenli = ndimage.binary_closing(duzenli, structure=close_kernel)
 
@@ -299,28 +359,78 @@ class GorselOnIslemeMixin:
             duzenli = ndimage.binary_dilation(duzenli, structure=dilate_kernel)
 
         return duzenli.astype(bool)
-    
-    def _simple_skull_strip(self, goruntu: np.ndarray) -> np.ndarray:
-        """Basit skull stripping (Otsu thresholding)."""
+
+    def _otsu_maskesi(self, goruntu: np.ndarray) -> np.ndarray:
+        """OpenCV Otsu thresholding ile beyin aday maskesini uret."""
+        if CV2_AVAILABLE:
+            _, mask = cv2.threshold(
+                self._uint8_goruntu(goruntu),
+                0,
+                255,
+                cv2.THRESH_BINARY + cv2.THRESH_OTSU,
+            )
+            return mask > 0
+
         try:
             from skimage.filters import threshold_otsu
-            
-            # Eşik değeri bul
+
             esik = threshold_otsu(goruntu)
-            
-            # Binary maske oluştur
-            maske = goruntu > esik
-            maske = self._maskeyi_duzenle(maske, closing_scale=2)
-            
-            # Maskeyi uygula
-            return (goruntu * maske).astype(np.uint8)
-            
+            return goruntu > esik
         except ImportError:
-            # scikit-image yoksa basit eşikleme kullan
             esik = np.percentile(goruntu, 30)
-            maske = goruntu > esik
-            maske = self._maskeyi_duzenle(maske, closing_scale=2)
-            return (goruntu * maske).astype(np.uint8)
+            return goruntu > esik
+
+    def _kucuk_bilesenleri_temizle(self, mask: np.ndarray, min_size: int) -> np.ndarray:
+        """OpenCV connected components ile min_size altindaki nesneleri sil."""
+        if min_size <= 1:
+            return mask.astype(bool)
+
+        maske_u8 = mask.astype(np.uint8)
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(maske_u8, connectivity=8)
+        temiz = np.zeros_like(maske_u8, dtype=bool)
+        for label_idx in range(1, num_labels):
+            if stats[label_idx, cv2.CC_STAT_AREA] >= min_size:
+                temiz[labels == label_idx] = True
+        return temiz
+
+    def _kucuk_delikleri_doldur(self, mask: np.ndarray, area_threshold: int) -> np.ndarray:
+        """OpenCV connected components ile icteki kucuk delikleri doldur."""
+        if area_threshold <= 0:
+            return mask.astype(bool)
+
+        dolu = mask.astype(bool, copy=True)
+        ters = (~dolu).astype(np.uint8)
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(ters, connectivity=8)
+        h, w = dolu.shape
+
+        for label_idx in range(1, num_labels):
+            area = stats[label_idx, cv2.CC_STAT_AREA]
+            if area > area_threshold:
+                continue
+
+            x = stats[label_idx, cv2.CC_STAT_LEFT]
+            y = stats[label_idx, cv2.CC_STAT_TOP]
+            genislik = stats[label_idx, cv2.CC_STAT_WIDTH]
+            yukseklik = stats[label_idx, cv2.CC_STAT_HEIGHT]
+            kenara_degiyor = x == 0 or y == 0 or x + genislik >= w or y + yukseklik >= h
+            if not kenara_degiyor:
+                dolu[labels == label_idx] = True
+
+        return dolu
+
+    def _simple_skull_strip(self, goruntu: np.ndarray) -> np.ndarray:
+        """Basit skull stripping (Otsu thresholding)."""
+        maske = self._otsu_maskesi(goruntu)
+        maske = self._maskeyi_duzenle(maske, closing_scale=2)
+
+        if CV2_AVAILABLE:
+            return cv2.bitwise_and(
+                self._uint8_goruntu(goruntu),
+                self._uint8_goruntu(goruntu),
+                mask=self._bool_maske_uint8(maske),
+            )
+
+        return (goruntu * maske).astype(np.uint8)
     
     def _advanced_skull_strip(self, goruntu: np.ndarray) -> np.ndarray:
         """
@@ -336,41 +446,59 @@ class GorselOnIslemeMixin:
             Skull-stripped görüntü
         """
         try:
-            from skimage.filters import threshold_otsu
-            from skimage.morphology import (
-                remove_small_objects, remove_small_holes
-            )
-            from skimage.measure import label
-            
             # 1. Otsu eşikleme ile başlangıç maskesi
-            esik = threshold_otsu(goruntu)
-            maske = goruntu > esik
+            maske = self._otsu_maskesi(goruntu)
             maske = self._kenar_maskesini_temizle(maske)
             
             # 2. Küçük nesneleri temizle (min_size = toplam pikselin %0.5'i)
             min_size = int(goruntu.size * 0.005)
-            maske = remove_small_objects(maske, min_size=min_size)
+            if CV2_AVAILABLE:
+                maske = self._kucuk_bilesenleri_temizle(maske, min_size=min_size)
+            else:
+                from skimage.morphology import remove_small_objects
+                maske = remove_small_objects(maske, min_size=min_size)
             
             # 3. Morfolojik gürültü temizleme
             maske = self._maskeyi_duzenle(maske, closing_scale=1)
             
             # 4. Küçük delikleri kapat
-            maske = remove_small_holes(maske, area_threshold=min_size)
+            if CV2_AVAILABLE:
+                maske = self._kucuk_delikleri_doldur(maske, area_threshold=min_size)
+            else:
+                from skimage.morphology import remove_small_holes
+                maske = remove_small_holes(maske, area_threshold=min_size)
             
             # 5. En büyük bağlantılı bileşeni bul (beyin olmalı)
-            labeled_mask = label(maske)
-            if labeled_mask.max() > 0:
-                # Her bileşenin boyutunu hesapla
-                regions = np.bincount(labeled_mask.ravel())
-                # Arka plan (0) hariç en büyük bölgeyi bul
-                largest_region = regions[1:].argmax() + 1
-                maske = labeled_mask == largest_region
+            if CV2_AVAILABLE:
+                maske_u8 = maske.astype(np.uint8)
+                num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(maske_u8, connectivity=8)
+                if num_labels > 1:
+                    areas = stats[1:, cv2.CC_STAT_AREA]
+                    largest_region = int(areas.argmax()) + 1
+                    maske = labels == largest_region
+            else:
+                from skimage.measure import label
+
+                labeled_mask = label(maske)
+                if labeled_mask.max() > 0:
+                    # Her bileşenin boyutunu hesapla
+                    regions = np.bincount(labeled_mask.ravel())
+                    # Arka plan (0) hariç en büyük bölgeyi bul
+                    largest_region = regions[1:].argmax() + 1
+                    maske = labeled_mask == largest_region
 
             # 6. Kenarlari yumusat ve beyin dokusunu korumak icin hafif genislet
             maske = self._maskeyi_duzenle(maske, closing_scale=2, dilation_scale=1)
             
             # 7. Maskeyi uygula
-            result = (goruntu * maske).astype(np.uint8)
+            if CV2_AVAILABLE:
+                result = cv2.bitwise_and(
+                    self._uint8_goruntu(goruntu),
+                    self._uint8_goruntu(goruntu),
+                    mask=self._bool_maske_uint8(maske),
+                )
+            else:
+                result = (goruntu * maske).astype(np.uint8)
             
             return result
             
@@ -471,7 +599,10 @@ class GorselOnIslemeMixin:
             
             # Düşük frekanslı bias field'ı tahmin etmek için Gaussian blur
             # Bias field, yavaş değişen bir alandır
-            bias_field = ndimage.gaussian_filter(img_float, sigma=50)
+            if CV2_AVAILABLE:
+                bias_field = self._gaussian_blur_cv(img_float, sigma=50)
+            else:
+                bias_field = ndimage.gaussian_filter(img_float, sigma=50)
             
             # Ortalamayı bul (sıfıra bölme önlemi)
             mean_bias = np.mean(bias_field)
@@ -524,6 +655,30 @@ class GorselOnIslemeMixin:
             threshold = np.percentile(goruntu, 50)
             binary = goruntu > threshold
             
+            if not np.any(binary):
+                return goruntu
+
+            if CV2_AVAILABLE:
+                moments = cv2.moments(binary.astype(np.uint8), binaryImage=True)
+                if abs(moments["m00"]) < 1e-6:
+                    return goruntu
+
+                center_x = moments["m10"] / moments["m00"]
+                center_y = moments["m01"] / moments["m00"]
+                h, w = goruntu.shape[:2]
+                shift_x = (w / 2.0) - center_x
+                shift_y = (h / 2.0) - center_y
+                matrix = np.array([[1.0, 0.0, shift_x], [0.0, 1.0, shift_y]], dtype=np.float32)
+                aligned = cv2.warpAffine(
+                    self._uint8_goruntu(goruntu),
+                    matrix,
+                    (w, h),
+                    flags=cv2.INTER_LINEAR,
+                    borderMode=cv2.BORDER_CONSTANT,
+                    borderValue=0,
+                )
+                return aligned.astype(np.uint8)
+
             # Kütle merkezini hesapla
             center_of_mass = ndimage.center_of_mass(binary)
             

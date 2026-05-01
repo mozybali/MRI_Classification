@@ -56,7 +56,7 @@ Ana dış API `GorselIsleyici` sınıfıdır. Bu sınıf `goruntu_isleyici.py` i
 | `goruntu_isleyici.py` | `GorselIsleyici` sınıfını dış API olarak sunar ve eski tek dosya kullanımına dönük uyumluluk katmanı sağlar. |
 | `temel.py` | `GorselIsleyici` durum yönetimi, rastgele tohumlama, çıktı dosya adı üretimi ve ortak yardımcıları içerir. |
 | `veri.py` | Girdi klasörü çözümleme, görüntü listeleme, kaynak grup belirleme ve leak-free `trainval/test` bölme işlemlerini içerir. |
-| `kalite_io.py` | PIL ile görüntü yükleme, gri tona çevirme, kalite kontrol ve görüntü kaydetme işlemlerini içerir. |
+| `kalite_io.py` | OpenCV öncelikli görüntü yükleme, gri tona çevirme, kalite kontrol ve görüntü kaydetme işlemlerini içerir. |
 | `on_isleme.py` | Gürültü giderme, bias correction, skull stripping, registration, normalizasyon, CLAHE ve resize adımlarını içerir. |
 | `artirma.py` | Disk üzerinde augmentation için rotasyon, parlaklık/kontrast, elastik deformasyon, crop, gürültü ve yoğunluk kayması işlemlerini içerir. |
 | `toplu_islem.py` | Tekil görüntü kaydı, sınıf bazlı augmentation çarpanları, paralel/toplu işleme ve split çıktı üretimini içerir. |
@@ -162,7 +162,7 @@ istatistikler = isleyici.tum_gorselleri_isle_ve_bol(
 
 Tek görüntü için uygulanan temel sıra:
 
-1. Görüntüyü PIL ile aç ve gri tona çevir.
+1. Görüntüyü OpenCV ile aç ve gri tona çevir.
 2. Kalite kontrol uygula.
 3. Ayara bağlı gürültü giderme uygula.
 4. Ayara bağlı bias field correction uygula.
@@ -264,9 +264,8 @@ Varsayılan ayarlarda augmentation kapalı olduğu için bu ek dosyalar üretilm
 
 ## Bağımlılık Notları
 
-- Görüntü yükleme ve kaydetme için `Pillow` kullanılır.
-- CLAHE ve resize için OpenCV varsa öncelikli olarak kullanılır.
-- OpenCV yoksa bazı CLAHE işlemleri için `scikit-image` fallback'i devreye girebilir.
+- Görüntü yükleme, kaydetme, CLAHE, resize, temel filtreler, morfoloji, Otsu maskeleme ve bazı augmentation adımları için OpenCV öncelikli olarak kullanılır.
+- OpenCV yoksa bazı yükleme/kaydetme, filtreleme ve CLAHE işlemleri için `Pillow`, `SciPy` veya `scikit-image` fallback'i devreye girebilir.
 - `SimpleITK`, sadece bias correction veya gelişmiş registration ayarları aktif edildiğinde anlamlıdır.
 - Toplu işlem `multiprocessing.Pool` ile paralel çalışabilir; affine/rigid registration aktifse template tutarlılığı için sequential moda döner.
 

@@ -20,11 +20,15 @@ class GorselArtirmaMixin:
     @staticmethod
     def yatay_ayna(goruntu: np.ndarray) -> np.ndarray:
         """Yatay ayna (flip)."""
+        if CV2_AVAILABLE:
+            return cv2.flip(goruntu, 1)
         return np.fliplr(goruntu)
     
     @staticmethod
     def dikey_ayna(goruntu: np.ndarray) -> np.ndarray:
         """Dikey ayna (flip)."""
+        if CV2_AVAILABLE:
+            return cv2.flip(goruntu, 0)
         return np.flipud(goruntu)
     
     def rastgele_dondur(self, goruntu: np.ndarray) -> np.ndarray:
@@ -34,6 +38,18 @@ class GorselArtirmaMixin:
         aci = self._random.uniform(-ROTASYON_MAKS_ACI, ROTASYON_MAKS_ACI)
         if abs(aci) < 1e-3:
             return goruntu
+        if CV2_AVAILABLE:
+            h, w = goruntu.shape[:2]
+            merkez = ((w - 1) / 2.0, (h - 1) / 2.0)
+            matrix = cv2.getRotationMatrix2D(merkez, aci, 1.0)
+            donmus = cv2.warpAffine(
+                goruntu,
+                matrix,
+                (w, h),
+                flags=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_REPLICATE,
+            )
+            return np.clip(donmus, 0, 255).astype(np.uint8)
         donmus = ndimage.rotate(goruntu, angle=aci, reshape=False, order=1, mode='nearest')
         return np.clip(donmus, 0, 255).astype(np.uint8)
     
@@ -64,9 +80,39 @@ class GorselArtirmaMixin:
         if not ELASTIC_DEFORMATION_AKTIF:
             return goruntu
         
-        shape = goruntu.shape
+        h, w = goruntu.shape[:2]
         
         # Rastgele displacement field oluştur
+        if CV2_AVAILABLE:
+            dx = cv2.GaussianBlur(
+                (self._np_random.random((h, w)) * 2 - 1).astype(np.float32),
+                (0, 0),
+                sigmaX=float(sigma),
+                sigmaY=float(sigma),
+                borderType=cv2.BORDER_CONSTANT,
+            ) * alpha
+            dy = cv2.GaussianBlur(
+                (self._np_random.random((h, w)) * 2 - 1).astype(np.float32),
+                (0, 0),
+                sigmaX=float(sigma),
+                sigmaY=float(sigma),
+                borderType=cv2.BORDER_CONSTANT,
+            ) * alpha
+
+            x, y = np.meshgrid(
+                np.arange(w, dtype=np.float32),
+                np.arange(h, dtype=np.float32),
+            )
+            distorted = cv2.remap(
+                goruntu,
+                (x + dx).astype(np.float32),
+                (y + dy).astype(np.float32),
+                interpolation=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_REFLECT_101,
+            )
+            return np.clip(distorted, 0, 255).astype(np.uint8)
+
+        shape = goruntu.shape
         dx = ndimage.gaussian_filter(
             (self._np_random.random(shape) * 2 - 1), sigma, mode="constant", cval=0
         ) * alpha
