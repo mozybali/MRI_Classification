@@ -1,6 +1,6 @@
 # Görüntü İşleme Modülü
 
-`goruntu_isleme`, ham 2D beyin MRI görüntülerini modelleme aşamasına hazırlayan ön işleme paketidir. Varsayılan akışta görüntüleri `Veri_Seti/OriginalDataset` altındaki sınıf klasörlerinden okur, kalite kontrol ve standartlaştırma uygular, ardından `goruntu_isleme/cikti/trainval` ve `goruntu_isleme/cikti/test` yapısında `.png` olarak kaydeder.
+`goruntu_isleme`, ham 2D beyin MRI görüntülerini modelleme aşamasına hazırlayan ön işleme paketidir. Varsayılan akışta görüntüleri `Veri_Seti/OriginalDataset` altındaki sınıf klasörlerinden okur, kalite kontrol ve standartlaştırma uygular, leak-free `trainval/test` ayrımı yapar ve çıktıları `goruntu_isleme/cikti/` altında `.png` olarak kaydeder.
 
 Bu klasör yalnızca görüntü ön işleme sorumluluğunu taşır. Özellik matrisi üretimi, XGBoost özellik cache'i, model eğitimi, hiperparametre araması ve inference işlemleri `model/` modülünde yürütülür.
 
@@ -56,10 +56,10 @@ Ana dış API `GorselIsleyici` sınıfıdır. Bu sınıf `goruntu_isleyici.py` i
 | `goruntu_isleyici.py` | `GorselIsleyici` sınıfını dış API olarak sunar ve eski tek dosya kullanımına dönük uyumluluk katmanı sağlar. |
 | `temel.py` | `GorselIsleyici` durum yönetimi, rastgele tohumlama, çıktı dosya adı üretimi ve ortak yardımcıları içerir. |
 | `veri.py` | Girdi klasörü çözümleme, görüntü listeleme, kaynak grup belirleme ve leak-free `trainval/test` bölme işlemlerini içerir. |
-| `kalite_io.py` | OpenCV öncelikli görüntü yükleme, gri tona çevirme, kalite kontrol ve görüntü kaydetme işlemlerini içerir. |
-| `on_isleme.py` | Gürültü giderme, bias correction, skull stripping, registration, normalizasyon, CLAHE ve resize adımlarını içerir. |
+| `kalite_io.py` | OpenCV ile görüntü yükleme/kaydetme, gri tona çevirme ve kalite kontrol işlemlerini içerir. |
+| `on_isleme.py` | Gürültü giderme, bias correction, skull stripping, registration, percentile/z-score normalizasyonu, CLAHE ve resize adımlarını içerir. |
 | `artirma.py` | Disk üzerinde augmentation için rotasyon, parlaklık/kontrast, elastik deformasyon, crop, gürültü ve yoğunluk kayması işlemlerini içerir. |
-| `toplu_islem.py` | Tekil görüntü kaydı, sınıf bazlı augmentation çarpanları, paralel/toplu işleme ve split çıktı üretimini içerir. |
+| `toplu_islem.py` | Tekil görüntü kaydı, sınıf bazlı augmentation çarpanları, paralel/toplu işleme ve splitli ya da düz çıktı üretimini içerir. |
 | `__init__.py` | Paket dışına `GorselIsleyici` sınıfını açar. |
 
 ## Beklenen Girdi Yapısı
@@ -84,7 +84,7 @@ Desteklenen dosya uzantıları:
 `GorselIsleyici` şu girdi biçimlerini okuyabilir:
 
 - Doğrudan sınıf klasörlerini içeren bir klasör.
-- Kökünde `OriginalDataset/` bulunan bir klasör.
+- Kökünde `OriginalDataset/` bulunan bir klasör, örneğin `Veri_Seti/`.
 - Daha önce ayrılmış `trainval/test/<SinifAdi>/` yapısı.
 
 Girdi zaten `trainval/test` yapısındaysa yeniden bölme yapılmaz; mevcut split korunur. Bu modül doğrudan `.nii` veya `.nii.gz` hacim dosyalarını okumaz.
@@ -158,9 +158,19 @@ istatistikler = isleyici.tum_gorselleri_isle_ve_bol(
 )
 ```
 
+Sık kullanılan API metotları:
+
+| Metot | Amaç |
+| --- | --- |
+| `gorselleri_listele(giris_klasoru)` | Desteklenen görüntüleri sınıf, etiket ve kaynak grup bilgisiyle listeler. |
+| `veri_dosyalarini_bol(dosyalar)` | Görüntüleri kaynak grup bazında `trainval` ve `test` olarak böler. |
+| `goruntu_isle(dosya_yolu)` | Tek görüntüyü yükler, kalite kontrolden geçirir ve ön işleme sonrası `numpy.ndarray` döndürür. |
+| `tum_gorselleri_isle(cikti_klasoru, ...)` | Verilen görüntü listesini işler ve çıktı klasöründe doğrudan sınıf klasörlerine kaydeder. |
+| `tum_gorselleri_isle_ve_bol(cikti_klasoru, giris_klasoru)` | Varsayılan CLI akışıdır; split üretir veya mevcut split'i korur. |
+
 ## Ön İşleme Sırası
 
-Tek görüntü için uygulanan temel sıra:
+`goruntu_isle` ile tek görüntü için uygulanan temel sıra:
 
 1. Görüntüyü OpenCV ile aç ve gri tona çevir.
 2. Kalite kontrol uygula.
@@ -170,15 +180,16 @@ Tek görüntü için uygulanan temel sıra:
 6. Ayara bağlı registration/hizalama uygula.
 7. Seçili normalizasyon stratejisini uygula.
 8. Görüntüyü hedef boyuta getir.
-9. İşlenmiş görüntüyü `.png` olarak kaydet.
+
+Kayıt işlemi `toplu_islem.py` içindeki toplu akışta yapılır. `goruntu_isle` doğrudan dosya yazmaz; işlenmiş görüntüyü dizi olarak döndürür.
 
 Normalizasyon stratejileri:
 
 | Strateji | Davranış |
 | --- | --- |
-| `minimal` | Percentile clipping ve resize uygular. |
-| `standard` | Percentile clipping, sabit CLAHE ve resize uygular. Varsayılan stratejidir. |
-| `aggressive` | Percentile clipping, sabit CLAHE, z-score normalizasyonu ve resize uygular. |
+| `minimal` | Percentile clipping uygular; ardından genel pipeline resize yapar. |
+| `standard` | Percentile clipping ve sabit CLAHE uygular; ardından genel pipeline resize yapar. Varsayılan stratejidir. |
+| `aggressive` | Percentile clipping, sabit CLAHE ve z-score normalizasyonu uygular; ardından genel pipeline resize yapar. |
 
 Varsayılan `standard` stratejisinde `%1-%99` percentile clipping, `0-255` yoğunluk normalizasyonu, `CLAHE_CLIP_LIMIT=2.0` ve `256x256` yeniden boyutlandırma kullanılır.
 
@@ -209,14 +220,20 @@ Temel ayarlar `ayarlar.py` içinde tutulur:
 | Histogram eşitleme | Aktif |
 | CLAHE clip limit | `2.0` |
 | Filtre metodu | `off` |
+| Gaussian blur sigma | `0.5` |
 | Skull stripping | Kapalı |
 | Bias field correction | Kapalı |
 | Registration | Kapalı |
 | Morfolojik işlemler | Aktif |
+| Morfolojik kernel boyutu | `3` |
 | Disk üzerinde augmentation | Kapalı |
 | Augmentation çarpanı | `0` |
 | Sınıf bazlı augmentation | Kapalı |
 | Kalite kontrol | Aktif |
+| Minimum ortalama yoğunluk | `5` |
+| Maksimum ortalama yoğunluk | `245` |
+| Minimum standart sapma | `5` |
+| Maksimum siyah piksel oranı | `0.8` |
 
 Kalite kontrol varsayılan olarak çok karanlık, çok aydınlık, düşük kontrastlı veya siyah piksel oranı çok yüksek görüntüleri eler.
 
@@ -237,6 +254,8 @@ goruntu_isleme/cikti/
     |-- MildDemented/
     `-- ModerateDemented/
 ```
+
+`tum_gorselleri_isle` doğrudan çağrılırsa split klasörleri oluşturulmaz; çıktı `cikti/<SinifAdi>/` yapısında üretilir. CLI ve önerilen Python akışı `tum_gorselleri_isle_ve_bol` kullandığı için `trainval/test` yapısını üretir.
 
 Kaydedilen dosyalar `.png` formatındadır. Kaynak dosya köküne orijinal uzantı eklenerek ad çakışması engellenir:
 
@@ -266,6 +285,7 @@ Varsayılan ayarlarda augmentation kapalı olduğu için bu ek dosyalar üretilm
 
 - Görüntü yükleme, kaydetme, CLAHE, resize, temel filtreler, morfoloji, Otsu maskeleme ve bazı augmentation adımları OpenCV ile çalışır.
 - `Pillow`, `SciPy` ve `scikit-image` ön işleme için yedek yol olarak kullanılmaz; DL/SL model katmanlarındaki görüntü okuma ve klasik özellik çıkarımı ihtiyaçları için bağımlılıklarda kalır.
+- `scikit-learn`, kaynak grup bazlı stratified `trainval/test` bölmesi için kullanılır.
 - `SimpleITK`, sadece bias correction veya gelişmiş registration ayarları aktif edildiğinde anlamlıdır.
 - Toplu işlem `multiprocessing.Pool` ile paralel çalışabilir; affine/rigid registration aktifse template tutarlılığı için sequential moda döner.
 
