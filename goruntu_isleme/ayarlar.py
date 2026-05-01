@@ -15,6 +15,7 @@ __all__ = [
     "SINIF_KLASORLERI", "SINIF_ETIKETI",
     # Görüntü işleme
     "HEDEF_GENISLIK", "HEDEF_YUKSEKLIK", "GORUNTU_UZANTILARI",
+    "BOYUTLANDIRMA_MODU", "PADDING_DEGERI",
     "KIRPMA_YUZDELERI", "NORMALIZASYON_STRATEJISI",
     "HISTOGRAM_ESITLEME_AKTIF", "CLAHE_CLIP_LIMIT",
     "FILTRE_METODU", "GAUSSIAN_BLUR_SIGMA",
@@ -84,6 +85,18 @@ HEDEF_YUKSEKLIK = 256  # Piksel cinsinden yükseklik
 
 # İzin verilen görüntü dosya uzantıları
 GORUNTU_UZANTILARI = [".jpg", ".jpeg", ".png"]
+
+# Yeniden boyutlandirma modu - hedef boyuta getirirken en-boy oraninin
+# korunup korunmayacagini belirler.
+# "pad"     : En-boy orani korunur; goruntu hedef cerceveye sigdirilir ve
+#             bos kenarlar PADDING_DEGERI ile doldurulur (medikal olarak
+#             daha guvenli, anatomik distorsiyon yaratmaz).
+# "stretch" : Goruntu dogrudan hedef boyuta gerilir (eski davranis).
+BOYUTLANDIRMA_MODU = "pad"  # "pad" veya "stretch"
+
+# "pad" modunda eklenen kenar piksellerinin doldurulacagi yogunluk degeri.
+# MRI 2D dilimlerinde arka plan tipik olarak siyah oldugu icin 0 onerilir.
+PADDING_DEGERI = 0
 
 # Normalizasyon ayarları
 # Kırpma yüzdeleri: Aşırı karanlık ve aydınlık pikselleri temizler

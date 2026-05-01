@@ -112,6 +112,65 @@ class TestGorselIsleyici:
         assert resized.shape == (256, 256)
         assert resized.dtype == np.uint8
 
+    def test_boyutlandir_pad_en_boy_oranini_korur(self, monkeypatch):
+        """'pad' modu en-boy oranini korumali ve kenarlari PADDING_DEGERI ile doldurmali."""
+        monkeypatch.setattr(gi, "BOYUTLANDIRMA_MODU", "pad")
+        monkeypatch.setattr(gi, "PADDING_DEGERI", 0)
+
+        isleyici = GorselIsleyici()
+        # Tipik MRI dilim boyutu (yukseklik x genislik)
+        test_img = np.full((208, 176), 200, dtype=np.uint8)
+        resized = isleyici.boyutlandir(test_img, genislik=256, yukseklik=256)
+
+        assert resized.shape == (256, 256)
+        assert resized.dtype == np.uint8
+
+        # En-boy orani 176/208 ~= 0.846 oldugundan dikey eksen 256'ya
+        # ulasmali, yatay eksen daha kucuk kalip soldan/sagdan padding almalidir.
+        beklenen_genislik = int(round(176 * (256 / 208)))
+        kenar = (256 - beklenen_genislik) // 2
+
+        # Sol ve sag kenarlarda padding (PADDING_DEGERI=0) bulunmali
+        assert kenar > 0
+        assert (resized[:, :kenar] == 0).all()
+        assert (resized[:, 256 - kenar:] == 0).all()
+        # Merkez sutunda kaynak goruntu (sabit 200) yer almali
+        assert (resized[:, 128] > 0).all()
+        # Dikey eksen tamamen kaplanmali (ust ve alt kenarda padding olmamali)
+        assert (resized[0, 128] > 0)
+        assert (resized[-1, 128] > 0)
+
+    def test_boyutlandir_pad_padding_degeri_kullanilir(self, monkeypatch):
+        """PADDING_DEGERI ayari kenar piksellerine yansimalidir."""
+        monkeypatch.setattr(gi, "BOYUTLANDIRMA_MODU", "pad")
+        monkeypatch.setattr(gi, "PADDING_DEGERI", 42)
+
+        isleyici = GorselIsleyici()
+        test_img = np.full((100, 200), 200, dtype=np.uint8)
+        resized = isleyici.boyutlandir(test_img, genislik=256, yukseklik=256)
+
+        assert resized.shape == (256, 256)
+        # Genislik > yukseklik oldugundan ust ve alt kenarlarda padding olmali
+        assert (resized[0, :] == 42).all()
+        assert (resized[-1, :] == 42).all()
+
+    def test_boyutlandir_stretch_eski_davranisi_korur(self, monkeypatch):
+        """'stretch' modu en-boy oranini gozetmeden dogrudan resize yapmali."""
+        monkeypatch.setattr(gi, "BOYUTLANDIRMA_MODU", "stretch")
+
+        isleyici = GorselIsleyici()
+        test_img = np.full((208, 176), 200, dtype=np.uint8)
+        resized = isleyici.boyutlandir(test_img, genislik=256, yukseklik=256)
+
+        assert resized.shape == (256, 256)
+        assert resized.dtype == np.uint8
+        # Stretch modunda padding olmamali; sabit dolu goruntu her yerde
+        # 200 civarinda kalmali (interpolasyon sapmasi minimal)
+        assert resized.min() > 100
+        # Kenarlarda PADDING_DEGERI=0 birikmesi olmamali
+        assert (resized[:, 0] > 100).all()
+        assert (resized[0, :] > 100).all()
+
     def test_gurultu_gider_auto_filtreler_kapaliyken_no_op(self, monkeypatch):
         """FILTRE_METODU='off' iken auto mod goruntuyu degistirmeden dondurmeli.
 

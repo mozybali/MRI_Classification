@@ -50,9 +50,14 @@ MRI_Classification/
 |-- goruntu_isleme/
 |   |-- __init__.py
 |   |-- ana_islem.py
+|   |-- artirma.py
 |   |-- ayarlar.py
 |   |-- goruntu_isleyici.py
-|   |-- ozellik_cikarici.py
+|   |-- kalite_io.py
+|   |-- on_isleme.py
+|   |-- temel.py
+|   |-- toplu_islem.py
+|   |-- veri.py
 |   `-- README.md
 |-- model/
 |   |-- __init__.py

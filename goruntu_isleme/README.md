@@ -21,8 +21,14 @@ Güncel kaynak ağacı:
 goruntu_isleme/
 |-- __init__.py
 |-- ana_islem.py
+|-- artirma.py
 |-- ayarlar.py
 |-- goruntu_isleyici.py
+|-- kalite_io.py
+|-- on_isleme.py
+|-- temel.py
+|-- toplu_islem.py
+|-- veri.py
 `-- README.md
 ```
 
@@ -42,7 +48,13 @@ goruntu_isleme/
 
 - `ana_islem.py`: `mri-preprocess` komutunun ve interaktif menünün giriş noktasıdır. Mevcut CLI aksiyonları `menu` ve `preprocess` değerleridir.
 - `ayarlar.py`: Proje kökü, veri seti yolları, sınıf adları, etiketler, hedef görüntü boyutu, normalizasyon, kalite kontrol, augmentation ve test split oranını merkezi olarak tanımlar.
-- `goruntu_isleyici.py`: `GorselIsleyici` sınıfını içerir. Görüntü listeleme, kaynak grup belirleme, `trainval/test` bölme, kalite kontrol, gri ton yükleme, normalize etme, CLAHE, opsiyonel filtreleme/skull stripping/bias correction/registration, resize, augmentation ve toplu kayıt işlemlerinden sorumludur.
+- `goruntu_isleyici.py`: `GorselIsleyici` sınıfını dış API olarak sunan uyumluluk katmanıdır.
+- `temel.py`: `GorselIsleyici` durum yönetimi, tohumlama ve ortak yardımcıları içerir.
+- `veri.py`: Görüntü listeleme, kaynak grup belirleme ve leak-free `trainval/test` bölme işlemlerini içerir.
+- `kalite_io.py`: Görüntü yükleme, kalite kontrol ve görüntü kaydetme işlemlerini içerir.
+- `on_isleme.py`: Normalize etme, CLAHE, filtreleme, skull stripping, bias correction, registration ve resize adımlarını içerir.
+- `artirma.py`: Augmentation işlemlerini içerir.
+- `toplu_islem.py`: Tekil görüntü kaydı, sınıf bazlı augmentation çarpanları, paralel/toplu işleme ve split çıktı üretimini içerir.
 - `__init__.py`: Paket dışına `GorselIsleyici` sınıfını açar.
 
 ## Beklenen Girdi Yapısı
@@ -125,6 +137,17 @@ Varsayılan normalizasyon stratejisi `standard` değeridir:
 - Sabit `CLAHE_CLIP_LIMIT=2.0` ile CLAHE.
 - `256x256` yeniden boyutlandırma.
 
+### Yeniden Boyutlandırma Modu
+
+`BOYUTLANDIRMA_MODU` ayarı, görüntülerin hedef boyuta nasıl getirileceğini belirler:
+
+- `"pad"` (varsayılan, medikal olarak önerilen): En-boy oranı korunur. Görüntü hedef çerçeveye sığacak şekilde ölçeklenir, kalan kenarlar `PADDING_DEGERI` ile doldurulur. `176x208` gibi dikdörtgen MRI dilimlerinin `256x256` modele beslenirken anatomik olarak deforme olmasını engeller.
+- `"stretch"`: Görüntü doğrudan hedef boyuta gerilir. En-boy oranı korunmaz; geriye dönük uyumluluk veya kasıtlı tam-doluluk istenen durumlar için.
+
+`PADDING_DEGERI` (varsayılan `0`), `"pad"` modunda eklenen kenar piksellerinin yoğunluk değeridir. MRI arka planı tipik olarak siyah olduğu için `0` önerilir.
+
+Her iki modda da çıktı `(HEDEF_YUKSEKLIK, HEDEF_GENISLIK)` şeklinde ve girdiyle aynı `dtype` (varsayılan `uint8`) olur.
+
 ## Varsayılan Ayarlar
 
 Temel ayarlar `ayarlar.py` içinde tutulur:
@@ -134,6 +157,8 @@ Temel ayarlar `ayarlar.py` içinde tutulur:
 | Girdi klasörü | `Veri_Seti/OriginalDataset` |
 | Çıktı klasörü | `goruntu_isleme/cikti` |
 | Hedef boyut | `256x256` |
+| Boyutlandırma modu | `pad` (en-boy oranı korunarak padding) |
+| Padding değeri | `0` |
 | Test oranı | `0.15` |
 | Rastgele tohum | `42` |
 | Normalizasyon stratejisi | `standard` |
