@@ -1,23 +1,39 @@
 # Model Modülü
 
-`model/` klasörü, Alzheimer/demans MRI görüntülerinden dört sınıflı sınıflandırma yapmak için kullanılan eğitim, hiperparametre optimizasyonu ve tahmin akışlarını içerir. Modül repo kökünden çalışacak şekilde tasarlanmıştır ve iki ayrı model hattı sunar:
+`model/` klasörü, beyin MRI görüntülerinden dört sınıflı demans sınıflandırması yapmak için eğitim, hiperparametre optimizasyonu ve inference akışlarını içerir. Modül iki model ailesini destekler:
 
-- `resnet`: PyTorch ve `torchvision` tabanlı derin öğrenme hattı.
+- `resnet`: PyTorch ve `torchvision` ResNet18 tabanlı derin öğrenme hattı.
 - `xgboost`: görüntülerden çıkarılan klasik özelliklerle çalışan sığ öğrenme hattı.
 
-Beklenen sınıflar şunlardır: `NonDemented`, `VeryMildDemented`, `MildDemented`, `ModerateDemented`.
+Beklenen sınıflar:
+
+- `NonDemented`
+- `VeryMildDemented`
+- `MildDemented`
+- `ModerateDemented`
+
+## Projedeki Yeri
+
+Önerilen proje akışı şöyledir:
+
+1. Ham görüntüler `Veri_Seti/OriginalDataset/<SinifAdi>/` altında tutulur.
+2. `goruntu_isleme/` modülü ham görüntülerden leak-free `trainval/test` yapısı üretir.
+3. `model/` modülü `goruntu_isleme/cikti/trainval` ve `goruntu_isleme/cikti/test` dizinlerini kullanarak ResNet veya XGBoost eğitir.
+4. Eğitim çıktıları, raporlar, grafikler, HPO sonuçları ve XGBoost özellik cache'i `model/ciktilar/` altında tutulur.
+5. Eğitilmiş `.pt` veya `.json` model dosyaları `mri-infer` ile tahmin için kullanılır.
 
 ## Dizin Yapısı
 
+Kaynak dosyalar:
+
 ```text
 model/
-|-- README.md
 |-- __init__.py
 |-- ayarlar.py
-|-- train.py
-|-- training_runner.py
 |-- hpo.py
 |-- inference.py
+|-- train.py
+|-- training_runner.py
 |-- common/
 |   |-- __init__.py
 |   `-- evaluation.py
@@ -36,71 +52,106 @@ model/
 |   |-- features.py
 |   |-- training_runner.py
 |   `-- xgb_classifier.py
+`-- README.md
+```
+
+Çalışma sırasında oluşabilecek çıktı dizinleri:
+
+```text
+model/
 `-- ciktilar/
     |-- modeller/
     |-- raporlar/
     |-- gorseller/
     |-- sl_ozellikler/
-    `-- hiperparametre_arama/
+    |-- hiperparametre_arama/
+    `-- folds/
 ```
 
-`ciktilar/` eğitim, tahmin ve HPO sırasında oluşan çalışma çıktıları için kullanılır. Kaynak kodun parçası olan ana dosyalar `train.py`, `training_runner.py`, `hpo.py`, `inference.py`, `dl/`, `sl/` ve `common/` altındadır.
+`model/ciktilar/` kaynak kodun parçası değildir; eğitim, değerlendirme, CV, HPO ve özellik cache çıktıları için kullanılır.
 
 ## Ana Bileşenler
 
 | Yol | Görev |
 | --- | --- |
 | `ayarlar.py` | Varsayılan veri ve çıktı yollarını tanımlar. |
-| `train.py` | `resnet` ve `xgboost` eğitimleri için ortak CLI girişidir. |
-| `training_runner.py` | ResNet eğitim döngüsü, validasyon/test değerlendirmesi ve artifact üretimini yönetir. |
+| `train.py` | `mri-train` CLI girişidir; ResNet, XGBoost ve K-fold eğitimlerini başlatır. |
+| `training_runner.py` | ResNet eğitim döngüsü, validation/test değerlendirmesi, checkpoint, rapor ve CV üretimini yönetir. |
 | `hpo.py` | Optuna TPE ile ResNet ve XGBoost hiperparametre araması yapar. |
 | `inference.py` | `.pt` ve `.json` modelleriyle tek görüntü veya klasör üzerinde tahmin alır. |
 | `common/evaluation.py` | Ortak sınıflandırma metrikleri ve detaylı değerlendirme raporları üretir. |
-| `dl/` | PyTorch veri seti, augmentasyon, loss, eğitim motoru, görselleştirme ve ResNet modeli. |
-| `sl/` | XGBoost için özellik çıkarımı, özellik matrisi, eğitim ve model kaydetme/yükleme araçları. |
+| `dl/dataset.py` | PyTorch dataset/dataloader, transform, split, grup kontrolü ve K-fold veri hazırlığını içerir. |
+| `dl/engine.py` | PyTorch epoch eğitim ve değerlendirme fonksiyonlarını içerir. |
+| `dl/losses.py` | Focal loss ve class weight hesaplama yardımcılarını içerir. |
+| `dl/utils.py` | Seed, cihaz seçimi, checkpoint yükleme ve görselleştirme yardımcılarını içerir. |
+| `dl/models/resnet_classifier.py` | ResNet18 tabanlı sınıflandırıcıyı tanımlar. |
+| `sl/dataset.py` | XGBoost için klasör ağacından özellik matrisi ve `.npz` cache üretir. |
+| `sl/features.py` | HOG, LBP, GLCM, histogram ve istatistiksel görüntü özelliklerini çıkarır. |
+| `sl/training_runner.py` | XGBoost eğitim, validation/test, artifact ve CV akışını yönetir. |
+| `sl/xgb_classifier.py` | XGBClassifier oluşturma, kaydetme ve metadata ile yükleme yardımcılarını içerir. |
 
-## Veri Akışı
+## Varsayılan Veri ve Çıktı Yolları
 
-Önerilen akış, ham görüntüleri önce `goruntu_isleme` modülünden geçirip leak-free split üretmektir:
+Varsayılanlar `model/ayarlar.py` içinde tanımlıdır:
 
-```bash
-mri-preprocess --action preprocess --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti
+| Amaç | Varsayılan yol |
+| --- | --- |
+| Train/validation kaynağı | `goruntu_isleme/cikti/trainval` |
+| Harici test kaynağı | `goruntu_isleme/cikti/test` |
+| Model çıktıları | `model/ciktilar/modeller` |
+| JSON raporlar | `model/ciktilar/raporlar` |
+| Grafikler | `model/ciktilar/gorseller` |
+| XGBoost özellik cache'i | `model/ciktilar/sl_ozellikler` |
+| HPO çıktıları | `model/ciktilar/hiperparametre_arama` |
+
+`--trainval-dir` ve `--test-dir` verilirse bu varsayılanlar geçersiz kılınır. Bir split kökü verilirse, kod ilgili `trainval/` veya `test/` alt dizinini otomatik çözmeye çalışır.
+
+## Beklenen Veri Yapısı
+
+Önerilen eğitim kaynağı, ön işleme sonrası üretilen yapıdır:
+
+```text
+goruntu_isleme/cikti/
+|-- trainval/
+|   |-- NonDemented/
+|   |-- VeryMildDemented/
+|   |-- MildDemented/
+|   `-- ModerateDemented/
+`-- test/
+    |-- NonDemented/
+    |-- VeryMildDemented/
+    |-- MildDemented/
+    `-- ModerateDemented/
 ```
 
-Model modülünün varsayılan veri yolları `model/ayarlar.py` içinde tanımlıdır:
+Desteklenen görüntü uzantıları `.jpg`, `.jpeg` ve `.png` değerleridir. Sınıf klasörü adları kodda sabit kullanılır ve büyük/küçük harfe duyarlıdır.
 
-- `goruntu_isleme/cikti/trainval`: eğitim ve validasyon kaynağı.
-- `goruntu_isleme/cikti/test`: varsa harici test kaynağı.
-- `model/ciktilar`: model, rapor, görsel, özellik cache ve HPO çıktıları.
-
-`--trainval-dir` verilirse eğitim/validasyon kaynağı bu dizinden okunur. `--test-dir` verilirse harici test seti olarak kullanılır. Bu argümanlar verilmezse yukarıdaki varsayılan işlenmiş split dizinleri denenir.
-
-Ham veri üzerinde doğrudan eğitim yapmak mümkündür:
+Ham veri üzerinde doğrudan eğitim mümkündür:
 
 ```bash
 mri-train --model resnet --trainval-dir Veri_Seti/OriginalDataset
 ```
 
-Ancak proje için önerilen yöntem, önce ön işleme ile `trainval` ve `test` ayrımını üretmek, sonra eğitimde bu dizinleri kullanmaktır.
+Yine de proje için önerilen yöntem, önce `mri-preprocess` ile işlenmiş `trainval/test` dizinlerini üretmektir.
 
 ## Kurulum
 
-Bağımlılıklar repo kökünden kurulmalıdır. `requirements.txt` ortak paketleri içerir; PyTorch kurulumu CPU/GPU ortamına göre ayrı dosyadan yapılır.
+Komutlar repo kökünden çalıştırılmalıdır. Ortak bağımlılıklar `requirements.txt`, PyTorch bağımlılıkları ise CPU/GPU ortamına göre ayrı dosyalardadır.
 
 CPU ortamı:
 
 ```bash
 pip install -r requirements.txt
 pip install -r requirements-torch-cpu.txt
-pip install -e .[dev] --no-deps
+pip install -e . --no-deps
 ```
 
-CUDA 12.8 ortamı:
+CUDA ortamı:
 
 ```bash
 pip install -r requirements.txt
 pip install -r requirements-torch-cu128.txt
-pip install -e .[dev] --no-deps
+pip install -e . --no-deps
 ```
 
 Kurulumdan sonra kullanılan CLI komutları:
@@ -109,7 +160,7 @@ Kurulumdan sonra kullanılan CLI komutları:
 - `mri-tune`: hiperparametre optimizasyonu.
 - `mri-infer`: eğitilmiş modelle tahmin.
 
-Alternatif olarak komutlar Python modülü olarak da çalıştırılabilir:
+Paket kurulmadan modül olarak çalıştırma:
 
 ```bash
 python -m model.train --model resnet
@@ -117,11 +168,11 @@ python -m model.hpo --model xgboost --trials 20
 python -m model.inference --model-path model/ciktilar/modeller/best_xgboost.json --image ornek.jpg
 ```
 
-## Model Eğitimleri
+## Eğitim
 
 ### ResNet
 
-ResNet hattı `torchvision` ResNet18 omurgasını kullanır. Checkpoint çıktısı `.pt` dosyasıdır.
+ResNet hattı `torchvision.models.resnet18` omurgasını kullanır. Varsayılan olarak ImageNet ağırlıkları kullanılmaz; `--pretrained` verilirse pretrained ağırlıklar yüklenir. Çıktı checkpoint dosyası `.pt` formatındadır.
 
 Temel eğitim:
 
@@ -135,23 +186,29 @@ mri-train --model resnet
 mri-train --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
 ```
 
-Daha uzun eğitim ve özel hiperparametreler:
+Örnek hiperparametreler:
 
 ```bash
 mri-train --model resnet --epochs 50 --batch-size 32 --lr 3e-4
 mri-train --model resnet --loss focal --focal-gamma 2.5
-mri-train --model resnet --pretrained
+mri-train --model resnet --pretrained --dropout 0.4
 ```
 
-Final eğitim modunda validation ayrılmaz; tüm `trainval` kullanılır ve ayrı bir harici test dizini gerekir:
+Final eğitim modunda validation ayrılmaz; tüm `trainval` kullanılır ve harici test dizini gerekir:
 
 ```bash
 mri-train --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test --full-trainval
 ```
 
+K-fold cross-validation:
+
+```bash
+mri-train --model resnet --folds 5 --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
+```
+
 ### XGBoost
 
-XGBoost hattı HOG, LBP, GLCM, histogram ve istatistiksel görüntü özellikleriyle çalışır. Model `.json`, yanında metadata `.meta.json` olarak kaydedilir.
+XGBoost hattı görüntüleri gri tona çevirip `image_size x image_size` boyutuna getirir; HOG, LBP, GLCM, histogram ve temel istatistik özelliklerinden bir özellik matrisi üretir. Model `.json`, yanında metadata `.meta.json` olarak kaydedilir.
 
 Temel eğitim:
 
@@ -165,36 +222,54 @@ mri-train --model xgboost
 mri-train --model xgboost --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test --feature-cache model/ciktilar/sl_ozellikler
 ```
 
-Örnek XGBoost hiperparametreleri:
+Örnek XGBoost parametreleri:
 
 ```bash
 mri-train --model xgboost --xgb-n-estimators 500 --xgb-max-depth 8 --xgb-learning-rate 0.05 --xgb-subsample 0.7 --xgb-colsample-bytree 0.8
 ```
 
+K-fold cross-validation:
+
+```bash
+mri-train --model xgboost --folds 5 --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test --feature-cache model/ciktilar/sl_ozellikler
+```
+
+`--feature-cache` kullanıldığında cache dosyaları veri dizini ve `image_size` metadata'sı ile doğrulanır. Aynı cache dosyası farklı veri dizini veya farklı görüntü boyutu için kullanılırsa hata verilir.
+
 ## Hiperparametre Optimizasyonu
 
-`mri-tune`, Optuna `TPESampler` ile Bayesian-style arama yapar. Desteklenen seçim metrikleri:
+`mri-tune`, Optuna `TPESampler` ile arama yapar. Desteklenen seçim metrikleri:
 
-- `loss`: minimize edilir.
-- `accuracy`, `precision`, `recall`, `f1`: maksimize edilir.
+| Metrik | Yön |
+| --- | --- |
+| `loss` | minimize |
+| `accuracy` | maximize |
+| `precision` | maximize |
+| `recall` | maximize |
+| `f1` | maximize |
 
 ResNet HPO:
 
 ```bash
-mri-tune --model resnet --trials 20 --epochs 12 --metric f1
+mri-tune --model resnet --trials 20 --epochs 12 --metric f1 --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
 mri-tune --model resnet --trials 30 --metric loss --search-pretrained --skip-final-train
 ```
 
 XGBoost HPO:
 
 ```bash
-mri-tune --model xgboost --trials 30 --metric f1
-mri-tune --model xgboost --trials 50 --metric accuracy --feature-cache model/ciktilar/sl_ozellikler
+mri-tune --model xgboost --trials 30 --metric f1 --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test --feature-cache model/ciktilar/sl_ozellikler
+```
+
+Trial değerlendirmesini K-fold ile yapmak için:
+
+```bash
+mri-tune --model resnet --trials 20 --hpo-folds 5 --metric f1 --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
 ```
 
 Varsayılan davranışta HPO bittikten sonra en iyi trial parametreleriyle `trainval` tamamı üzerinde final eğitim çalıştırılır. Bu final eğitim için harici test dizini gerekir. Yalnızca arama sonuçlarını üretmek için `--skip-final-train` kullanılabilir.
 
-HPO çıktıları varsayılan olarak şu dizine yazılır:
+HPO çıktıları:
 
 ```text
 model/ciktilar/hiperparametre_arama/<study_name>/
@@ -205,11 +280,16 @@ model/ciktilar/hiperparametre_arama/<study_name>/
 `-- best_run/
 ```
 
+Tuned final model adları `best_run/` altında model tipine göre şu biçimdedir:
+
+- `best_resnet_tuned.pt`
+- `best_xgboost_tuned.json`
+
 ## Tahmin Alma
 
 `mri-infer`, model tipini dosya uzantısından algılar:
 
-- `.pt`: ResNet/PyTorch modeli.
+- `.pt`: ResNet/PyTorch checkpoint.
 - `.json`: XGBoost modeli.
 
 Tek görüntü:
@@ -226,11 +306,13 @@ mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --batch ornek_klas
 mri-infer --model-path model/ciktilar/modeller/best_xgboost.json --batch ornek_klasor
 ```
 
-Ham görüntüyle tahmin alırken eğitim dağılımına daha yakın kalmak için ön işleme uygulanabilir:
+Ham görüntüyle tahmin alırken eğitim dağılımına daha yakın kalmak için görüntü işleme pipeline'ı tahmin öncesi bellek içinde uygulanabilir:
 
 ```bash
 mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --image Veri_Seti/OriginalDataset/NonDemented/ornek.jpg --preprocess
 ```
+
+Batch ve tek görüntü inference çıktıları terminale yazılır; bu komutlar varsayılan olarak dosya üretmez.
 
 ## Önemli CLI Parametreleri
 
@@ -238,14 +320,15 @@ mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --image Veri_Seti/
 
 | Parametre | Açıklama |
 | --- | --- |
-| `--model` | `resnet` veya `xgboost`. |
-| `--image-size` | Model girdi görüntü boyutu. |
+| `--model` | `resnet` veya `xgboost`. Varsayılan `resnet`. |
+| `--image-size` | Model girdi görüntü boyutu. Varsayılan `224`. |
 | `--trainval-dir` | Train/validation kaynağı veya split kökü. |
-| `--test-dir` | Harici test veri dizini. |
-| `--val-ratio` | Validation oranı. |
-| `--test-ratio` | Harici test yoksa internal test oranı. |
-| `--seed` | Rastgelelik tohumu. |
+| `--test-dir` | Harici test veri dizini veya split kökü. |
+| `--val-ratio` | Validation oranı. Varsayılan `0.15`. |
+| `--test-ratio` | Harici test yoksa internal test oranı. Varsayılan `0.15`. |
+| `--seed` | Rastgelelik tohumu. Varsayılan `42`. |
 | `--full-trainval` | Validation ayırmadan tüm `trainval` üzerinde final eğitim yapar. |
+| `--folds` | `>=2` ise K-fold cross-validation çalıştırır. |
 
 ### ResNet Parametreleri
 
@@ -264,7 +347,7 @@ mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --image Veri_Seti/
 | `--focal-gamma` | Focal loss gamma değeri. |
 | `--dropout` | ResNet classifier head dropout oranı. |
 | `--label-smoothing` | Cross entropy için label smoothing. |
-| `--hflip-p` | Eğitim augmentasyonunda yatay çevirme olasılığı. Varsayılan `0.0`dır. |
+| `--hflip-p` | Eğitim augmentasyonunda yatay çevirme olasılığı. Varsayılan `0.0`. |
 | `--rotation-degrees` | Eğitim augmentasyonunda dönüş sınırı. |
 | `--color-jitter` | Brightness/contrast jitter şiddeti. |
 
@@ -293,7 +376,10 @@ mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --image Veri_Seti/
 | `--output-dir` | Arama çıktılarının yazılacağı klasör. |
 | `--batch-size-choices` | ResNet için denenecek batch size adayları. |
 | `--image-size-choices` | Denenecek görüntü boyutu adayları. |
+| `--loss-choices` | ResNet HPO için denenecek loss adayları. |
 | `--search-pretrained` | ResNet için `pretrained` seçeneğini arama uzayına ekler. |
+| `--hpo-folds` | Her trial'i K-fold CV ile değerlendirir. |
+| `--feature-cache` | XGBoost HPO için özellik cache dizini. |
 | `--skip-final-train` | Arama sonunda final eğitim yapmaz. |
 | `--verbose-trials` | Trial içi eğitim loglarını gösterir. |
 
@@ -329,6 +415,16 @@ model/ciktilar/gorseller/training_curves_xgboost.png
 model/ciktilar/gorseller/feature_importance_xgboost.png
 ```
 
+K-fold eğitiminde her fold ayrı alt dizine yazılır ve özet rapor `raporlar/` altında tutulur:
+
+```text
+model/ciktilar/folds/fold_00/
+|-- modeller/
+|-- raporlar/
+`-- gorseller/
+model/ciktilar/raporlar/cv_summary_<model>_<timestamp>.json
+```
+
 `--feature-cache model/ciktilar/sl_ozellikler` kullanıldığında XGBoost özellik matrisleri örneğin şu dosyalara yazılır:
 
 ```text
@@ -336,50 +432,42 @@ model/ciktilar/sl_ozellikler/trainval_img224.npz
 model/ciktilar/sl_ozellikler/test_img224.npz
 ```
 
-Tuned final modeller `best_run/` altında saklanır ve adları model tipine göre şu biçimdedir:
-
-- `best_resnet_tuned.pt`
-- `best_xgboost_tuned.json`
-
 ## Veri Sızıntısı ve Split Politikası
 
 - Eğitim varsayılan olarak `trainval` içinden train/validation ayrımı yapar.
 - `goruntu_isleme/cikti/test` varsa harici test seti olarak kullanılır.
 - Harici test yoksa `--test-ratio` ile `trainval` içinden internal test ayrılabilir.
-- Validation ve test splitleri yalnızca original görüntülerden kurulur; augmentasyon/türev kopyalar train tarafında kalır.
-- Dosya adlarından kaynak grup çıkarılabildiğinde group-aware split kullanılır.
+- Dosya adından kaynak grup çıkarılabildiğinde group-aware split kullanılır.
 - Aynı kaynak görüntüye ait türevlerin farklı splitlere düşmesi engellenmeye çalışılır.
+- Validation ve test splitleri yalnızca original görüntülerden kurulur; augmentation/türev kopyalar train tarafında kalır.
 - Harici test kullanıldığında `trainval` ile `test` arasında ortak kaynak grup olup olmadığı kontrol edilir.
+- `--folds` ve `--hpo-folds` K-fold ayrımlarını grup seviyesinde yapmaya çalışır.
 - `--full-trainval` final eğitim modudur; validation ayırmaz ve ayrı bir harici test dizini gerektirir.
 - HPO’da model seçimi validation metriğiyle yapılır. Test seti yalnızca final değerlendirme için kullanılmalıdır.
 
-## Önerilen Proje Akışı
+## Önerilen Kısa Akış
 
-1. Ham veriyi `Veri_Seti/OriginalDataset` altında beklenen sınıf klasörleriyle hazırla.
-
-2. Ön işleme ve split üret:
+Ön işleme:
 
 ```bash
 mri-preprocess --action preprocess --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti
 ```
 
-3. Hızlı bir temel eğitim çalıştır:
+Temel eğitim:
 
 ```bash
 mri-train --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
-
 mri-train --model xgboost --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test --feature-cache model/ciktilar/sl_ozellikler
 ```
 
-4. Gerekirse hiperparametre optimizasyonu yap:
+HPO:
 
 ```bash
 mri-tune --model resnet --trials 20 --epochs 12 --metric f1 --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
-
 mri-tune --model xgboost --trials 30 --metric f1 --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test --feature-cache model/ciktilar/sl_ozellikler
 ```
 
-5. Eğitilmiş modelle tahmin al:
+Tahmin:
 
 ```bash
 mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --image ornek.jpg
@@ -396,6 +484,6 @@ pytest tests/test_model_sl.py
 
 PyTorch ağırlıklı testler varsayılan olarak atlanır. Bu testleri çalıştırmak için ortam değişkeni gerekir:
 
-```powershell
-$env:MRI_RUN_TORCH_TESTS = "1"; pytest tests/test_model_altyapi.py
+```bash
+MRI_RUN_TORCH_TESTS=1 pytest tests/test_model_altyapi.py tests/test_model_egitici.py
 ```
