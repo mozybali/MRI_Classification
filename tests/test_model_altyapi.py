@@ -387,25 +387,6 @@ def test_create_dataloaders_rejects_trainval_test_source_overlap(tmp_path):
         )
 
 
-def test_validate_dataset_separation_rejects_cross_class_source_stem_overlap():
-    trainval_dir = Path("trainval")
-    test_dir = Path("test")
-
-    with pytest.raises(ValueError) as exc_info:
-        _validate_dataset_separation(
-            ["NonDemented::subject_001"],
-            ["MildDemented::subject_001"],
-            trainval_dir,
-            test_dir,
-        )
-
-    message = str(exc_info.value)
-    assert "cross-class kaynak sizintisi" in message
-    assert "subject_001" in message
-    assert "NonDemented" in message
-    assert "MildDemented" in message
-
-
 def test_load_model_uses_checkpoint_metadata(monkeypatch, tmp_path):
     class DummyModel(nn.Module):
         def __init__(self, num_classes=4, pretrained=False):

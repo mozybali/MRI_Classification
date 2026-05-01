@@ -297,11 +297,13 @@ def _validate_dataset_separation(
 ) -> None:
     """Train/val ve test veri kaynaklarinin ayrik oldugunu dogrula.
 
-    Iki tur sizinti kontrol edilir:
-    1) Tam grup anahtari (``"<class>::<kaynak_id>"``) ortakligi: ayni denek
-       ayni sinif altinda iki tarafta da gorunuyor.
-    2) Cross-class kaynak ortakligi: ayni kaynak ID'si farkli sinif klasorleri
-       altinda iki tarafa dagitilmis (etiket tutarsizligi/sizinti).
+    Tam grup anahtari (``"<class>::<kaynak_id>"``) ortakligi kontrol edilir:
+    ayni denek ayni sinif altinda iki tarafta da gorunuyor olmamali.
+
+    Cross-class stem kontrolu yapilmaz: bu veri setinde dosya numaralandirmasi
+    her sinif klasorunde sifirdan basladigi icin ``27 (10).jpg`` gibi adlar
+    farkli siniflarda farkli scan'leri temsil eder; (sinif, stem) cifti gercek
+    kaynak kimligini olusturur.
     """
     overlap = sorted(set(trainval_groups) & set(test_groups))
     if overlap:
@@ -313,76 +315,6 @@ def _validate_dataset_separation(
             f"  Ortak grup sayisi: {len(overlap)}\n"
             f"  Ornekler: {sample}"
         )
-
-    tv_stems_to_classes: Dict[str, set[str]] = defaultdict(set)
-    for group in trainval_groups:
-        if "::" not in group:
-            continue
-        cls, stem = group.split("::", 1)
-        tv_stems_to_classes[stem].add(cls)
-    te_stems_to_classes: Dict[str, set[str]] = defaultdict(set)
-    for group in test_groups:
-        if "::" not in group:
-            continue
-        cls, stem = group.split("::", 1)
-        te_stems_to_classes[stem].add(cls)
-
-    # Ilk kontrol shared ``class::stem`` cakismalarini yakaladigi icin burada
-    # yalnizca cross-class durum kalir.
-    cross_class_overlaps = sorted(
-        tv_stems_to_classes.keys() & te_stems_to_classes.keys()
-    )
-    if not cross_class_overlaps:
-        return
-
-    sample_lines = []
-    for stem in cross_class_overlaps[:5]:
-        tv_cls = sorted(tv_stems_to_classes[stem])
-        te_cls = sorted(te_stems_to_classes[stem])
-        sample_lines.append(f"{stem}: trainval={tv_cls} test={te_cls}")
-    sample = "; ".join(sample_lines)
-    raise ValueError(
-        "Train/validation kaynagi ile test dizini arasinda ayni kaynak ID farkli sinif "
-        "klasorleri altinda paylasilmis (cross-class kaynak sizintisi).\n"
-        f"  TrainVal: {trainval_dir}\n"
-        f"  Test    : {test_dir}\n"
-        f"  Catisan kaynak sayisi: {len(cross_class_overlaps)}\n"
-        f"  Ornekler: {sample}"
-    )
-
-
-def _validate_no_cross_class_kaynak(groups: Sequence[str], data_dir: Path) -> None:
-    """Ayni kaynak ID'sinin birden fazla sinif altinda gorunmedigini dogrula.
-
-    Group format: ``"<class>::<kaynak_id>"``. Bazi Kaggle "Augmented Alzheimer"
-    varyantlarinda ayni denek farkli sinif klasorlerine kopyalanabiliyor; bu
-    fonksiyon o tur sessiz sinif sizintisini erken yakalar.
-    """
-    stem_to_classes: Dict[str, set[str]] = defaultdict(set)
-    for group in groups:
-        if "::" not in group:
-            continue
-        class_name, stem = group.split("::", 1)
-        stem_to_classes[stem].add(class_name)
-
-    conflicts = sorted(
-        (stem, sorted(classes))
-        for stem, classes in stem_to_classes.items()
-        if len(classes) > 1
-    )
-    if not conflicts:
-        return
-
-    sample = "; ".join(
-        f"{stem} -> {', '.join(classes)}" for stem, classes in conflicts[:5]
-    )
-    raise ValueError(
-        "Sinif klasorleri arasinda ayni kaynak ID birden fazla sinifa atanmis.\n"
-        f"  Dizin             : {data_dir}\n"
-        f"  Catisma sayisi    : {len(conflicts)}\n"
-        f"  Ilk ornekler      : {sample}\n"
-        "  Bu durum sinif sizintisina yol acar; veri seti etiketleri gozden gecirilmeli."
-    )
 
 
 def _group_stratified_train_val_split(
@@ -792,7 +724,6 @@ def create_dataloaders(
     tv_paths, tv_labels, tv_groups, tv_augmented = collect_images(trainval_dir)
     if len(tv_paths) == 0:
         raise FileNotFoundError(f"Trainval verisi bulunamadi: {trainval_dir}")
-    _validate_no_cross_class_kaynak(tv_groups, trainval_dir)
     tv_group_stats = _summarize_grouping(tv_groups, tv_augmented)
 
     paths_test: List[Path] = []
@@ -804,7 +735,6 @@ def create_dataloaders(
         paths_test, labels_test, test_groups, test_augmented = collect_images(test_dir)
         if len(paths_test) == 0:
             raise FileNotFoundError(f"Test verisi bulunamadi: {test_dir}")
-        _validate_no_cross_class_kaynak(test_groups, test_dir)
         test_group_stats = _summarize_grouping(test_groups, test_augmented)
         _validate_dataset_separation(tv_groups, test_groups, trainval_dir, test_dir)
 
@@ -1027,7 +957,6 @@ def iter_kfold_dataloaders(
     tv_paths, tv_labels, tv_groups, tv_augmented = collect_images(trainval_dir)
     if len(tv_paths) == 0:
         raise FileNotFoundError(f"Trainval verisi bulunamadi: {trainval_dir}")
-    _validate_no_cross_class_kaynak(tv_groups, trainval_dir)
     tv_group_stats = _summarize_grouping(tv_groups, tv_augmented)
 
     paths_test_external: List[Path] = []
@@ -1037,7 +966,6 @@ def iter_kfold_dataloaders(
         ext_paths, ext_labels, ext_groups, ext_augmented = collect_images(test_dir)
         if len(ext_paths) == 0:
             raise FileNotFoundError(f"Test verisi bulunamadi: {test_dir}")
-        _validate_no_cross_class_kaynak(ext_groups, test_dir)
         test_group_stats = _summarize_grouping(ext_groups, ext_augmented)
         _validate_dataset_separation(tv_groups, ext_groups, trainval_dir, test_dir)
         external_test_idxs = _indices_for_groups(
@@ -1240,13 +1168,11 @@ def create_full_train_test_loaders(
     tv_paths, tv_labels, tv_groups, tv_augmented = collect_images(trainval_dir)
     if len(tv_paths) == 0:
         raise FileNotFoundError(f"Trainval verisi bulunamadi: {trainval_dir}")
-    _validate_no_cross_class_kaynak(tv_groups, trainval_dir)
     tv_group_stats = _summarize_grouping(tv_groups, tv_augmented)
 
     test_paths, test_labels, test_groups, test_augmented = collect_images(test_dir)
     if len(test_paths) == 0:
         raise FileNotFoundError(f"Test verisi bulunamadi: {test_dir}")
-    _validate_no_cross_class_kaynak(test_groups, test_dir)
     test_group_stats = _summarize_grouping(test_groups, test_augmented)
     _validate_dataset_separation(tv_groups, test_groups, trainval_dir, test_dir)
 
