@@ -82,7 +82,7 @@ class TestGorselIsleyici:
         assert normalized.dtype == np.uint8
 
     def test_histogram_esitle_dtype_uint8(self):
-        """histogram_esitle her zaman uint8 dönmeli (skimage fallback dahil)."""
+        """histogram_esitle her zaman uint8 dönmeli."""
         isleyici = GorselIsleyici()
 
         test_img = np.random.randint(100, 150, (256, 256), dtype=np.uint8)

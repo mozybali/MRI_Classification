@@ -3,18 +3,8 @@
 from pathlib import Path
 from typing import Optional, Tuple
 
+import cv2
 import numpy as np
-
-try:
-    import cv2
-    CV2_AVAILABLE = True
-except ImportError:
-    CV2_AVAILABLE = False
-
-try:
-    from PIL import Image
-except ImportError:
-    Image = None
 
 try:
     from .ayarlar import *
@@ -84,20 +74,11 @@ class GorselKaliteIOMixin:
             np.ndarray veya None
         """
         try:
-            if CV2_AVAILABLE:
-                buffer = np.fromfile(str(dosya_yolu), dtype=np.uint8)
-                goruntu = cv2.imdecode(buffer, cv2.IMREAD_GRAYSCALE)
-                if goruntu is None:
-                    raise ValueError("OpenCV görüntüyü decode edemedi")
-                return goruntu
-
-            if Image is None:
-                raise ImportError("Görüntü yüklemek için OpenCV veya Pillow gerekli")
-
-            with Image.open(dosya_yolu) as goruntu:
-                if goruntu.mode != 'L':
-                    goruntu = goruntu.convert('L')
-                return np.array(goruntu)
+            buffer = np.fromfile(str(dosya_yolu), dtype=np.uint8)
+            goruntu = cv2.imdecode(buffer, cv2.IMREAD_GRAYSCALE)
+            if goruntu is None:
+                raise ValueError("OpenCV görüntüyü decode edemedi")
+            return goruntu
         except Exception as e:
             print(f"[HATA] Görüntü yüklenemedi {dosya_yolu}: {e}")
             return None
@@ -109,18 +90,10 @@ class GorselKaliteIOMixin:
             if arr.dtype != np.uint8:
                 arr = np.clip(arr, 0, 255).astype(np.uint8)
 
-            if CV2_AVAILABLE:
-                uzanti = Path(cikti_yolu).suffix.lower() or ".png"
-                basarili, encoded = cv2.imencode(uzanti, arr)
-                if not basarili:
-                    raise ValueError("OpenCV görüntüyü encode edemedi")
-                encoded.tofile(str(cikti_yolu))
-                return
-
-            if Image is None:
-                raise ImportError("Görüntü kaydetmek için OpenCV veya Pillow gerekli")
-
-            pil_img = Image.fromarray(arr)
-            pil_img.save(cikti_yolu)
+            uzanti = Path(cikti_yolu).suffix.lower() or ".png"
+            basarili, encoded = cv2.imencode(uzanti, arr)
+            if not basarili:
+                raise ValueError("OpenCV görüntüyü encode edemedi")
+            encoded.tofile(str(cikti_yolu))
         except Exception as e:
             print(f"[HATA] Görüntü kaydedilemedi {cikti_yolu}: {e}")

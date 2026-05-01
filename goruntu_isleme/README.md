@@ -264,8 +264,8 @@ Varsayılan ayarlarda augmentation kapalı olduğu için bu ek dosyalar üretilm
 
 ## Bağımlılık Notları
 
-- Görüntü yükleme, kaydetme, CLAHE, resize, temel filtreler, morfoloji, Otsu maskeleme ve bazı augmentation adımları için OpenCV öncelikli olarak kullanılır.
-- OpenCV yoksa bazı yükleme/kaydetme, filtreleme ve CLAHE işlemleri için `Pillow`, `SciPy` veya `scikit-image` fallback'i devreye girebilir.
+- Görüntü yükleme, kaydetme, CLAHE, resize, temel filtreler, morfoloji, Otsu maskeleme ve bazı augmentation adımları OpenCV ile çalışır.
+- `Pillow`, `SciPy` ve `scikit-image` ön işleme için yedek yol olarak kullanılmaz; DL/SL model katmanlarındaki görüntü okuma ve klasik özellik çıkarımı ihtiyaçları için bağımlılıklarda kalır.
 - `SimpleITK`, sadece bias correction veya gelişmiş registration ayarları aktif edildiğinde anlamlıdır.
 - Toplu işlem `multiprocessing.Pool` ile paralel çalışabilir; affine/rigid registration aktifse template tutarlılığı için sequential moda döner.
 

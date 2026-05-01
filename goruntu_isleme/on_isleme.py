@@ -2,21 +2,8 @@
 
 from typing import Optional
 
+import cv2
 import numpy as np
-from PIL import Image
-from scipy import ndimage
-
-try:
-    import cv2
-    CV2_AVAILABLE = True
-except ImportError:
-    CV2_AVAILABLE = False
-
-try:
-    from skimage import exposure
-    SKIMAGE_AVAILABLE = True
-except ImportError:
-    SKIMAGE_AVAILABLE = False
 
 try:
     import SimpleITK as sitk
@@ -127,21 +114,8 @@ class GorselOnIslemeMixin:
             elif contrast > 60:
                 clip_limit = 1.5
         
-        # OpenCV varsa onu kullan (daha hızlı)
-        if CV2_AVAILABLE:
-            clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(8, 8))
-            return clahe.apply(goruntu)
-        # Değilse scikit-image kullan
-        elif SKIMAGE_AVAILABLE:
-            # OpenCV clipLimit ile scikit-image clip_limit farklı semantiğe sahip.
-            # OpenCV: mutlak kontrast eşiği; skimage: normalize [0,1] aralığında.
-            # OpenCV davranışına yakın sonuç için 0.01-0.03 aralığı kullanılır.
-            sk_clip = min(clip_limit / 200.0, 0.03)
-            result = exposure.equalize_adapthist(goruntu, clip_limit=sk_clip)
-            return (result * 255.0).clip(0, 255).astype(np.uint8)
-        # Hiçbiri yoksa orijinal görüntüyü dön
-        else:
-            return goruntu
+        clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(8, 8))
+        return clahe.apply(goruntu)
     
     def boyutlandir(self, goruntu: np.ndarray,
                     genislik: int = HEDEF_GENISLIK,
@@ -181,12 +155,7 @@ class GorselOnIslemeMixin:
                               genislik: int,
                               yukseklik: int) -> np.ndarray:
         """En-boy orani gozetmeden hedef boyuta dogrudan resize."""
-        if CV2_AVAILABLE:
-            # OpenCV ile hızlı yeniden boyutlandırma
-            return cv2.resize(goruntu, (genislik, yukseklik), interpolation=cv2.INTER_LINEAR)
-        pil_img = Image.fromarray(goruntu)
-        pil_img = pil_img.resize((genislik, yukseklik), Image.BILINEAR)
-        return np.array(pil_img)
+        return cv2.resize(goruntu, (genislik, yukseklik), interpolation=cv2.INTER_LINEAR)
 
     def _boyutlandir_pad(self, goruntu: np.ndarray,
                          genislik: int,
@@ -213,10 +182,7 @@ class GorselOnIslemeMixin:
         return canvas
     
     def _bilateral_filtre_uygula(self, goruntu: np.ndarray) -> np.ndarray:
-        """OpenCV mevcutsa kenar korumali bilateral filtre uygula."""
-        if not CV2_AVAILABLE:
-            return goruntu
-
+        """Kenar korumali bilateral filtre uygula."""
         filtered = cv2.bilateralFilter(goruntu, d=5, sigmaColor=35, sigmaSpace=35)
         return np.clip(filtered, 0, 255).astype(np.uint8)
 
@@ -240,21 +206,15 @@ class GorselOnIslemeMixin:
             # bu yuzden goruntu aynen donulur.
             return goruntu
         if metod == 'median':
-            if CV2_AVAILABLE:
-                filtered = cv2.medianBlur(self._uint8_goruntu(goruntu), 3)
-                return filtered.astype(np.uint8)
-            filtered = ndimage.median_filter(goruntu, size=3)
-            return np.clip(filtered, 0, 255).astype(np.uint8)
+            filtered = cv2.medianBlur(self._uint8_goruntu(goruntu), 3)
+            return filtered.astype(np.uint8)
         if metod == 'gaussian':
-            if CV2_AVAILABLE:
-                filtered = self._gaussian_blur_cv(
-                    self._uint8_goruntu(goruntu),
-                    sigma=GAUSSIAN_BLUR_SIGMA,
-                )
-                return filtered.astype(np.uint8)
-            filtered = ndimage.gaussian_filter(goruntu, sigma=GAUSSIAN_BLUR_SIGMA)
-            return np.clip(filtered, 0, 255).astype(np.uint8)
-        if metod == 'bilateral' and CV2_AVAILABLE:
+            filtered = self._gaussian_blur_cv(
+                self._uint8_goruntu(goruntu),
+                sigma=GAUSSIAN_BLUR_SIGMA,
+            )
+            return filtered.astype(np.uint8)
+        if metod == 'bilateral':
             return self._bilateral_filtre_uygula(goruntu)
         return goruntu
     
@@ -324,61 +284,42 @@ class GorselOnIslemeMixin:
 
         temel = self._morfolojik_yapi()
         close_kernel = self._morfolojik_yapi(MORFOLOJIK_KERNEL_BOYUTU * max(1, closing_scale))
-        if CV2_AVAILABLE:
-            maske_u8 = self._bool_maske_uint8(duzenli)
-            maske_u8 = cv2.morphologyEx(
-                maske_u8,
-                cv2.MORPH_OPEN,
-                temel.astype(np.uint8),
-                borderType=cv2.BORDER_CONSTANT,
-                borderValue=0,
-            )
-            maske_u8 = cv2.morphologyEx(
-                maske_u8,
-                cv2.MORPH_CLOSE,
-                close_kernel.astype(np.uint8),
-                borderType=cv2.BORDER_CONSTANT,
-                borderValue=0,
-            )
-
-            if dilation_scale > 0:
-                dilate_kernel = self._morfolojik_yapi(MORFOLOJIK_KERNEL_BOYUTU * dilation_scale)
-                maske_u8 = cv2.dilate(
-                    maske_u8,
-                    dilate_kernel.astype(np.uint8),
-                    borderType=cv2.BORDER_CONSTANT,
-                    borderValue=0,
-                )
-            return maske_u8 > 0
-
-        duzenli = ndimage.binary_opening(duzenli, structure=temel)
-        duzenli = ndimage.binary_closing(duzenli, structure=close_kernel)
+        maske_u8 = self._bool_maske_uint8(duzenli)
+        maske_u8 = cv2.morphologyEx(
+            maske_u8,
+            cv2.MORPH_OPEN,
+            temel.astype(np.uint8),
+            borderType=cv2.BORDER_CONSTANT,
+            borderValue=0,
+        )
+        maske_u8 = cv2.morphologyEx(
+            maske_u8,
+            cv2.MORPH_CLOSE,
+            close_kernel.astype(np.uint8),
+            borderType=cv2.BORDER_CONSTANT,
+            borderValue=0,
+        )
 
         if dilation_scale > 0:
             dilate_kernel = self._morfolojik_yapi(MORFOLOJIK_KERNEL_BOYUTU * dilation_scale)
-            duzenli = ndimage.binary_dilation(duzenli, structure=dilate_kernel)
+            maske_u8 = cv2.dilate(
+                maske_u8,
+                dilate_kernel.astype(np.uint8),
+                borderType=cv2.BORDER_CONSTANT,
+                borderValue=0,
+            )
 
-        return duzenli.astype(bool)
+        return maske_u8 > 0
 
     def _otsu_maskesi(self, goruntu: np.ndarray) -> np.ndarray:
         """OpenCV Otsu thresholding ile beyin aday maskesini uret."""
-        if CV2_AVAILABLE:
-            _, mask = cv2.threshold(
-                self._uint8_goruntu(goruntu),
-                0,
-                255,
-                cv2.THRESH_BINARY + cv2.THRESH_OTSU,
-            )
-            return mask > 0
-
-        try:
-            from skimage.filters import threshold_otsu
-
-            esik = threshold_otsu(goruntu)
-            return goruntu > esik
-        except ImportError:
-            esik = np.percentile(goruntu, 30)
-            return goruntu > esik
+        _, mask = cv2.threshold(
+            self._uint8_goruntu(goruntu),
+            0,
+            255,
+            cv2.THRESH_BINARY + cv2.THRESH_OTSU,
+        )
+        return mask > 0
 
     def _kucuk_bilesenleri_temizle(self, mask: np.ndarray, min_size: int) -> np.ndarray:
         """OpenCV connected components ile min_size altindaki nesneleri sil."""
@@ -423,14 +364,11 @@ class GorselOnIslemeMixin:
         maske = self._otsu_maskesi(goruntu)
         maske = self._maskeyi_duzenle(maske, closing_scale=2)
 
-        if CV2_AVAILABLE:
-            return cv2.bitwise_and(
-                self._uint8_goruntu(goruntu),
-                self._uint8_goruntu(goruntu),
-                mask=self._bool_maske_uint8(maske),
-            )
-
-        return (goruntu * maske).astype(np.uint8)
+        return cv2.bitwise_and(
+            self._uint8_goruntu(goruntu),
+            self._uint8_goruntu(goruntu),
+            mask=self._bool_maske_uint8(maske),
+        )
     
     def _advanced_skull_strip(self, goruntu: np.ndarray) -> np.ndarray:
         """
@@ -452,59 +390,34 @@ class GorselOnIslemeMixin:
             
             # 2. Küçük nesneleri temizle (min_size = toplam pikselin %0.5'i)
             min_size = int(goruntu.size * 0.005)
-            if CV2_AVAILABLE:
-                maske = self._kucuk_bilesenleri_temizle(maske, min_size=min_size)
-            else:
-                from skimage.morphology import remove_small_objects
-                maske = remove_small_objects(maske, min_size=min_size)
+            maske = self._kucuk_bilesenleri_temizle(maske, min_size=min_size)
             
             # 3. Morfolojik gürültü temizleme
             maske = self._maskeyi_duzenle(maske, closing_scale=1)
             
             # 4. Küçük delikleri kapat
-            if CV2_AVAILABLE:
-                maske = self._kucuk_delikleri_doldur(maske, area_threshold=min_size)
-            else:
-                from skimage.morphology import remove_small_holes
-                maske = remove_small_holes(maske, area_threshold=min_size)
+            maske = self._kucuk_delikleri_doldur(maske, area_threshold=min_size)
             
             # 5. En büyük bağlantılı bileşeni bul (beyin olmalı)
-            if CV2_AVAILABLE:
-                maske_u8 = maske.astype(np.uint8)
-                num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(maske_u8, connectivity=8)
-                if num_labels > 1:
-                    areas = stats[1:, cv2.CC_STAT_AREA]
-                    largest_region = int(areas.argmax()) + 1
-                    maske = labels == largest_region
-            else:
-                from skimage.measure import label
-
-                labeled_mask = label(maske)
-                if labeled_mask.max() > 0:
-                    # Her bileşenin boyutunu hesapla
-                    regions = np.bincount(labeled_mask.ravel())
-                    # Arka plan (0) hariç en büyük bölgeyi bul
-                    largest_region = regions[1:].argmax() + 1
-                    maske = labeled_mask == largest_region
+            maske_u8 = maske.astype(np.uint8)
+            num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(maske_u8, connectivity=8)
+            if num_labels > 1:
+                areas = stats[1:, cv2.CC_STAT_AREA]
+                largest_region = int(areas.argmax()) + 1
+                maske = labels == largest_region
 
             # 6. Kenarlari yumusat ve beyin dokusunu korumak icin hafif genislet
             maske = self._maskeyi_duzenle(maske, closing_scale=2, dilation_scale=1)
             
             # 7. Maskeyi uygula
-            if CV2_AVAILABLE:
-                result = cv2.bitwise_and(
-                    self._uint8_goruntu(goruntu),
-                    self._uint8_goruntu(goruntu),
-                    mask=self._bool_maske_uint8(maske),
-                )
-            else:
-                result = (goruntu * maske).astype(np.uint8)
+            result = cv2.bitwise_and(
+                self._uint8_goruntu(goruntu),
+                self._uint8_goruntu(goruntu),
+                mask=self._bool_maske_uint8(maske),
+            )
             
             return result
             
-        except ImportError as e:
-            print(f"[UYARI] Advanced skull stripping için gerekli kütüphane yok: {e}")
-            return self._simple_skull_strip(goruntu)
         except Exception as e:
             print(f"[UYARI] Advanced skull stripping başarısız: {e}")
             return self._simple_skull_strip(goruntu)
@@ -519,7 +432,7 @@ class GorselOnIslemeMixin:
 
         İki metod desteklenir:
         1. "n4itk": N4ITK algoritması (profesyonel, yavaş) - SimpleITK gerekli
-        2. "simple": Basit Gaussian blur tabanlı (hızlı) - varsayılan fallback
+        2. "simple": Basit Gaussian blur tabanlı (hızlı)
 
         Args:
             goruntu: Girdi MRI görüntüsü
@@ -538,7 +451,7 @@ class GorselOnIslemeMixin:
                 print(f"[UYARI] N4ITK bias correction başarısız, basit metoda geçiliyor: {e}")
                 return self._simple_bias_correction(goruntu)
         
-        # Basit metod (fallback)
+        # Basit metod
         return self._simple_bias_correction(goruntu)
     
     def _n4itk_bias_correction(self, goruntu: np.ndarray) -> np.ndarray:
@@ -599,10 +512,7 @@ class GorselOnIslemeMixin:
             
             # Düşük frekanslı bias field'ı tahmin etmek için Gaussian blur
             # Bias field, yavaş değişen bir alandır
-            if CV2_AVAILABLE:
-                bias_field = self._gaussian_blur_cv(img_float, sigma=50)
-            else:
-                bias_field = ndimage.gaussian_filter(img_float, sigma=50)
+            bias_field = self._gaussian_blur_cv(img_float, sigma=50)
             
             # Ortalamayı bul (sıfıra bölme önlemi)
             mean_bias = np.mean(bias_field)
@@ -658,39 +568,24 @@ class GorselOnIslemeMixin:
             if not np.any(binary):
                 return goruntu
 
-            if CV2_AVAILABLE:
-                moments = cv2.moments(binary.astype(np.uint8), binaryImage=True)
-                if abs(moments["m00"]) < 1e-6:
-                    return goruntu
+            moments = cv2.moments(binary.astype(np.uint8), binaryImage=True)
+            if abs(moments["m00"]) < 1e-6:
+                return goruntu
 
-                center_x = moments["m10"] / moments["m00"]
-                center_y = moments["m01"] / moments["m00"]
-                h, w = goruntu.shape[:2]
-                shift_x = (w / 2.0) - center_x
-                shift_y = (h / 2.0) - center_y
-                matrix = np.array([[1.0, 0.0, shift_x], [0.0, 1.0, shift_y]], dtype=np.float32)
-                aligned = cv2.warpAffine(
-                    self._uint8_goruntu(goruntu),
-                    matrix,
-                    (w, h),
-                    flags=cv2.INTER_LINEAR,
-                    borderMode=cv2.BORDER_CONSTANT,
-                    borderValue=0,
-                )
-                return aligned.astype(np.uint8)
-
-            # Kütle merkezini hesapla
-            center_of_mass = ndimage.center_of_mass(binary)
-            
-            # Görüntü merkezini hesapla
-            img_center = np.array(goruntu.shape) / 2.0
-            
-            # Gerekli kaydırma miktarını hesapla
-            shift = img_center - np.array(center_of_mass)
-            
-            # Görüntüyü kaydır
-            aligned = ndimage.shift(goruntu, shift, mode='constant', cval=0)
-            
+            center_x = moments["m10"] / moments["m00"]
+            center_y = moments["m01"] / moments["m00"]
+            h, w = goruntu.shape[:2]
+            shift_x = (w / 2.0) - center_x
+            shift_y = (h / 2.0) - center_y
+            matrix = np.array([[1.0, 0.0, shift_x], [0.0, 1.0, shift_y]], dtype=np.float32)
+            aligned = cv2.warpAffine(
+                self._uint8_goruntu(goruntu),
+                matrix,
+                (w, h),
+                flags=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_CONSTANT,
+                borderValue=0,
+            )
             return aligned.astype(np.uint8)
             
         except Exception as e:
@@ -712,7 +607,7 @@ class GorselOnIslemeMixin:
             Hizalanmış görüntü
         """
         try:
-            # İlk görüntüde güvenli fallback: en azından merkez hizalama uygula.
+            # İlk görüntüde güvenli başlangıç: en azından merkez hizalama uygula.
             if self.template_image is None:
                 self.template_image = self._simple_center_alignment(goruntu)
                 return self.template_image

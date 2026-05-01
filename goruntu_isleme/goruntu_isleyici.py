@@ -37,11 +37,12 @@ except ImportError:
     from artirma import GorselArtirmaMixin
     from toplu_islem import GorselTopluIslemMixin, _islem_worker_init, _islem_wrapper
 
-# Eski tek-dosya modulunde dogrudan gorunen bagimlilik bayraklari korunur.
+# Eski tek-dosya modulunde dogrudan gorunen bagimlilik adlari korunur.
+# On isleme katmani artik OpenCV'yi zorunlu kabul eder; skimage fallback yoktur.
 cv2 = getattr(_on_isleme_mod, "cv2", None)
-CV2_AVAILABLE = _on_isleme_mod.CV2_AVAILABLE
-exposure = getattr(_on_isleme_mod, "exposure", None)
-SKIMAGE_AVAILABLE = _on_isleme_mod.SKIMAGE_AVAILABLE
+CV2_AVAILABLE = True
+exposure = None
+SKIMAGE_AVAILABLE = False
 sitk = getattr(_on_isleme_mod, "sitk", None)
 SITK_AVAILABLE = _on_isleme_mod.SITK_AVAILABLE
 Pool = _toplu_islem_mod.Pool
