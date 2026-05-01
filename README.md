@@ -26,11 +26,10 @@ Bu README dosyası ana giriş noktasıdır. Modül bazlı ayrıntılar için ilg
 1. Ham MRI görüntüleri `Veri_Seti/OriginalDataset/<SınıfAdı>/` yapısında tutulur.
 2. İsteğe bağlı olarak EDA modülü ile sınıf dağılımı, görüntü boyutları ve yoğunluk istatistikleri incelenir.
 3. Görüntü işleme modülü ham görüntüleri okur, kalite kontrol ve standartlaştırma uygular, ardından `trainval` ve `test` dizinlerini üretir.
-4. Özellik çıkarımı ve ölçeklendirme adımları, modelleme için CSV ve scaler çıktıları oluşturur.
-5. Model modülü, işlenmiş görüntüler üzerinden ResNet veya XGBoost eğitir.
-6. Hiperparametre optimizasyonu gerekiyorsa `mri-tune` ile Optuna TPE tabanlı arama yapılır.
-7. Eğitilmiş model dosyaları ile tek görüntü veya klasör bazlı tahmin alınır.
-8. `pytest` testleriyle EDA, görüntü işleme, model altyapısı ve CLI akışları doğrulanır.
+4. Model modülü, işlenmiş görüntüler üzerinden ResNet veya XGBoost eğitir; XGBoost için gerekli özellik cache'i model tarafında üretilebilir.
+5. Hiperparametre optimizasyonu gerekiyorsa `mri-tune` ile Optuna TPE tabanlı arama yapılır.
+6. Eğitilmiş model dosyaları ile tek görüntü veya klasör bazlı tahmin alınır.
+7. `pytest` testleriyle EDA, görüntü işleme, model altyapısı ve CLI akışları doğrulanır.
 
 Varsayılan ve önerilen model eğitim kaynağı ham veri değil, `mri-preprocess` sonrasında oluşan `goruntu_isleme/cikti/trainval` ve `goruntu_isleme/cikti/test` dizinleridir.
 
@@ -152,14 +151,13 @@ Başlıca adımlar:
 - Kalite kontrol uygulama.
 - Gri ton yükleme, percentile normalizasyon, CLAHE ve `256x256` yeniden boyutlandırma.
 - Gerekirse `trainval/test` ayrımı üretme veya mevcut split yapısını koruma.
-- İşlenmiş görüntülerden sayısal özellikler çıkarma.
-- Eğitim, doğrulama ve test CSV dosyaları oluşturma.
-- NaN doldurma ve scaler fit işlemlerini yalnızca eğitim verisi üzerinden yaparak veri sızıntısı riskini azaltma.
+- İşlenmiş görüntüleri `trainval/test` klasör yapısında kaydetme.
+- ResNet ve XGBoost eğitim komutlarının doğrudan kullanabileceği klasör düzenini üretme.
 
 Tam akış:
 
 ```bash
-mri-preprocess --action all --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti --yes
+mri-preprocess --action preprocess --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti
 ```
 
 Etkileşimli menü:
@@ -168,7 +166,7 @@ Etkileşimli menü:
 mri-preprocess --action menu
 ```
 
-`mri-preprocess` aksiyonları, varsayılan ayarlar, CSV çıktıları ve leakage-free split politikası için [`goruntu_isleme/README.md`](goruntu_isleme/README.md) dosyasına bakın.
+`mri-preprocess` aksiyonları, varsayılan ayarlar ve leakage-free split politikası için [`goruntu_isleme/README.md`](goruntu_isleme/README.md) dosyasına bakın.
 
 ## Model Eğitimi ve Kullanımı
 
@@ -295,8 +293,8 @@ Tipik uçtan uca kullanım:
 # 1. Veri setini incele
 mri-eda --data-dir Veri_Seti/OriginalDataset --output-dir eda_analiz/eda_ciktilar
 
-# 2. Ön işleme, özellik çıkarımı, ölçeklendirme ve rapor adımlarını çalıştır
-mri-preprocess --action all --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti --yes
+# 2. Ön işleme ve leak-free trainval/test split üretimini çalıştır
+mri-preprocess --action preprocess --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti
 
 # 3. ResNet modeli eğit
 mri-train --model resnet --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
@@ -312,7 +310,7 @@ Paket komutları kullanılmadan modül bazlı çalıştırma da mümkündür:
 
 ```bash
 python3 -m eda_analiz --data-dir Veri_Seti/OriginalDataset
-python3 -m goruntu_isleme.ana_islem --action all --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti --yes
+python3 -m goruntu_isleme.ana_islem --action preprocess --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti
 python3 -m model.train --model resnet
 python3 -m model.inference --model-path model/ciktilar/modeller/best_resnet.pt --image ornek.jpg
 ```
@@ -327,7 +325,7 @@ python3 -m model.inference --model-path model/ciktilar/modeller/best_resnet.pt -
 - Test setinde augmentation kullanılmamalıdır; augmentation etkinleştirilirse eğitim veya `trainval` tarafında kalmalıdır.
 - Validation ve test ayrımları model seçimi ve final değerlendirme açısından ayrı tutulmalıdır.
 - `--full-trainval` modu tüm `trainval` verisiyle final eğitim yapar ve değerlendirme için harici `test` dizini gerektirir.
-- `mri-preprocess --mode 3d` argümanı CLI'da yer alsa da bu repo ağacında opsiyonel 3D modül dosyası bulunmadığından 2D akış varsayılan ve desteklenen ana yoldur.
+- `mri-preprocess` için desteklenen aksiyonlar `menu` ve `preprocess` değerleridir; bu repo ağacında 2D ön işleme akışı varsayılan ve desteklenen ana yoldur.
 
 ## Lisans
 

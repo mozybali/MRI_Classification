@@ -64,7 +64,7 @@ model/
 Önerilen akış, ham görüntüleri önce `goruntu_isleme` modülünden geçirip leak-free split üretmektir:
 
 ```bash
-mri-preprocess --action all --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti --yes
+mri-preprocess --action preprocess --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti
 ```
 
 Model modülünün varsayılan veri yolları `model/ayarlar.py` içinde tanımlıdır:
@@ -360,7 +360,7 @@ Tuned final modeller `best_run/` altında saklanır ve adları model tipine gör
 2. Ön işleme ve split üret:
 
 ```bash
-mri-preprocess --action all --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti --yes
+mri-preprocess --action preprocess --input-dir Veri_Seti/OriginalDataset --output-dir goruntu_isleme/cikti
 ```
 
 3. Hızlı bir temel eğitim çalıştır:
