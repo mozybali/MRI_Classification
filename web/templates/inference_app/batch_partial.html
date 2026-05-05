@@ -1,0 +1,27 @@
+  <!-- Toplu Tahmin Sonuçları (Gizli) -->
+  <div id="batch-results-container" style="display: none; margin-top: var(--space-xl);">
+    <div class="card">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);">
+        <h2 class="card-title">Toplu Tahmin Sonuçları</h2>
+        <form action="{% url 'infer:export_csv' %}" method="POST">
+          {% csrf_token %}
+          <input type="hidden" id="csv-data-input" name="data">
+          <button type="submit" class="btn btn-secondary">📥 CSV İndir</button>
+        </form>
+      </div>
+      <div style="max-height: 500px; overflow-y: auto;">
+        <table style="width: 100%; border-collapse: collapse;">
+          <thead style="position: sticky; top: 0; background: var(--bg-surface); z-index: 1;">
+            <tr style="text-align: left; border-bottom: 2px solid var(--border);">
+              <th style="padding: 12px;">Dosya Adı</th>
+              <th>Tahmin</th>
+              <th>Güven Skoru</th>
+            </tr>
+          </thead>
+          <tbody id="batch-table-body">
+            <!-- JS ile dolacak -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>

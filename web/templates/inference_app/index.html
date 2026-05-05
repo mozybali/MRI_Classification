@@ -130,8 +130,15 @@
   <div class="inference-container">
     <!-- SOL: Giriş Formu -->
     <section>
+      <!-- Tabs -->
+      <div style="display: flex; gap: var(--space-sm); margin-bottom: var(--space-md);">
+        <button id="tab-single" class="btn btn-primary" style="flex: 1;">Tekli Tahmin</button>
+        <button id="tab-batch" class="btn btn-secondary" style="flex: 1;">Toplu Tahmin (ZIP)</button>
+      </div>
+
       <div class="card" style="margin-bottom: var(--space-md);">
         <h2 class="card-title">Yapılandırma</h2>
+        <!-- ... (mevcut model select ve checkbox) -->
         <div style="display: flex; flex-direction: column; gap: var(--space-md);">
           <div>
             <label style="display: block; margin-bottom: var(--space-xs); font-size: 0.875rem;">Aktif Model</label>
@@ -166,6 +173,16 @@
         <input type="file" id="file-input" hidden accept="image/*">
       </div>
 
+      <!-- Preprocessing Steps Visualizer -->
+      <div id="preprocess-steps-container" style="display: none; margin-top: var(--space-lg);">
+        <h3 style="font-size: 0.875rem; margin-bottom: var(--space-sm);">Ön İşleme Aşamaları</h3>
+        <div style="display: flex; gap: var(--space-sm); overflow-x: auto; padding-bottom: var(--space-sm);">
+          <div id="steps-list" style="display: flex; gap: var(--space-sm);">
+            <!-- JS ile dolacak -->
+          </div>
+        </div>
+      </div>
+
       <div style="margin-top: var(--space-md);">
         <button id="predict-btn" class="btn btn-primary" style="width: 100%; justify-content: center;" disabled>
           <span>Analizi Başlat</span>
@@ -186,7 +203,52 @@
       <div id="prob-list" class="prob-list">
         <!-- JS ile dolacak -->
       </div>
+
+      <!-- XAI Button -->
+      <div id="xai-container" style="margin-top: var(--space-xl); display: none;">
+        <button id="explain-btn" class="btn btn-secondary" style="width: 100%; border-color: var(--accent); color: var(--accent);">
+          🔍 Kararı Açıkla (Grad-CAM)
+        </button>
+        <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: var(--space-sm); text-align: center;">
+          Modelin beyin görüntüsünde hangi bölgelere odaklandığını görselleştirir.
+        </p>
+      </div>
+
+      <!-- Grad-CAM Modal/Overlay -->
+      <div id="gradcam-modal" style="display: none; margin-top: var(--space-lg); text-align: center; animation: fadeIn 0.5s;">
+        <h4 style="margin-bottom: var(--space-md);">Odak Haritası (Heatmap)</h4>
+        <div style="position: relative; display: inline-block;">
+          <img id="gradcam-img" src="" style="max-width: 100%; border-radius: var(--radius-md); border: 2px solid var(--accent);">
+        </div>
+      </div>
     </section>
+  </div>
+  <!-- Batch Results (Hidden by default) -->
+  <div id="batch-results-container" style="display: none; margin-top: var(--space-xl);">
+    <div class="card">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);">
+        <h2 class="card-title">Toplu Tahmin Sonuçları</h2>
+        <form id="export-form" action="{% url 'infer:export_csv' %}" method="POST">
+          {% csrf_token %}
+          <input type="hidden" id="csv-data-input" name="data">
+          <button type="submit" class="btn btn-secondary">📥 CSV İndir</button>
+        </form>
+      </div>
+      <div style="max-height: 500px; overflow-y: auto;">
+        <table style="width: 100%; border-collapse: collapse;">
+          <thead style="position: sticky; top: 0; background: var(--bg-surface); z-index: 1;">
+            <tr style="text-align: left; border-bottom: 2px solid var(--border);">
+              <th style="padding: 12px;">Dosya Adı</th>
+              <th>Tahmin</th>
+              <th>Güven Skoru</th>
+            </tr>
+          </thead>
+          <tbody id="batch-table-body">
+            <!-- JS ile dolacak -->
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
 {% endblock %}
@@ -200,19 +262,46 @@
   const uploadPrompt = document.getElementById('upload-prompt');
   const predictBtn = document.getElementById('predict-btn');
   const resultPanel = document.getElementById('result-panel');
+  const batchResults = document.getElementById('batch-results-container');
+  
+  const tabSingle = document.getElementById('tab-single');
+  const tabBatch = document.getElementById('tab-batch');
 
   let selectedFile = null;
+  let currentMode = 'single'; // 'single' or 'batch'
 
-  // Sürükle Bırak İşlemleri
-  dropZone.addEventListener('click', () => fileInput.click());
-  
-  dropZone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    dropZone.classList.add('dragover');
+  // Tab Switch
+  tabSingle.addEventListener('click', () => {
+    currentMode = 'single';
+    tabSingle.className = 'btn btn-primary';
+    tabBatch.className = 'btn btn-secondary';
+    uploadPrompt.innerHTML = '<div class="upload-icon">+</div><p>MRI Görüntüsünü Sürükle veya Seç</p>';
+    fileInput.accept = 'image/*';
+    resetUI();
   });
 
-  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  tabBatch.addEventListener('click', () => {
+    currentMode = 'batch';
+    tabBatch.className = 'btn btn-primary';
+    tabSingle.className = 'btn btn-secondary';
+    uploadPrompt.innerHTML = '<div class="upload-icon">📦</div><p>ZIP Dosyasını Sürükle veya Seç</p>';
+    fileInput.accept = '.zip';
+    resetUI();
+  });
 
+  function resetUI() {
+    selectedFile = null;
+    previewContainer.style.display = 'none';
+    uploadPrompt.style.display = 'block';
+    predictBtn.disabled = true;
+    resultPanel.style.display = 'none';
+    batchResults.style.display = 'none';
+    document.getElementById('preprocess-steps-container').style.display = 'none';
+  }
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
   dropZone.addEventListener('drop', (e) => {
     e.preventDefault();
     dropZone.classList.remove('dragover');
@@ -225,111 +314,148 @@
 
   function handleFiles(files) {
     const file = files[0];
-    if (!file.type.startsWith('image/')) {
-      showToast("Lütfen sadece resim dosyası yükleyin.", "error");
-      return;
-    }
     selectedFile = file;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      imgPreview.src = e.target.result;
-      previewContainer.style.display = 'block';
-      uploadPrompt.style.display = 'none';
+
+    if (currentMode === 'single') {
+      if (!file.type.startsWith('image/')) {
+        showToast("Lütfen bir resim seçin.", "error"); return;
+      }
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        imgPreview.src = e.target.result;
+        previewContainer.style.display = 'block';
+        uploadPrompt.style.display = 'none';
+        predictBtn.disabled = false;
+        document.getElementById('filename').textContent = file.name;
+        loadPreprocessSteps(file);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      if (!file.name.endsWith('.zip')) {
+        showToast("Lütfen bir ZIP dosyası seçin.", "error"); return;
+      }
+      uploadPrompt.innerHTML = `<div class="upload-icon">✅</div><p>${file.name}</p>`;
       predictBtn.disabled = false;
-      document.getElementById('filename').textContent = file.name;
-    };
-    reader.readAsDataURL(file);
+    }
   }
 
-  // Tahmin İstek İşlemi
-  predictBtn.addEventListener('click', async () => {
-    if (!selectedFile) return;
-
+  async function loadPreprocessSteps(file) {
     const formData = new FormData();
-    formData.append('image', selectedFile);
-    formData.append('model_name', document.getElementById('model-select').value);
-    formData.append('preprocess', document.getElementById('preprocess-check').checked);
-    
-    // UI Güncelle (Loading)
-    predictBtn.disabled = true;
-    predictBtn.innerHTML = '<div class="spinner"></div> Analiz Ediliyor...';
-    resultPanel.style.display = 'none';
-
+    formData.append('image', file);
+    const container = document.getElementById('preprocess-steps-container');
+    const list = document.getElementById('steps-list');
+    container.style.display = 'block';
+    list.innerHTML = '<div class="skeleton" style="width: 100px; height: 100px;"></div>';
     try {
-      const response = await fetch('{% url "infer:predict" %}', {
+      const res = await fetch('{% url "infer:preprocess_steps" %}', {
         method: 'POST',
-        headers: {
-          'X-CSRFToken': '{{ csrf_token }}'
-        },
+        headers: { 'X-CSRFToken': '{{ csrf_token }}' },
         body: formData
       });
-
-      const data = await response.json();
-
+      const data = await res.json();
       if (data.success) {
-        showResult(data);
-        showToast("Analiz başarıyla tamamlandı.", "success");
-      } else {
-        showToast(data.error || "Bir hata oluştu.", "error");
+        list.innerHTML = '';
+        data.steps.forEach(step => {
+          const div = document.createElement('div');
+          div.style.textAlign = 'center'; div.style.minWidth = '120px';
+          div.innerHTML = `<img src="data:image/png;base64,${step.img}" style="width: 100px; height: 100px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border);"><p style="font-size: 0.65rem; margin-top: 4px;">${step.title}</p>`;
+          list.appendChild(div);
+        });
       }
-    } catch (err) {
-      showToast("Sunucu hatası oluştu.", "error");
-    } finally {
-      predictBtn.disabled = false;
-      predictBtn.innerHTML = 'Analizi Başlat';
+    } catch (err) { container.style.display = 'none'; }
+  }
+
+  predictBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+    
+    predictBtn.disabled = true;
+    predictBtn.innerHTML = '<div class="spinner"></div> İşleniyor...';
+    
+    const formData = new FormData();
+    formData.append('model_name', document.getElementById('model-select').value);
+    formData.append('preprocess', document.getElementById('preprocess-check').checked);
+
+    if (currentMode === 'single') {
+      formData.append('image', selectedFile);
+      try {
+        const res = await fetch('{% url "infer:predict" %}', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' }, body: formData });
+        const data = await res.json();
+        if (data.success) showResult(data);
+        else showToast(data.error, "error");
+      } catch (err) { showToast("Sunucu hatası", "error"); }
+    } else {
+      formData.append('zip_file', selectedFile);
+      try {
+        const res = await fetch('{% url "infer:batch_predict" %}', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' }, body: formData });
+        const data = await res.json();
+        if (data.success) showBatchResult(data.results);
+        else showToast(data.error, "error");
+      } catch (err) { showToast("Batch işlemi başarısız", "error"); }
     }
+    
+    predictBtn.disabled = false;
+    predictBtn.innerHTML = 'Analizi Başlat';
   });
 
+  function showBatchResult(results) {
+    batchResults.style.display = 'block';
+    const tbody = document.getElementById('batch-table-body');
+    tbody.innerHTML = '';
+    
+    results.forEach(res => {
+      const tr = document.createElement('tr');
+      tr.style.borderBottom = '1px solid var(--border)';
+      tr.innerHTML = `
+        <td style="padding: 12px; font-size: 0.875rem;">${res.filename}</td>
+        <td><span class="badge badge-${getCssClass(res.prediction)}">${res.prediction}</span></td>
+        <td style="font-weight: 600;">%${res.confidence}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    document.getElementById('csv-data-input').value = JSON.stringify(results);
+    batchResults.scrollIntoView({ behavior: 'smooth' });
+  }
+
+  let lastRecordId = null;
   function showResult(data) {
     resultPanel.style.display = 'block';
-    
-    const classNameEl = document.getElementById('result-class-name');
-    classNameEl.textContent = data.tahmin_adi;
-    classNameEl.className = `badge badge-${data.css_class}`;
-    
+    lastRecordId = data.record_id;
+    document.getElementById('result-class-name').textContent = data.tahmin_adi;
+    document.getElementById('result-class-name').className = `badge badge-${data.css_class}`;
     document.getElementById('result-severity').textContent = data.severity_label;
     document.getElementById('result-conf').textContent = Math.round(data.confidence * 100);
+    
+    document.getElementById('xai-container').style.display = document.getElementById('model-select').value.endsWith('.pt') ? 'block' : 'none';
+    document.getElementById('gradcam-modal').style.display = 'none';
 
     const probList = document.getElementById('prob-list');
     probList.innerHTML = '';
-
-    // Sınıfları olasılığa göre sırala
-    const sortedProbs = Object.entries(data.probabilities).sort((a, b) => b[1] - a[1]);
-
-    sortedProbs.forEach(([name, val]) => {
+    Object.entries(data.probabilities).sort((a,b)=>b[1]-a[1]).forEach(([name, val]) => {
       const percentage = Math.round(val * 100);
-      const cssClass = getCssClass(name);
-      
       const item = document.createElement('div');
       item.className = 'prob-item';
-      item.innerHTML = `
-        <div class="prob-header">
-          <span>${name}</span>
-          <span>%${percentage}</span>
-        </div>
-        <div class="prob-bar-bg">
-          <div class="prob-bar-fill" style="width: 0%; background-color: var(--cls-${cssClass})"></div>
-        </div>
-      `;
+      item.innerHTML = `<div class="prob-header"><span>${name}</span><span>%${percentage}</span></div><div class="prob-bar-bg"><div class="prob-bar-fill" style="width: ${percentage}%; background-color: var(--cls-${getCssClass(name)})"></div></div>`;
       probList.appendChild(item);
-      
-      // Animasyon için gecikmeli width ver
-      setTimeout(() => {
-        item.querySelector('.prob-bar-fill').style.width = `${percentage}%`;
-      }, 50);
     });
-
     resultPanel.scrollIntoView({ behavior: 'smooth' });
   }
 
+  document.getElementById('explain-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('explain-btn');
+    btn.disabled = true; btn.innerHTML = '...';
+    try {
+      const res = await fetch(`/infer/explain/${lastRecordId}/`);
+      const data = await res.json();
+      if (data.success) {
+        document.getElementById('gradcam-img').src = data.heatmap_image;
+        document.getElementById('gradcam-modal').style.display = 'block';
+      }
+    } finally { btn.disabled = false; btn.innerHTML = '🔍 Kararı Açıkla (Grad-CAM)'; }
+  });
+
   function getCssClass(name) {
-    const map = {
-      "NonDemented": "none",
-      "VeryMildDemented": "very-mild",
-      "MildDemented": "mild",
-      "ModerateDemented": "moderate"
-    };
-    return map[name] || "none";
+    return {"NonDemented":"none","VeryMildDemented":"very-mild","MildDemented":"mild","ModerateDemented":"moderate"}[name] || "none";
   }
 </script>
 {% endblock %}

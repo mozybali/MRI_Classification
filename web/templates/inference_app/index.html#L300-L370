@@ -1,0 +1,80 @@
+  let lastRecordId = null;
+
+  function showResult(data) {
+    resultPanel.style.display = 'block';
+    lastRecordId = data.record_id;
+    
+    const classNameEl = document.getElementById('result-class-name');
+    classNameEl.textContent = data.tahmin_adi;
+    classNameEl.className = `badge badge-${data.css_class}`;
+    
+    document.getElementById('result-severity').textContent = data.severity_label;
+    document.getElementById('result-conf').textContent = Math.round(data.confidence * 100);
+
+    // Grad-CAM sadece ResNet için
+    const xaiContainer = document.getElementById('xai-container');
+    const gradcamModal = document.getElementById('gradcam-modal');
+    gradcamModal.style.display = 'none';
+    
+    if (document.getElementById('model-select').value.endsWith('.pt')) {
+      xaiContainer.style.display = 'block';
+    } else {
+      xaiContainer.style.display = 'none';
+    }
+
+    const probList = document.getElementById('prob-list');
+    probList.innerHTML = '';
+
+    const sortedProbs = Object.entries(data.probabilities).sort((a, b) => b[1] - a[1]);
+
+    sortedProbs.forEach(([name, val]) => {
+      const percentage = Math.round(val * 100);
+      const cssClass = getCssClass(name);
+      
+      const item = document.createElement('div');
+      item.className = 'prob-item';
+      item.innerHTML = `
+        <div class="prob-header">
+          <span>${name}</span>
+          <span>%${percentage}</span>
+        </div>
+        <div class="prob-bar-bg">
+          <div class="prob-bar-fill" style="width: 0%; background-color: var(--cls-${cssClass})"></div>
+        </div>
+      `;
+      probList.appendChild(item);
+      
+      setTimeout(() => {
+        item.querySelector('.prob-bar-fill').style.width = `${percentage}%`;
+      }, 50);
+    });
+
+    resultPanel.scrollIntoView({ behavior: 'smooth' });
+  }
+
+  // Grad-CAM Click
+  document.getElementById('explain-btn').addEventListener('click', async () => {
+    if (!lastRecordId) return;
+    
+    const btn = document.getElementById('explain-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner"></div> Harita Üretiliyor...';
+
+    try {
+      const response = await fetch(`/infer/explain/${lastRecordId}/`);
+      const data = await response.json();
+      
+      if (data.success) {
+        document.getElementById('gradcam-img').src = data.heatmap_image;
+        document.getElementById('gradcam-modal').style.display = 'block';
+        document.getElementById('gradcam-modal').scrollIntoView({ behavior: 'smooth' });
+      } else {
+        showToast(data.error || "Hata oluştu", "error");
+      }
+    } catch (err) {
+      showToast("XAI servisine ulaşılamadı.", "error");
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '🔍 Kararı Açıkla (Grad-CAM)';
+    }
+  });
