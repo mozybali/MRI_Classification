@@ -1,0 +1,335 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}MRI Tahmin Analizi{% endblock %}
+
+{% block extra_css %}
+<style>
+  .inference-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-xl);
+  }
+
+  /* Upload Area */
+  .upload-area {
+    border: 2px dashed var(--border-strong);
+    border-radius: var(--radius-lg);
+    padding: var(--space-2xl);
+    text-align: center;
+    transition: var(--transition);
+    cursor: pointer;
+    background: var(--bg-surface);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 400px;
+  }
+
+  .upload-area:hover, .upload-area.dragover {
+    border-color: var(--accent);
+    background: var(--bg-elevated);
+  }
+
+  .upload-icon {
+    font-size: 3rem;
+    margin-bottom: var(--space-md);
+    opacity: 0.5;
+  }
+
+  .preview-container {
+    display: none;
+    width: 100%;
+    margin-top: var(--space-md);
+  }
+
+  .img-preview {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+  }
+
+  /* Result Panel */
+  .result-panel {
+    display: none; /* Tahmin gelince açılır */
+    animation: fadeIn var(--transition-slow);
+  }
+
+  .prediction-hero {
+    text-align: center;
+    padding: var(--space-xl);
+    background: var(--bg-elevated);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border);
+    margin-bottom: var(--space-xl);
+  }
+
+  .conf-value {
+    font-size: 2.5rem;
+    font-weight: 800;
+    color: var(--accent);
+    margin: var(--space-sm) 0;
+  }
+
+  /* Probabilities List */
+  .prob-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+  }
+
+  .prob-item {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    padding: var(--space-md);
+    border-radius: var(--radius-md);
+  }
+
+  .prob-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: var(--space-xs);
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+
+  .prob-bar-bg {
+    height: 8px;
+    background: var(--bg-elevated);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+  }
+
+  .prob-bar-fill {
+    height: 100%;
+    border-radius: var(--radius-full);
+    width: 0%;
+    transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @media (max-width: 900px) {
+    .inference-container { grid-template-columns: 1fr; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  <div class="page-header">
+    <h1 class="page-title">NeuroScan Analizi</h1>
+    <p class="page-subtitle">MRI görüntüsünü yükleyin ve anlık demans teşhisi alın.</p>
+  </div>
+
+  <div class="inference-container">
+    <!-- SOL: Giriş Formu -->
+    <section>
+      <div class="card" style="margin-bottom: var(--space-md);">
+        <h2 class="card-title">Yapılandırma</h2>
+        <div style="display: flex; flex-direction: column; gap: var(--space-md);">
+          <div>
+            <label style="display: block; margin-bottom: var(--space-xs); font-size: 0.875rem;">Aktif Model</label>
+            <select id="model-select" class="btn btn-secondary" style="width: 100%; text-align: left;">
+              {% for m in models %}
+                <option value="{{ m.name }}">{{ m.name }} ({{ m.type|upper }})</option>
+              {% empty %}
+                <option disabled>Hiç model bulunamadı!</option>
+              {% endfor %}
+            </select>
+          </div>
+          
+          <label style="display: flex; align-items: center; gap: var(--space-sm); cursor: pointer; font-size: 0.875rem;">
+            <input type="checkbox" id="preprocess-check" checked>
+            <span>Ön İşleme Uygula (CLAHE + Normalize)</span>
+          </label>
+        </div>
+      </div>
+
+      <div id="drop-zone" class="upload-area">
+        <div id="upload-prompt">
+          <div class="upload-icon">📁</div>
+          <p>MRI Görüntüsünü Buraya Sürükleyin</p>
+          <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: var(--space-sm);">veya tıklayarak dosya seçin</p>
+        </div>
+        
+        <div id="preview-container" class="preview-container">
+          <img id="img-preview" class="img-preview" src="" alt="Önizleme">
+          <p id="filename" style="font-size: 0.75rem; margin-top: var(--space-sm); color: var(--text-secondary);"></p>
+        </div>
+
+        <input type="file" id="file-input" hidden accept="image/*">
+      </div>
+
+      <div style="margin-top: var(--space-md);">
+        <button id="predict-btn" class="btn btn-primary" style="width: 100%; justify-content: center;" disabled>
+          <span>Analizi Başlat</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- SAĞ: Sonuçlar -->
+    <section id="result-panel" class="result-panel">
+      <div class="prediction-hero">
+        <h2 id="result-class-name" class="badge">Sınıf Belirleniyor...</h2>
+        <div id="result-severity" style="font-size: 1.25rem; font-weight: 700; margin-top: var(--space-sm);"></div>
+        <div class="conf-value"><span id="result-conf">0</span>%</div>
+        <p style="font-size: 0.875rem; color: var(--text-secondary);">Güven Skoru</p>
+      </div>
+
+      <h3 style="margin-bottom: var(--space-md); font-size: 1rem;">Olasılık Dağılımı</h3>
+      <div id="prob-list" class="prob-list">
+        <!-- JS ile dolacak -->
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const dropZone = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('file-input');
+  const previewContainer = document.getElementById('preview-container');
+  const imgPreview = document.getElementById('img-preview');
+  const uploadPrompt = document.getElementById('upload-prompt');
+  const predictBtn = document.getElementById('predict-btn');
+  const resultPanel = document.getElementById('result-panel');
+
+  let selectedFile = null;
+
+  // Sürükle Bırak İşlemleri
+  dropZone.addEventListener('click', () => fileInput.click());
+  
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+  });
+
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+  });
+
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length) handleFiles(e.target.files);
+  });
+
+  function handleFiles(files) {
+    const file = files[0];
+    if (!file.type.startsWith('image/')) {
+      showToast("Lütfen sadece resim dosyası yükleyin.", "error");
+      return;
+    }
+    selectedFile = file;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      imgPreview.src = e.target.result;
+      previewContainer.style.display = 'block';
+      uploadPrompt.style.display = 'none';
+      predictBtn.disabled = false;
+      document.getElementById('filename').textContent = file.name;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // Tahmin İstek İşlemi
+  predictBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+
+    const formData = new FormData();
+    formData.append('image', selectedFile);
+    formData.append('model_name', document.getElementById('model-select').value);
+    formData.append('preprocess', document.getElementById('preprocess-check').checked);
+    
+    // UI Güncelle (Loading)
+    predictBtn.disabled = true;
+    predictBtn.innerHTML = '<div class="spinner"></div> Analiz Ediliyor...';
+    resultPanel.style.display = 'none';
+
+    try {
+      const response = await fetch('{% url "infer:predict" %}', {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: formData
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        showResult(data);
+        showToast("Analiz başarıyla tamamlandı.", "success");
+      } else {
+        showToast(data.error || "Bir hata oluştu.", "error");
+      }
+    } catch (err) {
+      showToast("Sunucu hatası oluştu.", "error");
+    } finally {
+      predictBtn.disabled = false;
+      predictBtn.innerHTML = 'Analizi Başlat';
+    }
+  });
+
+  function showResult(data) {
+    resultPanel.style.display = 'block';
+    
+    const classNameEl = document.getElementById('result-class-name');
+    classNameEl.textContent = data.tahmin_adi;
+    classNameEl.className = `badge badge-${data.css_class}`;
+    
+    document.getElementById('result-severity').textContent = data.severity_label;
+    document.getElementById('result-conf').textContent = Math.round(data.confidence * 100);
+
+    const probList = document.getElementById('prob-list');
+    probList.innerHTML = '';
+
+    // Sınıfları olasılığa göre sırala
+    const sortedProbs = Object.entries(data.probabilities).sort((a, b) => b[1] - a[1]);
+
+    sortedProbs.forEach(([name, val]) => {
+      const percentage = Math.round(val * 100);
+      const cssClass = getCssClass(name);
+      
+      const item = document.createElement('div');
+      item.className = 'prob-item';
+      item.innerHTML = `
+        <div class="prob-header">
+          <span>${name}</span>
+          <span>%${percentage}</span>
+        </div>
+        <div class="prob-bar-bg">
+          <div class="prob-bar-fill" style="width: 0%; background-color: var(--cls-${cssClass})"></div>
+        </div>
+      `;
+      probList.appendChild(item);
+      
+      // Animasyon için gecikmeli width ver
+      setTimeout(() => {
+        item.querySelector('.prob-bar-fill').style.width = `${percentage}%`;
+      }, 50);
+    });
+
+    resultPanel.scrollIntoView({ behavior: 'smooth' });
+  }
+
+  function getCssClass(name) {
+    const map = {
+      "NonDemented": "none",
+      "VeryMildDemented": "very-mild",
+      "MildDemented": "mild",
+      "ModerateDemented": "moderate"
+    };
+    return map[name] || "none";
+  }
+</script>
+{% endblock %}

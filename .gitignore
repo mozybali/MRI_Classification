@@ -128,3 +128,12 @@ Veri_Seti/
 coverage.xml
 .mypy_cache/
 .ruff_cache/
+
+# =========================
+# Django Web Uygulaması
+# =========================
+web/media/
+web/staticfiles/
+web/.env
+web/db.sqlite3
+docs/*
