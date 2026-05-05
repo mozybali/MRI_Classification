@@ -1,16 +1,294 @@
 {% extends "base.html" %}
+{% load static %}
 
-{% block title %}Dashboard{% endblock %}
+{% block title %}NeuroScan Dashboard{% endblock %}
+
+{% block extra_css %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  .dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-xl);
+  }
+
+  .stat-card {
+    text-align: center;
+    padding: var(--space-lg);
+  }
+
+  .stat-number {
+    font-size: 2.5rem;
+    font-weight: 800;
+    color: var(--accent);
+  }
+
+  .chart-container {
+    position: relative;
+    height: 300px;
+    width: 100%;
+    margin-top: var(--space-md);
+  }
+
+  .report-list {
+    margin-top: var(--space-md);
+    max-height: 400px;
+    overflow-y: auto;
+  }
+
+  .report-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-md);
+    border-bottom: 1px solid var(--border);
+    transition: var(--transition);
+    cursor: pointer;
+  }
+
+  .report-item:hover {
+    background: var(--bg-elevated);
+  }
+
+  .report-item:last-child {
+    border-bottom: none;
+  }
+
+  @media (max-width: 1024px) {
+    .dashboard-grid { grid-template-columns: 1fr; }
+  }
+</style>
+{% endblock %}
 
 {% block content %}
 <div class="page-wrapper">
   <div class="page-header">
-    <h1 class="page-title">Analiz Dashboard</h1>
-    <p class="page-subtitle">Veri seti istatistikleri ve model performans metrikleri</p>
+    <h1 class="page-title">Proje Analiz Paneli</h1>
+    <p class="page-subtitle">Veri seti dağılımı ve model performans metrikleri.</p>
   </div>
 
-  <p style="color: var(--text-secondary); text-align:center; margin-top: 4rem;">
-    🚧 Sprint 3'te interaktif grafikler burada görünecek.
-  </p>
+  <!-- Özet İstatistikler -->
+  <div class="dashboard-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: var(--space-xl);">
+    <div class="card stat-card">
+      <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-secondary);">Toplam Görüntü</div>
+      <div id="total-images" class="stat-number">-</div>
+    </div>
+    <div class="card stat-card">
+      <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-secondary);">Sınıf Sayısı</div>
+      <div id="total-classes" class="stat-number">4</div>
+    </div>
+    <div class="card stat-card">
+      <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-secondary);">En İyi Accuracy</div>
+      <div id="best-accuracy" class="stat-number">-%</div>
+    </div>
+    <div class="card stat-card">
+      <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-secondary);">Kayıtlı Rapor</div>
+      <div id="report-count" class="stat-number">-</div>
+    </div>
+  </div>
+
+  <div class="dashboard-grid">
+    <!-- SOL: Veri Seti Dağılımı -->
+    <div class="card">
+      <h2 class="card-title">Veri Seti Dağılımı (EDA)</h2>
+      <div class="chart-container">
+        <canvas id="edaChart"></canvas>
+      </div>
+    </div>
+
+    <!-- SAĞ: Model Karşılaştırma -->
+    <div class="card">
+      <h2 class="card-title">Son Eğitim Raporları</h2>
+      <div id="report-list" class="report-list">
+        <div class="skeleton" style="height: 50px; margin-bottom: 10px;"></div>
+        <div class="skeleton" style="height: 50px; margin-bottom: 10px;"></div>
+        <div class="skeleton" style="height: 50px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Detaylı Model Analizi (Rapor seçilince açılır) -->
+  <div id="detail-section" class="card" style="margin-top: var(--space-xl); display: none;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+      <div>
+        <h2 id="detail-title" class="card-title">Model Detayı</h2>
+        <p id="detail-subtitle" style="font-size: 0.875rem; color: var(--text-secondary);"></p>
+      </div>
+      <button onclick="document.getElementById('detail-section').style.display='none'" class="btn btn-secondary">Kapat</button>
+    </div>
+    
+    <div class="dashboard-grid" style="margin-top: var(--space-lg);">
+      <div class="chart-container" style="height: 400px;">
+        <canvas id="confusionMatrixChart"></canvas>
+      </div>
+      <div id="class-performance-table">
+        <!-- JS ile dolacak -->
+      </div>
+    </div>
+  </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // Renk Paleti
+  const colors = [
+    '#22c55e', // NonDemented (Green)
+    '#eab308', // VeryMild (Yellow)
+    '#f97316', // Mild (Orange)
+    '#ef4444'  // Moderate (Red)
+  ];
+
+  document.addEventListener('DOMContentLoaded', () => {
+    loadEdaStats();
+    loadModelReports();
+  });
+
+  async function loadEdaStats() {
+    try {
+      const res = await fetch('{% url "dashboard:eda_stats" %}');
+      const data = await res.json();
+      
+      document.getElementById('total-images').textContent = data.total;
+      
+      const ctx = document.getElementById('edaChart').getContext('2d');
+      new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: data.labels,
+          datasets: [{
+            data: data.data,
+            backgroundColor: colors,
+            borderWidth: 0,
+            hoverOffset: 10
+          }]
+        },
+        options: {
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom', labels: { color: '#94a3b8', font: { family: 'Inter' } } }
+          }
+        }
+      });
+    } catch (err) {
+      console.error("EDA stats load failed", err);
+    }
+  }
+
+  async function loadModelReports() {
+    try {
+      const res = await fetch('{% url "dashboard:model_reports" %}');
+      const data = await res.json();
+      
+      const listEl = document.getElementById('report-list');
+      listEl.innerHTML = '';
+      
+      document.getElementById('report-count').textContent = data.reports.length;
+      
+      let bestAcc = 0;
+
+      data.reports.forEach(report => {
+        if (report.accuracy > bestAcc) bestAcc = report.accuracy;
+        
+        const item = document.createElement('div');
+        item.className = 'report-item';
+        item.innerHTML = `
+          <div>
+            <div style="font-weight: 600;">${report.model.toUpperCase()}</div>
+            <div style="font-size: 0.75rem; color: var(--text-secondary);">${report.filename}</div>
+          </div>
+          <div style="text-align: right;">
+            <div class="badge badge-none">%${(report.accuracy * 100).toFixed(1)}</div>
+            <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 4px;">F1: ${report.f1.toFixed(2)}</div>
+          </div>
+        `;
+        item.onclick = () => loadReportDetail(report.filename);
+        listEl.appendChild(item);
+      });
+
+      document.getElementById('best-accuracy').textContent = `%${(bestAcc * 100).toFixed(0)}`;
+      
+      if (data.reports.length === 0) {
+        listEl.innerHTML = '<p style="text-align:center; padding: 20px; color: var(--text-secondary);">Henüz rapor bulunamadı.</p>';
+      }
+    } catch (err) {
+      console.error("Reports load failed", err);
+    }
+  }
+
+  let cmChart = null;
+
+  async function loadReportDetail(filename) {
+    try {
+      const res = await fetch(`{% url "dashboard:index" %}api/report/${filename}/`);
+      const data = await res.json();
+      
+      document.getElementById('detail-section').style.display = 'block';
+      document.getElementById('detail-title').textContent = `${data.model.toUpperCase()} Model Analizi`;
+      document.getElementById('detail-subtitle').textContent = `Eğitim Tarihi: ${data.timestamp}`;
+      
+      // Sınıf Bazlı Tabloyu Doldur
+      const tableEl = document.getElementById('class-performance-table');
+      let tableHtml = `
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.875rem;">
+          <thead>
+            <tr style="text-align: left; border-bottom: 2px solid var(--border);">
+              <th style="padding: 10px;">Sınıf</th>
+              <th>Precision</th>
+              <th>Recall</th>
+              <th>F1-Score</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+      
+      const perClass = data.test_detailed_metrics.per_class;
+      for (const [cls, metrics] of Object.entries(perClass)) {
+        tableHtml += `
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 10px; font-weight: 500;">${cls}</td>
+            <td>${metrics.precision.toFixed(2)}</td>
+            <td>${metrics.recall.toFixed(2)}</td>
+            <td><span class="badge badge-none">${metrics.f1.toFixed(2)}</span></td>
+          </tr>
+        `;
+      }
+      tableHtml += '</tbody></table>';
+      tableEl.innerHTML = tableHtml;
+
+      // Konfüzyon Matrisi (Bar Chart olarak basit gösterim veya Heatmap taklidi)
+      // Burada basitlik için sınıfların recall değerlerini gösteren bir bar chart çizelim
+      if (cmChart) cmChart.destroy();
+      const ctx = document.getElementById('confusionMatrixChart').getContext('2d');
+      cmChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: Object.keys(perClass),
+          datasets: [{
+            label: 'Recall (Duyarlılık)',
+            data: Object.values(perClass).map(m => m.recall),
+            backgroundColor: colors,
+            borderRadius: 8
+          }]
+        },
+        options: {
+          indexAxis: 'y',
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            x: { min: 0, max: 1, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+            y: { grid: { display: false }, ticks: { color: '#94a3b8' } }
+          }
+        }
+      });
+
+      document.getElementById('detail-section').scrollIntoView({ behavior: 'smooth' });
+
+    } catch (err) {
+      showToast("Rapor detayları yüklenemedi.", "error");
+    }
+  }
+</script>
 {% endblock %}
