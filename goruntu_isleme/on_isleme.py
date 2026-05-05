@@ -265,10 +265,10 @@ class GorselOnIslemeMixin:
 
     @staticmethod
     def _morfolojik_yapi(kernel_boyutu: Optional[int] = None) -> np.ndarray:
-        """Ayarlardaki kernel boyutunu kullanarak kare yapı elemani üret."""
+        """Ayarlardaki kernel boyutunu kullanarak eliptik OpenCV yapi elemani uret."""
         boyut = int(kernel_boyutu or MORFOLOJIK_KERNEL_BOYUTU)
         boyut = max(1, boyut)
-        return np.ones((boyut, boyut), dtype=bool)
+        return cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (boyut, boyut))
 
     def _maskeyi_duzenle(
         self,
@@ -288,14 +288,14 @@ class GorselOnIslemeMixin:
         maske_u8 = cv2.morphologyEx(
             maske_u8,
             cv2.MORPH_OPEN,
-            temel.astype(np.uint8),
+            temel,
             borderType=cv2.BORDER_CONSTANT,
             borderValue=0,
         )
         maske_u8 = cv2.morphologyEx(
             maske_u8,
             cv2.MORPH_CLOSE,
-            close_kernel.astype(np.uint8),
+            close_kernel,
             borderType=cv2.BORDER_CONSTANT,
             borderValue=0,
         )
@@ -304,7 +304,7 @@ class GorselOnIslemeMixin:
             dilate_kernel = self._morfolojik_yapi(MORFOLOJIK_KERNEL_BOYUTU * dilation_scale)
             maske_u8 = cv2.dilate(
                 maske_u8,
-                dilate_kernel.astype(np.uint8),
+                dilate_kernel,
                 borderType=cv2.BORDER_CONSTANT,
                 borderValue=0,
             )
