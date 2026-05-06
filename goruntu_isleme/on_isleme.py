@@ -14,8 +14,10 @@ except ImportError:
 
 try:
     from .ayarlar import *
+    from . import opencv_duzeltmeler as _cv_yardimci
 except ImportError:
     from ayarlar import *
+    import opencv_duzeltmeler as _cv_yardimci
 
 
 class PipelineSonucu(TypedDict):
@@ -37,15 +39,12 @@ class GorselOnIslemeMixin:
     @staticmethod
     def _uint8_goruntu(goruntu: np.ndarray) -> np.ndarray:
         """OpenCV islemleri icin goruntuyu guvenli uint8 araligina al."""
-        arr = np.asarray(goruntu)
-        if arr.dtype == np.uint8:
-            return arr
-        return np.clip(arr, 0, 255).astype(np.uint8)
+        return _cv_yardimci.uint8_goruntu(goruntu)
 
     @staticmethod
     def _bool_maske_uint8(mask: np.ndarray) -> np.ndarray:
         """Bool maskeyi OpenCV'nin bekledigi 0/255 uint8 formuna cevir."""
-        return (mask.astype(bool) * 255).astype(np.uint8)
+        return _cv_yardimci.bool_maske_uint8(mask)
 
     @staticmethod
     def _gaussian_blur_cv(goruntu: np.ndarray, sigma: float) -> np.ndarray:
@@ -336,8 +335,8 @@ class GorselOnIslemeMixin:
             borderValue=0,
         )
 
-        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
-            (maske_u8 > 0).astype(np.uint8), connectivity=8
+        num_labels, labels, stats, _ = _cv_yardimci.baglantili_bilesenler(
+            maske_u8, connectivity=8
         )
         if num_labels <= 1:
             return self._egim_sonucu(sebep="bilesen_yok")
@@ -355,13 +354,12 @@ class GorselOnIslemeMixin:
         if en_iyi_label is None:
             return self._egim_sonucu(sebep="gecerli_bilesen_yok")
 
-        ys, xs = np.nonzero(labels == en_iyi_label)
-        if ys.size == 0:
+        bilesen_maske = cv2.inRange(labels, int(en_iyi_label), int(en_iyi_label))
+        coords = cv2.findNonZero(bilesen_maske)
+        if coords is None or coords.size == 0:
             return self._egim_sonucu(sebep="bilesen_bos")
 
-        y_min = int(ys.min())
-        y_max = int(ys.max())
-        y_span = y_max - y_min + 1
+        _, _, _, y_span = cv2.boundingRect(coords)
         if y_span < max(10, int(EGIM_MIN_SATIR_SAYISI)):
             return self._egim_sonucu(
                 satir_sayisi=int(y_span),
@@ -377,21 +375,12 @@ class GorselOnIslemeMixin:
             0.5,
         )
 
-        # PCA: piksel koordinatlarinin merkezlenmis kovaryansi
-        xs_f = xs.astype(np.float64)
-        ys_f = ys.astype(np.float64)
-        xc = float(xs_f.mean())
-        yc = float(ys_f.mean())
-        dx = xs_f - xc
-        dy = ys_f - yc
-        Cxx = float((dx * dx).mean())
-        Cyy = float((dy * dy).mean())
-        Cxy = float((dx * dy).mean())
-        cov = np.array([[Cxx, Cxy], [Cxy, Cyy]], dtype=np.float64)
+        # PCA: piksel koordinatlari (x, y) sirasinda OpenCV PCACompute2'ye verilir.
+        coords_xy = coords.reshape(-1, 2).astype(np.float64)
 
         try:
-            eigvals, eigvecs = np.linalg.eigh(cov)
-        except np.linalg.LinAlgError:
+            _, eigvecs, eigvals = _cv_yardimci.pca_compute_2d(coords_xy)
+        except cv2.error:
             return self._egim_sonucu(
                 satir_sayisi=int(y_span),
                 sebep="pca_basarisiz",
@@ -403,15 +392,16 @@ class GorselOnIslemeMixin:
                 sebep="pca_gecersiz",
             )
 
-        # eigh artan sirada doner; major = son, minor = ilk
-        eig_min = float(max(eigvals[0], 0.0))
-        eig_max = float(max(eigvals[1], eig_min))
-        if eig_max <= 0.0:
+        # cv2.PCACompute2 azalan sirada doner; ilk satir/eigenvalue major.
+        eig_max = float(max(eigvals[0], 0.0))
+        eig_min = float(max(eigvals[1], 0.0)) if eigvals.size > 1 else 0.0
+        eig_min = min(eig_min, eig_max)
+        if eig_max <= 0.0 or eigvecs.shape[0] < 1:
             return self._egim_sonucu(
                 satir_sayisi=int(y_span),
                 sebep="pca_gecersiz",
             )
-        v_major = eigvecs[:, 1]
+        v_major = eigvecs[0]
 
         major_extent = 2.0 * float(np.sqrt(eig_max))
         eksen_orani = float(np.sqrt(eig_min / eig_max)) if eig_max > 0 else 1.0
@@ -424,7 +414,6 @@ class GorselOnIslemeMixin:
         )
         pca_aci = self._egim_cizgi_acisindan_tilt(theta_x_deg)
 
-        bilesen_maske = (labels == en_iyi_label).astype(np.uint8) * 255
         contours, _ = cv2.findContours(
             bilesen_maske,
             cv2.RETR_EXTERNAL,
@@ -586,29 +575,7 @@ class GorselOnIslemeMixin:
         pad_orani = max(0.0, float(EGIM_ROTASYON_PADDING_ORANI))
         pad = int(round(max(h, w) * pad_orani))
         dolgu = int(np.clip(EGIM_DOLDURMA_DEGERI, 0, 255))
-        padded = cv2.copyMakeBorder(
-            arr,
-            pad,
-            pad,
-            pad,
-            pad,
-            borderType=cv2.BORDER_CONSTANT,
-            value=dolgu,
-        )
-        ph, pw = padded.shape[:2]
-        merkez = ((pw - 1) / 2.0, (ph - 1) / 2.0)
-        matrix = cv2.getRotationMatrix2D(merkez, -aci, 1.0)
-        rotated = cv2.warpAffine(
-            padded,
-            matrix,
-            (pw, ph),
-            flags=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_CONSTANT,
-            borderValue=dolgu,
-        )
-        y0 = (ph - h) // 2
-        x0 = (pw - w) // 2
-        duzeltilmis = rotated[y0:y0 + h, x0:x0 + w]
+        duzeltilmis = _cv_yardimci.affine_dondur_padding(arr, -aci, pad, dolgu)
 
         self.kalite_istatistikleri["egim_duzeltildi"] = (
             self.kalite_istatistikleri.get("egim_duzeltildi", 0) + 1
@@ -657,22 +624,20 @@ class GorselOnIslemeMixin:
         kalinlik_y, kalinlik_x = self._kenar_serit_kalinliklari((h, w))
         parlak_esigi = int(KENAR_PARLAKLIK_ESIGI)
 
-        parlak_maske = (arr >= parlak_esigi).astype(np.uint8)
-        if not parlak_maske.any():
+        parlak_u8 = _cv_yardimci.parlak_maske(arr, parlak_esigi)
+        if not parlak_u8.any():
             return arr
 
-        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
-            parlak_maske, connectivity=8
+        num_labels, labels, stats, _ = _cv_yardimci.baglantili_bilesenler(
+            parlak_u8, connectivity=8
         )
         if num_labels <= 1:
             return arr
 
         # Kenar seritleri maskesi: ust + alt + sol + sag.
-        serit_maskesi = np.zeros((h, w), dtype=bool)
-        serit_maskesi[:kalinlik_y, :] = True
-        serit_maskesi[h - kalinlik_y:, :] = True
-        serit_maskesi[:, :kalinlik_x] = True
-        serit_maskesi[:, w - kalinlik_x:] = True
+        serit_maskesi = _cv_yardimci.kenar_serit_maskesi(
+            (h, w), kalinlik_y, kalinlik_x
+        )
 
         # Her etiket icin serit icindeki piksel sayisi (label 0 = arka plan).
         serit_sayilari = np.bincount(
@@ -971,13 +936,20 @@ class GorselOnIslemeMixin:
 
         olceklenmis = self._boyutlandir_dogrudan(goruntu, yeni_g, yeni_y)
 
-        canvas_sekli = (yukseklik, genislik) + goruntu.shape[2:]
         padding_degeri = self._padding_degeri_hesapla(olceklenmis)
-        canvas = np.full(canvas_sekli, padding_degeri, dtype=goruntu.dtype)
-        y0 = (yukseklik - yeni_y) // 2
-        x0 = (genislik - yeni_g) // 2
-        canvas[y0:y0 + yeni_y, x0:x0 + yeni_g] = olceklenmis
-        return canvas
+        ust = (yukseklik - yeni_y) // 2
+        sol = (genislik - yeni_g) // 2
+        alt = yukseklik - yeni_y - ust
+        sag = genislik - yeni_g - sol
+        return cv2.copyMakeBorder(
+            olceklenmis,
+            ust,
+            alt,
+            sol,
+            sag,
+            borderType=cv2.BORDER_CONSTANT,
+            value=padding_degeri,
+        )
     
     def _bilateral_filtre_uygula(self, goruntu: np.ndarray) -> np.ndarray:
         """Kenar korumali bilateral filtre uygula."""

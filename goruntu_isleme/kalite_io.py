@@ -8,27 +8,22 @@ import numpy as np
 
 try:
     from .ayarlar import *
+    from . import opencv_duzeltmeler as _cv_yardimci
 except ImportError:
     from ayarlar import *
+    import opencv_duzeltmeler as _cv_yardimci
 
 
 class GorselKaliteIOMixin:
     @staticmethod
     def _kenar_serit_kalinliklari(sekil: Tuple[int, int]) -> Tuple[int, int]:
         """KENAR_SERIT_ORANI'na gore yukseklik ve genislik kalinliklarini hesapla."""
-        h, w = int(sekil[0]), int(sekil[1])
-        oran = float(KENAR_SERIT_ORANI)
-        oran = min(max(oran, 0.0), 0.49)
-        kalinlik_y = max(1, int(round(h * oran)))
-        kalinlik_x = max(1, int(round(w * oran)))
-        return kalinlik_y, kalinlik_x
+        return _cv_yardimci.kenar_serit_kalinliklari(sekil, KENAR_SERIT_ORANI)
 
     @staticmethod
     def _kenar_serit_metrikleri(serit: np.ndarray, kenar_yon: str) -> Dict[str, float]:
         """Tek bir serit icin parlaklik ve baglantili bilesen metriklerini hesapla."""
-        serit_u8 = np.asarray(serit)
-        if serit_u8.dtype != np.uint8:
-            serit_u8 = np.clip(serit_u8, 0, 255).astype(np.uint8)
+        serit_u8 = _cv_yardimci.uint8_goruntu(serit)
 
         toplam = int(serit_u8.size)
         if toplam == 0:
@@ -49,15 +44,17 @@ class GorselKaliteIOMixin:
         ortalama = float(serit_u8.mean())
         p95 = float(np.percentile(serit_u8, 95))
         p99 = float(np.percentile(serit_u8, 99))
-        parlak_maske = serit_u8 >= parlak_esigi
-        cok_parlak_maske = serit_u8 >= cok_parlak_esigi
-        parlak_oran = float(parlak_maske.sum()) / float(toplam)
-        cok_parlak_oran = float(cok_parlak_maske.sum()) / float(toplam)
+        parlak_u8 = _cv_yardimci.parlak_maske(serit_u8, parlak_esigi)
+        cok_parlak_u8 = _cv_yardimci.parlak_maske(serit_u8, cok_parlak_esigi)
+        parlak_say = int(np.count_nonzero(parlak_u8))
+        cok_parlak_say = int(np.count_nonzero(cok_parlak_u8))
+        parlak_oran = float(parlak_say) / float(toplam)
+        cok_parlak_oran = float(cok_parlak_say) / float(toplam)
 
         buyuk_bilesen_orani = 0.0
-        if parlak_maske.any():
-            num_labels, _, stats, _ = cv2.connectedComponentsWithStats(
-                parlak_maske.astype(np.uint8), connectivity=8
+        if parlak_say > 0:
+            num_labels, _, stats, _ = _cv_yardimci.baglantili_bilesenler(
+                parlak_u8, connectivity=8
             )
             if num_labels > 1:
                 en_buyuk_alan = int(stats[1:, cv2.CC_STAT_AREA].max())
