@@ -52,7 +52,12 @@ class GorselTopluIslemMixin:
     def _split_adi_cozumle(cikti_klasoru: Path, split_adi: Optional[str] = None) -> str:
         """Cikti klasorunden trainval/test split adini guvenli sekilde cozumle."""
         if split_adi:
-            return str(split_adi)
+            ad = str(split_adi)
+            if ad not in {"trainval", "test"}:
+                raise ValueError(
+                    f"Gecersiz split_adi: {ad!r}. Yalnizca 'trainval' veya 'test' kabul edilir."
+                )
+            return ad
         klasor_adi = Path(cikti_klasoru).name
         if klasor_adi in {"trainval", "test"}:
             return klasor_adi
@@ -162,11 +167,13 @@ class GorselTopluIslemMixin:
             egim_duzeltme_oncesi = self.kalite_istatistikleri.get('egim_duzeltildi', 0)
             egim_kontrol_oncesi = self.kalite_istatistikleri.get('egim_gorsel_kontrol_adayi', 0)
             egim_kalite_red_oncesi = self.kalite_istatistikleri.get('egim_kalite_red', 0)
+            pipeline_sonu_red_oncesi = self.kalite_istatistikleri.get('pipeline_sonu_red', 0)
 
             # Görüntüyü işle (kalite kontrol içinde yapılır)
             islem_sonucu = self._goruntu_isle_sonucunu_al(dosya_info["yol"])
             goruntu = islem_sonucu.get("processed_image")
             kalite_reddedildi = bool(islem_sonucu.get("quality_rejected", False))
+            kalite_reddi_nedeni = str(islem_sonucu.get("quality_reason") or "")
 
             kalite_artis = self.kalite_istatistikleri.get('kalite_hatasi', 0) - kalite_oncesi
             kenar_tespit_artis = (
@@ -187,6 +194,9 @@ class GorselTopluIslemMixin:
             egim_kalite_red_artis = (
                 self.kalite_istatistikleri.get('egim_kalite_red', 0) - egim_kalite_red_oncesi
             )
+            pipeline_sonu_red_artis = (
+                self.kalite_istatistikleri.get('pipeline_sonu_red', 0) - pipeline_sonu_red_oncesi
+            )
 
             sonuc = {
                 'basarili': 0,
@@ -199,11 +209,20 @@ class GorselTopluIslemMixin:
                 'egim_duzeltildi': egim_duzeltme_artis,
                 'egim_gorsel_kontrol_adayi': egim_kontrol_artis,
                 'egim_kalite_red': egim_kalite_red_artis,
+                'pipeline_sonu_red': pipeline_sonu_red_artis,
                 'kalite_aday_manifest_satirlari': [],
                 'istatistikler': {sinif: 0 for sinif in SINIF_KLASORLERI}
             }
 
             dosya_adi = self._cikti_dosya_koku(dosya_info["yol"])
+
+            # Pipeline sonu reddi: normal cikti yok, manifest yok, aday yok.
+            # Egim kalite reddi sayaclari/manifest davranisi etkilenmemeli.
+            if kalite_reddedildi and kalite_reddi_nedeni == "pipeline_sonu_red":
+                sonuc['basarisiz'] = 1
+                sonuc['pipeline_sonu_red'] = max(sonuc.get('pipeline_sonu_red', 0), 1)
+                return sonuc
+
             if goruntu is not None and kalite_reddedildi:
                 sonuc['basarisiz'] = 1
                 sonuc['egim_kalite_red'] = max(sonuc.get('egim_kalite_red', 0), 1)
@@ -278,10 +297,11 @@ class GorselTopluIslemMixin:
                 'egim_duzeltildi': 0,
                 'egim_gorsel_kontrol_adayi': 0,
                 'egim_kalite_red': 0,
+                'pipeline_sonu_red': 0,
                 'kalite_aday_manifest_satirlari': [],
                 'istatistikler': {sinif: 0 for sinif in SINIF_KLASORLERI}
             }
-    
+
     def sinif_bazli_artirma_carpani_hesapla(self, dosyalar: List[Dict]) -> Dict[str, int]:
         """
         Sınıf dengesizliğine göre augmentation çarpanını hesapla.
@@ -379,8 +399,9 @@ class GorselTopluIslemMixin:
             "egim_duzeltildi": 0,
             "egim_gorsel_kontrol_adayi": 0,
             "egim_kalite_red": 0,
+            "pipeline_sonu_red": 0,
         }
-        
+
         if artirma_carpanlari is None:
             artirma_carpanlari = self.sinif_bazli_artirma_carpani_hesapla(dosyalar)
         
@@ -394,6 +415,7 @@ class GorselTopluIslemMixin:
         egim_duzeltme_toplam = 0
         egim_kontrol_toplam = 0
         egim_kalite_red_toplam = 0
+        pipeline_sonu_red_toplam = 0
         kalite_manifest_satirlari = []
         istatistikler = {sinif: 0 for sinif in SINIF_KLASORLERI}
 
@@ -451,6 +473,7 @@ class GorselTopluIslemMixin:
                 egim_duzeltme_toplam += sonuc.get('egim_duzeltildi', 0)
                 egim_kontrol_toplam += sonuc.get('egim_gorsel_kontrol_adayi', 0)
                 egim_kalite_red_toplam += sonuc.get('egim_kalite_red', 0)
+                pipeline_sonu_red_toplam += sonuc.get('pipeline_sonu_red', 0)
                 kalite_manifest_satirlari.extend(
                     sonuc.get('kalite_aday_manifest_satirlari', [])
                 )
@@ -466,6 +489,7 @@ class GorselTopluIslemMixin:
         self.kalite_istatistikleri['egim_duzeltildi'] = egim_duzeltme_toplam
         self.kalite_istatistikleri['egim_gorsel_kontrol_adayi'] = egim_kontrol_toplam
         self.kalite_istatistikleri['egim_kalite_red'] = egim_kalite_red_toplam
+        self.kalite_istatistikleri['pipeline_sonu_red'] = pipeline_sonu_red_toplam
 
         if kalite_manifest_satirlari:
             self._egim_kalite_manifest_yaz(
@@ -491,6 +515,8 @@ class GorselTopluIslemMixin:
             print(f"Egim gorsel kontrol adayi: {egim_kontrol_toplam}")
         if EGIM_KALITE_KONTROL_AKTIF:
             print(f"Egim kalite reddi: {egim_kalite_red_toplam}")
+        if pipeline_sonu_red_toplam:
+            print(f"Pipeline sonu reddi: {pipeline_sonu_red_toplam}")
         print(f"\nSinif bazli istatistikler (augmentation sonrasi):")
         for sinif, sayi in istatistikler.items():
             print(f"   {sinif}: {sayi} goruntu")

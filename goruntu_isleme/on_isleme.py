@@ -766,42 +766,76 @@ class GorselOnIslemeMixin:
     def histogram_esitle(self, goruntu: np.ndarray, adaptive: bool = False) -> np.ndarray:
         """
         CLAHE (Contrast Limited Adaptive Histogram Equalization) uygula.
-        
+
         Bu işlem, görüntünün kontrastını adaptif olarak iyileştirir.
         Görüntüyü küçük bloklara böler ve her blokta histogram eşitleme yapar,
         böylece aşırı güçlendirmeyi ve gürültü artışını önler.
-        
+
         Normal histogram eşitlemeden farkları:
         - Lokal adaptif işlem (her bölge ayrı işlenir)
         - Kontrast sınırlama (clip_limit) ile aşırı güçlendirme önlenir
         - Düşük kontrastlı bölgelerde daha agresif, yüksek kontrastlılarda yumuşak
-        
+
+        Background invariant: CLAHE oncesi sifir piksel olan bolgeler
+        sonucta da sifir tutulur; boylece pipeline boyunca background=0
+        sozlesmesi korunur.
+
         Args:
-            goruntu: Girdi görüntüsü (numpy array, uint8 türünde olmalı)
+            goruntu: Girdi görüntüsü (numpy array)
             adaptive: Görüntünün kontrast seviyesine göre clip_limit otomatik ayarlansın mı?
                      True: Düşük kontrast -> yüksek clip (3.0), yüksek kontrast -> düşük clip (1.5)
                      False: Sabit clip_limit kullan (ayarlar.py'den)
-            
+
         Returns:
-            Kontrast iyileştirilmiş görüntü (uint8)
+            Kontrast iyileştirilmiş 2D uint8 görüntü
         """
-        # Ayarlardan histogram eşitleme kapalıysa direkt dön
-        if not HISTOGRAM_ESITLEME_AKTIF:
+        if goruntu is None:
+            return None
+
+        arr = np.asarray(goruntu)
+        if arr.size == 0:
             return goruntu
-        
+
+        # Renkli girdiyi guvenli sekilde gri tonlamaya cevir.
+        # shape[2]==1 OpenCV'de cvtColor ile hata verir; squeeze ile inilir.
+        if arr.ndim == 3:
+            kanal = arr.shape[2] if arr.shape[2:] else 0
+            if kanal == 1:
+                arr = arr[..., 0]
+            elif kanal == 3:
+                arr = cv2.cvtColor(arr, cv2.COLOR_BGR2GRAY)
+            elif kanal == 4:
+                arr = cv2.cvtColor(arr, cv2.COLOR_BGRA2GRAY)
+            else:
+                # Beklenmedik kanal sayisi; ilk kanali al ve uyarmadan devam et
+                arr = arr[..., 0]
+
+        if arr.dtype != np.uint8:
+            arr = self._uint8_goruntu(arr)
+
+        # Ayarlardan histogram eşitleme kapalıysa guvenli 2D uint8 don
+        if not HISTOGRAM_ESITLEME_AKTIF:
+            return arr
+
         # Adaptif CLAHE: Görüntünün kontrast seviyesine göre clip limit ayarla
         clip_limit = CLAHE_CLIP_LIMIT
         if adaptive:
-            contrast = np.std(goruntu)
+            contrast = np.std(arr)
             # Düşük kontrastlı görüntülerde daha agresif CLAHE
             if contrast < 30:
                 clip_limit = 3.0
             # Yüksek kontrastlı görüntülerde daha yumuşak CLAHE
             elif contrast > 60:
                 clip_limit = 1.5
-        
+
+        # CLAHE arka plani 0'dan farkli bir degere cekebilir; maskeyi
+        # uygulamadan once kaydet ve sonucta sifir olarak geri yaz.
+        background_mask = arr <= 0
+
         clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(8, 8))
-        return clahe.apply(goruntu)
+        sonuc = clahe.apply(arr)
+        sonuc[background_mask] = 0
+        return sonuc
     
     def boyutlandir(self, goruntu: np.ndarray,
                     genislik: int = HEDEF_GENISLIK,
@@ -1521,23 +1555,70 @@ class GorselOnIslemeMixin:
     _Z_SCORE_RANGE_SIGMA = 2.5
 
     def z_score_normalize(self, goruntu: np.ndarray) -> np.ndarray:
-        """Robust z-score: mean/std cikarip +/- 2.5 sigma'yi [0, 255]'e dogrusal esle.
+        """Robust z-score: foreground mean/std cikarip +/- 2.5 sigma'yi [0, 255]'e esle.
 
         Strateji bazli cagrilir: yalnizca NORMALIZASYON_STRATEJISI="aggressive"
         oldugunda _apply_normalization_strategy bu metodu kullanir.
+
+        Mean/std arka plani dahil etmez; sifir piksel olan bolgeler sonucta
+        sifir kalir. Boylece aggressive strateji background'i griye taşımaz.
         """
-        arr = goruntu.astype(np.float32)
-        mean = float(arr.mean())
-        std = float(arr.std())
+        if goruntu is None:
+            return goruntu
+
+        arr = np.asarray(goruntu).astype(np.float32)
+        if arr.size == 0:
+            return goruntu
+
+        mask = arr > 0
+        min_piksel = self._min_foreground_piksel_sayisi(arr.size)
+        # Erken donuslerde de uint8 sozlesmesi korunur; aksi halde float/uint16
+        # girdiler aggressive akisinda goruntuyu bozabilir.
+        if int(mask.sum()) < min_piksel:
+            return self._uint8_goruntu(goruntu)
+
+        foreground = arr[mask]
+        mean = float(foreground.mean())
+        std = float(foreground.std())
 
         if std < 1e-6:
-            return goruntu
+            return self._uint8_goruntu(goruntu)
 
         zscored = (arr - mean) / std
         clipped = np.clip(zscored, -self._Z_SCORE_RANGE_SIGMA, self._Z_SCORE_RANGE_SIGMA)
         rescaled = (clipped + self._Z_SCORE_RANGE_SIGMA) / (2.0 * self._Z_SCORE_RANGE_SIGMA) * 255.0
-        return rescaled.astype(np.uint8)
+        sonuc = rescaled.astype(np.uint8)
+        sonuc[~mask] = 0
+        return sonuc
     
+    def _pipeline_sonu_kalite_kontrol(self, goruntu: np.ndarray) -> Tuple[bool, str]:
+        """Pipeline sonunda sessizce bozulmus goruntuleri yakala.
+
+        - Tamamen siyah / cok kucuk foreground / cok dusuk foreground std
+          ureten ciktilar dataset'e girmemeli.
+        - Sayim ve esikler `_temel_goruntu_on_kontrol`,
+          `_min_foreground_piksel_sayisi` ve `MIN_STD_INTENSITY` ile
+          tutarlidir.
+        """
+        on_ok, on_mesaji = self._temel_goruntu_on_kontrol(goruntu)
+        if not on_ok:
+            return False, on_mesaji
+
+        arr = self._uint8_goruntu(goruntu)
+        if arr.ndim != 2 or arr.size == 0:
+            return False, "Geçersiz görüntü boyutu"
+
+        mask = arr > 0
+        min_piksel = self._min_foreground_piksel_sayisi(arr.size)
+        if int(mask.sum()) < min_piksel:
+            return False, "Yetersiz foreground"
+
+        foreground_std = float(arr[mask].std())
+        if foreground_std < float(MIN_STD_INTENSITY):
+            return False, f"Düşük foreground kontrast (std={foreground_std:.1f})"
+
+        return True, ""
+
     def goruntu_isle_sonuc(self, dosya_yolu: str) -> PipelineSonucu:
         """
         Tek bir goruntuye tam on isleme pipeline uygula ve yapisal sonuc don.
@@ -1671,6 +1752,24 @@ class GorselOnIslemeMixin:
 
         # 12. Boyutlandırma
         goruntu = self.boyutlandir(goruntu)
+
+        # 13. Pipeline sonu kalite kontrol: sessizce bozulmus (siyah, cok
+        # dusuk foreground veya kontrasti dusen) ciktilarin dataset'e
+        # girmesini engelle. Egim kalite reddiyle karistirilmaz.
+        pipeline_ok, pipeline_mesaji = self._pipeline_sonu_kalite_kontrol(goruntu)
+        if not pipeline_ok:
+            print(f"[KALITE HATASI] {dosya_yolu}: pipeline sonu reddi - {pipeline_mesaji}")
+            self.kalite_istatistikleri["pipeline_sonu_red"] = (
+                self.kalite_istatistikleri.get("pipeline_sonu_red", 0) + 1
+            )
+            return self._pipeline_sonucu(
+                processed_image=None,
+                quality_rejected=True,
+                quality_reason="pipeline_sonu_red",
+                tilt_angle=egim_acisi,
+                tilt_reliable=egim_guvenilir,
+                tilt_analysis=egim_analizi,
+            )
 
         return self._pipeline_sonucu(
             goruntu,
