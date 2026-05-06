@@ -23,10 +23,18 @@ class GorselIsleyiciTemel:
         self.temel_tohum = RASTGELE_TOHUM
         self._random, self._np_random = self._rng_olustur(self.temel_tohum)
         self.template_image = None  # Registration için şablon görüntü
+        self.son_egim_analizi = {}
         self.kalite_istatistikleri = {
             "toplam": 0,
             "basarili": 0,
-            "kalite_hatasi": 0
+            "kalite_hatasi": 0,
+            "kaydetme_hatasi": 0,
+            "kenar_artefakt_tespit": 0,
+            "kenar_artefakt_temizlendi": 0,
+            "egim_tespit": 0,
+            "egim_duzeltildi": 0,
+            "egim_gorsel_kontrol_adayi": 0,
+            "egim_kalite_red": 0,
         }
         self.n_jobs = max(1, cpu_count() - 1)  # Bir çekirdek sisteme bırak
 

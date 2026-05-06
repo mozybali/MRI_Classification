@@ -1,6 +1,5 @@
 import base64
 from io import BytesIO
-import torch
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.conf import settings
@@ -9,10 +8,9 @@ from PIL import Image
 
 from .models import PredictionRecord
 from .services.model_loader import registry
-from .services.gradcam import GradCAM, apply_heatmap_to_image
 
-# model.inference içindeki transformları kullanmak için
-from model.dl.dataset import get_transforms
+# .services.gradcam torch'u modül seviyesinde import ettiği için lazy yükleyeceğiz.
+
 
 def explain_prediction(request, record_id):
     """
@@ -24,6 +22,18 @@ def explain_prediction(request, record_id):
         return JsonResponse({"error": "Grad-CAM sadece ResNet modelleri için desteklenir."}, status=400)
 
     try:
+        # Torch ve ResNet transform'u sadece bu uç noktada gerekli — modül yüklemesini
+        # web env'de torch yokken bile çalıştırabilmek için lazy import.
+        try:
+            import torch
+            from model.dl.dataset import get_transforms
+            from .services.gradcam import GradCAM, apply_heatmap_to_image
+        except ImportError as exc:
+            return JsonResponse(
+                {"error": f"Grad-CAM için torch kurulu olmalı: {exc}"},
+                status=503,
+            )
+
         # 1. Modeli ve Metadataları yükle
         model_path = settings.MODEL_DIR / f"{record.model_type}_model.pt" # Varsayılan isim veya record'a eklenmeli
         # Eğer record'da model adı yoksa, klasördeki ilk .pt modelini alalım (veya daha iyisi kayıt sırasında saklanmalı)

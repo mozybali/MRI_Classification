@@ -8,7 +8,9 @@ Görüntü yükleme, normalizasyon, histogram eşitleme gibi temel işlemleri do
 
 import sys
 import importlib
+import csv
 import pytest
+import cv2
 import numpy as np
 from pathlib import Path
 from PIL import Image
@@ -29,6 +31,9 @@ class TestGorselIsleyici:
         assert isleyici.kalite_istatistikleri['toplam'] == 0
         assert isleyici.kalite_istatistikleri['basarili'] == 0
         assert isleyici.kalite_istatistikleri['kalite_hatasi'] == 0
+        assert isleyici.kalite_istatistikleri['kaydetme_hatasi'] == 0
+        assert isleyici.kalite_istatistikleri['egim_kalite_red'] == 0
+        assert isleyici.son_egim_analizi == {}
 
     def test_tohum_ayarla(self):
         """Aynı tohum ile aynı rastgele değer üretilmeli."""
@@ -80,6 +85,46 @@ class TestGorselIsleyici:
         assert normalized.min() >= 0
         assert normalized.max() <= 255
         assert normalized.dtype == np.uint8
+
+    def test_yogunluk_normalize_percentilleri_foreground_maskesinde_hesaplar(self):
+        """Buyuk siyah arka plan percentile esiklerini domine etmemeli."""
+        isleyici = GorselIsleyici()
+        img = np.zeros((160, 160), dtype=np.uint8)
+        yy, xx = np.ogrid[:160, :160]
+        beyin = ((yy - 80) ** 2) / (52 ** 2) + ((xx - 80) ** 2) / (42 ** 2) <= 1
+        x_grid = np.broadcast_to(xx, img.shape)
+        doku_degeri = 80 + ((x_grid - 38) * 50 / 84)
+        img[beyin] = np.clip(doku_degeri[beyin], 80, 140).astype(np.uint8)
+        parlak_doku = beyin & (yy > 70) & (yy < 90) & (xx > 78) & (xx < 92)
+        img[parlak_doku] = 230
+
+        # Eski tum-goruntu percentile hesabi, parlak dokuyu ust esikte
+        # kirpacak kadar arka plan agirlikli olurdu.
+        assert float(np.percentile(img, 99)) < 230
+
+        normalized = isleyici.yogunluk_normalize(img)
+
+        assert normalized.dtype == np.uint8
+        assert int(normalized[~beyin].max()) == 0
+        assert float(normalized[parlak_doku].mean()) > 220.0
+        assert float(normalized[parlak_doku].mean()) > float(normalized[beyin & ~parlak_doku].mean()) + 80.0
+
+    def test_simple_bias_correction_siyah_kenarlari_parlatmaz(self):
+        """Maskeli simple bias correction siyah padding/border bolgesini sabit tutmali."""
+        isleyici = GorselIsleyici()
+        img = np.zeros((160, 160), dtype=np.uint8)
+        yy, xx = np.ogrid[:160, :160]
+        beyin = ((yy - 80) ** 2) / (50 ** 2) + ((xx - 82) ** 2) / (38 ** 2) <= 1
+        x_grid = np.broadcast_to(xx, img.shape)
+        img[beyin] = np.clip(90 + (x_grid[beyin] - 45) * 70 / 75, 80, 180).astype(np.uint8)
+
+        corrected = isleyici._simple_bias_correction(img)
+
+        assert corrected.dtype == np.uint8
+        assert corrected.shape == img.shape
+        assert int(corrected[:12, :].max()) == 0
+        assert int(corrected[:, :12].max()) == 0
+        assert float(corrected[beyin].mean()) > 0.0
 
     def test_histogram_esitle_dtype_uint8(self):
         """histogram_esitle her zaman uint8 dönmeli."""
@@ -153,6 +198,31 @@ class TestGorselIsleyici:
         # Genislik > yukseklik oldugundan ust ve alt kenarlarda padding olmali
         assert (resized[0, :] == 42).all()
         assert (resized[-1, :] == 42).all()
+
+    def test_boyutlandir_pad_otomatik_arka_plan_sinir_bandi_azaltir(self, monkeypatch):
+        """Post-CLAHE benzeri arka plan degeri padding'e yansimali."""
+        monkeypatch.setattr(gi, "BOYUTLANDIRMA_MODU", "pad")
+        monkeypatch.setattr(gi, "PADDING_OTOMATIK_ARKAPLAN", True)
+        monkeypatch.setattr(gi, "PADDING_DEGERI", 0)
+
+        isleyici = GorselIsleyici()
+        test_img = np.full((120, 60), 7, dtype=np.uint8)
+        test_img[30:90, 15:45] = 120
+
+        resized = isleyici.boyutlandir(test_img, genislik=256, yukseklik=256)
+
+        x0 = (256 - int(round(60 * (256 / 120)))) // 2
+        padding_medyan = float(np.median(resized[:, :x0]))
+        komsu_arka_plan = np.concatenate(
+            [
+                resized[:25, x0:x0 + 4].ravel(),
+                resized[-25:, x0:x0 + 4].ravel(),
+            ]
+        )
+        komsu_medyan = float(np.median(komsu_arka_plan))
+
+        assert abs(padding_medyan - komsu_medyan) <= 2.0
+        assert padding_medyan == pytest.approx(7.0, abs=1.0)
 
     def test_boyutlandir_stretch_eski_davranisi_korur(self, monkeypatch):
         """'stretch' modu en-boy oranini gozetmeden dogrudan resize yapmali."""
@@ -389,6 +459,59 @@ class TestGorselIsleyici:
         assert isleyici.kalite_istatistikleri['kalite_hatasi'] == 3
         assert sum(istatistikler.values()) == 0
 
+    def test_goruntu_kaydet_encode_hatasinda_false_doner(self, tmp_path, monkeypatch):
+        isleyici = GorselIsleyici()
+
+        def fail_imencode(*_args, **_kwargs):
+            return False, None
+
+        monkeypatch.setattr(gi._kalite_io_mod.cv2, "imencode", fail_imencode)
+
+        hedef = tmp_path / "out.png"
+        sonuc = isleyici.goruntu_kaydet(np.zeros((16, 16), dtype=np.uint8), hedef)
+
+        assert sonuc is False
+        assert not hedef.exists()
+
+    def test_tek_goruntu_kaydetme_hatasi_false_success_uretmez(self, tmp_path, monkeypatch):
+        isleyici = GorselIsleyici()
+        img = np.full((32, 32), 120, dtype=np.uint8)
+
+        monkeypatch.setattr(isleyici, "goruntu_isle", lambda _yol: img)
+        monkeypatch.setattr(isleyici, "goruntu_kaydet", lambda *_args: False)
+
+        sonuc = isleyici._tek_goruntu_isle(
+            {"sinif": "NonDemented", "yol": tmp_path / "sample.jpg"},
+            tmp_path / "cikti",
+            {},
+        )
+
+        assert sonuc["basarili"] == 0
+        assert sonuc["basarisiz"] == 1
+        assert sonuc["kaydetme_hatasi"] == 1
+        assert sonuc["istatistikler"]["NonDemented"] == 0
+
+    def test_augmentation_yalnizca_kaydedilirse_sayilir(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(gi, "VERI_ARTIRMA_AKTIF", True)
+        isleyici = GorselIsleyici()
+        img = np.full((32, 32), 120, dtype=np.uint8)
+        kayit_sonuclari = iter([True, False, True])
+
+        monkeypatch.setattr(isleyici, "goruntu_isle", lambda _yol: img)
+        monkeypatch.setattr(isleyici, "veri_artir", lambda g: g.copy())
+        monkeypatch.setattr(isleyici, "goruntu_kaydet", lambda *_args: next(kayit_sonuclari))
+
+        sonuc = isleyici._tek_goruntu_isle(
+            {"sinif": "NonDemented", "yol": tmp_path / "sample.jpg"},
+            tmp_path / "cikti",
+            {"NonDemented": 2},
+        )
+
+        assert sonuc["basarili"] == 1
+        assert sonuc["basarisiz"] == 0
+        assert sonuc["kaydetme_hatasi"] == 1
+        assert sonuc["istatistikler"]["NonDemented"] == 2
+
     def test_tum_gorselleri_isle_ve_bol_test_splitinde_augmentation_kapatir(self, tmp_path, monkeypatch):
         isleyici = GorselIsleyici()
         isleyici.n_jobs = 1
@@ -440,6 +563,663 @@ class TestGorselIsleyici:
             isleyici.tum_gorselleri_isle_ve_bol(tmp_path / "cikti", giris_klasoru=dataset)
 
 
+class TestEgimDuzeltme:
+    """Opsiyonel egim duzeltme testleri."""
+
+    @staticmethod
+    def _egimli_beyin_benzeri_goruntu(
+        aci: float,
+        *,
+        size: int = 200,
+        axes: tuple = (40, 75),
+        asimetri: bool = True,
+    ) -> np.ndarray:
+        img = np.zeros((size, size), dtype=np.uint8)
+        merkez = (size // 2, size // 2)
+        cv2.ellipse(img, merkez, axes, 0, 0, 360, 180, -1)
+        if asimetri:
+            cv2.ellipse(
+                img,
+                (merkez[0] - int(size * 0.08), merkez[1] - int(size * 0.06)),
+                (max(5, size // 22), max(7, size // 15)),
+                0,
+                0,
+                360,
+                100,
+                -1,
+            )
+        matrix = cv2.getRotationMatrix2D(
+            ((size - 1) / 2.0, (size - 1) / 2.0),
+            aci,
+            1.0,
+        )
+        return cv2.warpAffine(
+            img,
+            matrix,
+            (size, size),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0,
+        ).astype(np.uint8)
+
+    @pytest.mark.parametrize("aci", [-7.0, -5.0, -3.0, 0.0, 3.0, 5.0, 7.0])
+    def test_egim_acisi_sentetik_rotasyonlari_yakalar(self, aci):
+        isleyici = GorselIsleyici()
+        img = self._egimli_beyin_benzeri_goruntu(aci=aci)
+
+        analiz = isleyici.egim_acisi_hesapla(img)
+
+        assert analiz["guvenilir"] is True
+        assert analiz["aci"] == pytest.approx(aci, abs=1.0)
+        # Cross-check tolerance is angle-relaxed: minAreaRect axis-quantization
+        # error grows with |aci|, so rmse can exceed the static threshold for
+        # small tilts and still be accepted.
+        assert analiz["rmse"] <= max(gi.EGIM_RMSE_MAKS, abs(aci))
+
+    def test_egim_acisi_kucuk_gurultu_bilesenlerini_yok_sayar(self):
+        isleyici = GorselIsleyici()
+        img = self._egimli_beyin_benzeri_goruntu(aci=5.0)
+        img[4:6, 5:7] = 255
+        img[180:183, 20:23] = 240
+
+        analiz = isleyici.egim_acisi_hesapla(img)
+
+        assert analiz["guvenilir"] is True
+        assert analiz["aci"] == pytest.approx(5.0, abs=1.0)
+
+    def test_egim_acisi_yakin_dairesel_maskeyi_guvenilmez_sayar(self):
+        isleyici = GorselIsleyici()
+        img = self._egimli_beyin_benzeri_goruntu(
+            aci=7.0,
+            axes=(60, 62),
+            asimetri=False,
+        )
+
+        analiz = isleyici.egim_acisi_hesapla(img)
+
+        assert analiz["guvenilir"] is False
+        assert analiz["sebep"] in {"maske_isotropik", "kontur_ambiguous", "aci_uyumsuz"}
+
+    def test_egim_acisi_zayif_foreground_maskesini_guvenilmez_sayar(self):
+        isleyici = GorselIsleyici()
+        img = self._egimli_beyin_benzeri_goruntu(
+            aci=5.0,
+            axes=(4, 35),
+            asimetri=False,
+        )
+
+        analiz = isleyici.egim_acisi_hesapla(img)
+
+        assert analiz["guvenilir"] is False
+        assert analiz["sebep"] == "foreground_zayif"
+
+    def test_egim_duzeltme_kapaliyken_goruntu_aynen_doner(self, monkeypatch):
+        monkeypatch.setattr(gi, "EGIM_DUZELTME_AKTIF", False)
+        isleyici = GorselIsleyici()
+        img = self._egimli_beyin_benzeri_goruntu(aci=5.0)
+
+        sonuc = isleyici.egim_duzelt(img)
+
+        assert sonuc is img
+        assert isleyici.kalite_istatistikleri["egim_tespit"] == 0
+        assert isleyici.kalite_istatistikleri["egim_duzeltildi"] == 0
+        assert isleyici.kalite_istatistikleri["egim_gorsel_kontrol_adayi"] == 0
+
+    def test_hafif_guvenilir_egim_duzeltilir(self, monkeypatch):
+        monkeypatch.setattr(gi, "EGIM_DUZELTME_AKTIF", True)
+        monkeypatch.setattr(gi, "EGIM_MIN_ACI", 3.0)
+        monkeypatch.setattr(gi, "EGIM_MAKS_ACI", 7.0)
+        isleyici = GorselIsleyici()
+        img = self._egimli_beyin_benzeri_goruntu(aci=5.0)
+
+        once = isleyici.egim_acisi_hesapla(img)
+        sonuc = isleyici.egim_duzelt(img)
+        sonra = isleyici.egim_acisi_hesapla(sonuc)
+
+        assert once["guvenilir"] is True
+        assert once["mutlak_aci"] >= gi.EGIM_MIN_ACI
+        assert sonuc.dtype == np.uint8
+        assert sonuc.shape == img.shape
+        assert not np.array_equal(sonuc, img)
+        assert sonra["mutlak_aci"] < once["mutlak_aci"]
+        assert isleyici.kalite_istatistikleri["egim_tespit"] == 1
+        assert isleyici.kalite_istatistikleri["egim_duzeltildi"] == 1
+        assert isleyici.kalite_istatistikleri["egim_gorsel_kontrol_adayi"] == 0
+
+    def test_min_aci_altindaki_guvenilir_egim_duzeltilmez(self, monkeypatch):
+        monkeypatch.setattr(gi, "EGIM_DUZELTME_AKTIF", True)
+        monkeypatch.setattr(gi, "EGIM_MIN_ACI", 3.0)
+        monkeypatch.setattr(gi, "EGIM_MAKS_ACI", 7.0)
+        isleyici = GorselIsleyici()
+        img = self._egimli_beyin_benzeri_goruntu(aci=2.0)
+
+        analiz = isleyici.egim_acisi_hesapla(img)
+        sonuc = isleyici.egim_duzelt(img)
+
+        assert analiz["guvenilir"] is True
+        assert analiz["mutlak_aci"] < gi.EGIM_MIN_ACI
+        np.testing.assert_array_equal(sonuc, img)
+        assert sonuc.dtype == np.uint8
+        assert sonuc.shape == img.shape
+        assert isleyici.kalite_istatistikleri["egim_tespit"] == 0
+        assert isleyici.kalite_istatistikleri["egim_duzeltildi"] == 0
+
+    def test_maks_aci_ustundeki_egim_gorsel_kontrol_adayi_sayilir(self, monkeypatch):
+        monkeypatch.setattr(gi, "EGIM_DUZELTME_AKTIF", True)
+        monkeypatch.setattr(gi, "EGIM_MIN_ACI", 3.0)
+        monkeypatch.setattr(gi, "EGIM_MAKS_ACI", 7.0)
+        isleyici = GorselIsleyici()
+        img = self._egimli_beyin_benzeri_goruntu(
+            aci=10.0,
+            size=220,
+            axes=(35, 85),
+        )
+
+        analiz = isleyici.egim_acisi_hesapla(img)
+        sonuc = isleyici.egim_duzelt(img)
+
+        assert analiz["guvenilir"] is True
+        assert analiz["mutlak_aci"] > gi.EGIM_MAKS_ACI
+        np.testing.assert_array_equal(sonuc, img)
+        assert sonuc.dtype == np.uint8
+        assert sonuc.shape == img.shape
+        assert isleyici.kalite_istatistikleri["egim_tespit"] == 1
+        assert isleyici.kalite_istatistikleri["egim_duzeltildi"] == 0
+        assert isleyici.kalite_istatistikleri["egim_gorsel_kontrol_adayi"] == 1
+
+    def test_egim_ayarlari_kenar_artefakt_temizligini_etkilemez(self, monkeypatch):
+        monkeypatch.setattr(gi, "EGIM_DUZELTME_AKTIF", True)
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_TEMIZLEME_AKTIF", True)
+        isleyici = GorselIsleyici()
+        img = np.full((128, 128), 25, dtype=np.uint8)
+        yy, xx = np.ogrid[:128, :128]
+        merkez = (yy - 64) ** 2 + (xx - 64) ** 2 <= 30 ** 2
+        img[merkez] = 130
+        img[:12, 20:80] = 250
+
+        temiz = isleyici.kenar_artefakt_temizle(img)
+
+        assert int((temiz[:15, :] >= 220).sum()) < int((img[:15, :] >= 220).sum())
+        assert int((temiz[merkez] > 0).sum()) == int(merkez.sum())
+
+
+class TestEgimKaliteKontrol:
+    """Asiri egim kalite kontrol cikti yonlendirme testleri."""
+
+    @staticmethod
+    def _asiri_egimli_kaynak_yaz(tmp_path: Path, ad: str = "asiri.jpg") -> Path:
+        img = TestEgimDuzeltme._egimli_beyin_benzeri_goruntu(
+            aci=13.0,
+            size=220,
+            axes=(45, 85),
+        )
+        kaynak = tmp_path / "kaynak" / "NonDemented"
+        kaynak.mkdir(parents=True, exist_ok=True)
+        yol = kaynak / ad
+        Image.fromarray(img, mode="L").save(yol)
+        return yol
+
+    @staticmethod
+    def _dosya_info(yol: Path) -> dict:
+        return {
+            "yol": str(yol),
+            "sinif": "NonDemented",
+            "etiket": gi.SINIF_ETIKETI["NonDemented"],
+            "kaynak_id": yol.stem,
+            "kaynak_grup": f"NonDemented::{yol.stem}",
+        }
+
+    @staticmethod
+    def _egim_qc_ayarlarini_ac(monkeypatch):
+        monkeypatch.setattr(gi, "EGIM_DUZELTME_AKTIF", True)
+        monkeypatch.setattr(gi, "EGIM_KALITE_KONTROL_AKTIF", True)
+        monkeypatch.setattr(gi, "EGIM_KALITE_RED_ESIGI", 10.0)
+        monkeypatch.setattr(gi, "EGIM_KALITE_ADAYLARI_KAYDET", True)
+        monkeypatch.setattr(gi, "EGIM_MAKS_ACI", 10.0)
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_KONTROL_AKTIF", False)
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_TEMIZLEME_AKTIF", False)
+        monkeypatch.setattr(gi, "REGISTRATION_AKTIF", False)
+
+    def test_asiri_guvenilir_egim_normal_ciktiya_yazilmaz_adaya_yazilir_ve_manifestlenir(
+        self, tmp_path, monkeypatch
+    ):
+        self._egim_qc_ayarlarini_ac(monkeypatch)
+        isleyici = GorselIsleyici()
+        isleyici.n_jobs = 1
+        yol = self._asiri_egimli_kaynak_yaz(tmp_path, "ornek.jpg")
+
+        analiz = isleyici.egim_acisi_hesapla(isleyici.goruntu_yukle(str(yol)))
+        assert analiz["guvenilir"] is True
+        assert analiz["mutlak_aci"] > gi.EGIM_KALITE_RED_ESIGI
+
+        cikti = tmp_path / "cikti"
+        istatistikler = isleyici.tum_gorselleri_isle(
+            cikti / "trainval",
+            dosyalar=[self._dosya_info(yol)],
+            artirma_carpanlari={"NonDemented": 0},
+            split_adi="trainval",
+        )
+
+        normal_yol = cikti / "trainval" / "NonDemented" / "ornek_jpg.png"
+        aday_yol = (
+            cikti
+            / gi.EGIM_KALITE_ADAYLARI_KLASOR_ADI
+            / "trainval"
+            / "NonDemented"
+            / "ornek_jpg.png"
+        )
+        manifest_yol = (
+            cikti
+            / gi.EGIM_KALITE_ADAYLARI_KLASOR_ADI
+            / gi.EGIM_KALITE_MANIFEST_DOSYA_ADI
+        )
+
+        assert istatistikler["NonDemented"] == 0
+        assert not normal_yol.exists()
+        assert aday_yol.is_file()
+        assert isleyici.kalite_istatistikleri["egim_kalite_red"] == 1
+
+        with manifest_yol.open(newline="", encoding="utf-8") as dosya:
+            satirlar = list(csv.DictReader(dosya))
+
+        assert len(satirlar) == 1
+        satir = satirlar[0]
+        assert satir["original_path"] == str(yol)
+        assert satir["split"] == "trainval"
+        assert satir["class_name"] == "NonDemented"
+        assert float(satir["detected_angle"]) == pytest.approx(analiz["aci"], abs=0.5)
+        assert satir["reason"] == "excessive_tilt"
+        assert satir["candidate_path"] == str(aday_yol)
+
+    def test_egim_kalite_kurali_trainval_ve_test_icin_aynidir(self, tmp_path, monkeypatch):
+        self._egim_qc_ayarlarini_ac(monkeypatch)
+        isleyici = GorselIsleyici()
+        isleyici.n_jobs = 1
+        cikti = tmp_path / "cikti"
+
+        for split in ("trainval", "test"):
+            yol = self._asiri_egimli_kaynak_yaz(tmp_path / split, f"{split}.jpg")
+            isleyici.tum_gorselleri_isle(
+                cikti / split,
+                dosyalar=[self._dosya_info(yol)],
+                artirma_carpanlari={"NonDemented": 0},
+                split_adi=split,
+            )
+
+            normal_yol = cikti / split / "NonDemented" / f"{split}_jpg.png"
+            aday_yol = (
+                cikti
+                / gi.EGIM_KALITE_ADAYLARI_KLASOR_ADI
+                / split
+                / "NonDemented"
+                / f"{split}_jpg.png"
+            )
+            assert not normal_yol.exists()
+            assert aday_yol.is_file()
+
+        manifest_yol = (
+            cikti
+            / gi.EGIM_KALITE_ADAYLARI_KLASOR_ADI
+            / gi.EGIM_KALITE_MANIFEST_DOSYA_ADI
+        )
+        with manifest_yol.open(newline="", encoding="utf-8") as dosya:
+            satirlar = list(csv.DictReader(dosya))
+
+        assert {satir["split"] for satir in satirlar} == {"trainval", "test"}
+        assert {satir["reason"] for satir in satirlar} == {"excessive_tilt"}
+
+    def test_egim_kalite_kontrol_kapaliyken_eski_normal_kayit_davranisi_korunur(
+        self, tmp_path, monkeypatch
+    ):
+        self._egim_qc_ayarlarini_ac(monkeypatch)
+        monkeypatch.setattr(gi, "EGIM_KALITE_KONTROL_AKTIF", False)
+        isleyici = GorselIsleyici()
+        isleyici.n_jobs = 1
+        yol = self._asiri_egimli_kaynak_yaz(tmp_path, "kapali.jpg")
+        cikti = tmp_path / "cikti"
+
+        istatistikler = isleyici.tum_gorselleri_isle(
+            cikti / "trainval",
+            dosyalar=[self._dosya_info(yol)],
+            artirma_carpanlari={"NonDemented": 0},
+            split_adi="trainval",
+        )
+
+        normal_yol = cikti / "trainval" / "NonDemented" / "kapali_jpg.png"
+        aday_kok = cikti / gi.EGIM_KALITE_ADAYLARI_KLASOR_ADI
+
+        assert istatistikler["NonDemented"] == 1
+        assert normal_yol.is_file()
+        assert not aday_kok.exists()
+        assert isleyici.kalite_istatistikleri["egim_kalite_red"] == 0
+
+
+class TestKenarArtefaktTespitVeTemizleme:
+    """Kenar artefakt tespiti ve konservatif temizleme testleri."""
+
+    @staticmethod
+    def _temiz_mri_benzeri_goruntu(seed: int = 0) -> np.ndarray:
+        """Kenarlari karanlik, merkezi orta parlaklikta sentetik 'temiz' MRI."""
+        rng = np.random.default_rng(seed)
+        img = rng.integers(20, 60, size=(128, 128), dtype=np.uint16).astype(np.uint8)
+        # Merkezde brighter blob (beyin dokusu benzeri)
+        cy, cx = 64, 64
+        yy, xx = np.ogrid[:128, :128]
+        merkez = (yy - cy) ** 2 + (xx - cx) ** 2 <= 30 ** 2
+        img[merkez] = 130
+        # Kenar seritleri yaklasik karanlik kalmali
+        img[:8, :] = np.minimum(img[:8, :], 30)
+        img[-8:, :] = np.minimum(img[-8:, :], 30)
+        img[:, :8] = np.minimum(img[:, :8], 30)
+        img[:, -8:] = np.minimum(img[:, -8:], 30)
+        return img
+
+    def test_top_serit_artefakti_tespit_edilir(self):
+        isleyici = GorselIsleyici()
+        img = self._temiz_mri_benzeri_goruntu(seed=1)
+        # Ust seritte parlak band ekle
+        img[:10, 20:80] = 250
+
+        analiz = isleyici.kenar_artefakt_analiz(img)
+
+        assert analiz["artefakt_var"] is True
+        assert "top" in analiz["suspicious_yonler"]
+
+    def test_bottom_serit_artefakti_tespit_edilir(self):
+        isleyici = GorselIsleyici()
+        img = self._temiz_mri_benzeri_goruntu(seed=2)
+        img[-12:, 30:90] = 250
+
+        analiz = isleyici.kenar_artefakt_analiz(img)
+
+        assert analiz["artefakt_var"] is True
+        assert "bottom" in analiz["suspicious_yonler"]
+
+    def test_left_serit_artefakti_tespit_edilir(self):
+        isleyici = GorselIsleyici()
+        img = self._temiz_mri_benzeri_goruntu(seed=3)
+        img[20:90, :12] = 250
+
+        analiz = isleyici.kenar_artefakt_analiz(img)
+
+        assert analiz["artefakt_var"] is True
+        assert "left" in analiz["suspicious_yonler"]
+
+    def test_right_serit_artefakti_tespit_edilir(self):
+        isleyici = GorselIsleyici()
+        img = self._temiz_mri_benzeri_goruntu(seed=4)
+        img[20:90, -12:] = 250
+
+        analiz = isleyici.kenar_artefakt_analiz(img)
+
+        assert analiz["artefakt_var"] is True
+        assert "right" in analiz["suspicious_yonler"]
+
+    def test_temiz_goruntu_yanlislikla_isaretlenmez(self):
+        isleyici = GorselIsleyici()
+        img = self._temiz_mri_benzeri_goruntu(seed=5)
+
+        analiz = isleyici.kenar_artefakt_analiz(img)
+
+        assert analiz["artefakt_var"] is False
+        assert analiz["suspicious_yonler"] == []
+
+    def test_kenar_temizligi_strict_kalite_kontrol_oncesi_goruntuyu_kurtarir(self, monkeypatch, tmp_path):
+        """Parlak ust/alt bantlar kalite kontrolden once temizlenmeli."""
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_KONTROL_AKTIF", True)
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_TEMIZLEME_AKTIF", True)
+        monkeypatch.setattr(gi, "KENAR_SERIT_ORANI", 0.25)
+        monkeypatch.setattr(gi, "KENAR_PARLAKLIK_ESIGI", 250)
+
+        isleyici = GorselIsleyici()
+        merkez = np.tile(np.linspace(235, 244, 128, dtype=np.uint8), (128, 1))
+        img = merkez.copy()
+        img[:30, :] = 255
+        img[-30:, :] = 255
+        assert isleyici.goruntu_kalite_kontrol(img)[0] is False
+
+        path = tmp_path / "saturated_edges.png"
+        Image.fromarray(img, mode="L").save(path)
+
+        sonuc = isleyici.goruntu_isle(str(path))
+
+        assert sonuc is not None
+        assert sonuc.dtype == np.uint8
+        assert isleyici.kalite_istatistikleri["kalite_hatasi"] == 0
+        assert isleyici.kalite_istatistikleri["kenar_artefakt_temizlendi"] == 1
+
+    def test_temizleme_kenara_degen_parlak_bolgeyi_baski_alir(self, monkeypatch):
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_TEMIZLEME_AKTIF", True)
+        isleyici = GorselIsleyici()
+        img = self._temiz_mri_benzeri_goruntu(seed=6)
+        img[:10, 20:80] = 250
+
+        oncesi_parlak = int((img[:15, :] >= 220).sum())
+        assert oncesi_parlak > 0
+
+        temiz = isleyici.kenar_artefakt_temizle(img)
+
+        sonra_parlak = int((temiz[:15, :] >= 220).sum())
+        assert sonra_parlak < oncesi_parlak
+        # Esik altina cekilmeli
+        toplam = temiz[:15, :].size
+        assert sonra_parlak / toplam < gi.KENAR_PARLAK_PIXEL_ORANI_ESIGI
+
+    def test_temizleme_merkezdeki_parlak_bolgeyi_korur(self, monkeypatch):
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_TEMIZLEME_AKTIF", True)
+        isleyici = GorselIsleyici()
+        img = self._temiz_mri_benzeri_goruntu(seed=7)
+        # Merkezde, kenarlara degmeyen parlak nokta
+        img[58:68, 58:68] = 250
+
+        temiz = isleyici.kenar_artefakt_temizle(img)
+
+        # Merkez yapisi korunmali
+        assert (temiz[58:68, 58:68] == 250).all()
+
+    def test_kenar_anatomi_koruma_orani_bilesen_buyuklugunu_ayarlar(self, monkeypatch):
+        """Esik altindaki kenar bileseni temizlenir, ustundeki korunur."""
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_TEMIZLEME_AKTIF", True)
+        monkeypatch.setattr(gi, "KENAR_ANATOMI_KORUMA_ORANI", 0.5)
+        monkeypatch.setattr(gi, "KENAR_SERIT_ORANI", 0.12)
+        isleyici = GorselIsleyici()
+
+        kucuk = np.full((100, 100), 25, dtype=np.uint8)
+        kucuk[:20, :] = 250
+        kucuk_temiz = isleyici.kenar_artefakt_temizle(kucuk)
+        assert int((kucuk_temiz[:20, :] >= 220).sum()) == 0
+
+        buyuk = np.full((100, 100), 25, dtype=np.uint8)
+        buyuk[:70, :] = 250
+        buyuk_temiz = isleyici.kenar_artefakt_temizle(buyuk)
+        np.testing.assert_array_equal(buyuk_temiz, buyuk)
+
+    def test_temizleme_seride_uzanan_band_temizlenir(self, monkeypatch):
+        """Bbox seridi asip merkeze tasan parlak band, cogunlugu seritteyse silinmeli.
+
+        Gercek veri setinde gozlenen senaryo: parlak ust band serit
+        kalinligini biraz asar ve goruntu sinirina degmeyebilir. Eski
+        'tamamen seritte' kosulu bu durumu kacirip artefakti birakiyordu.
+        """
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_TEMIZLEME_AKTIF", True)
+        isleyici = GorselIsleyici()
+        img = self._temiz_mri_benzeri_goruntu(seed=11)
+        # 128x128 icin serit kalinligi ~15. Band rows 2..21 = 20 rows;
+        # 13 satiri (2..14) seritte, 7 satiri (15..21) merkezde.
+        # strip_pay ~13/20=0.65 >= 0.6 -> temizlenmeli.
+        # y=2 oldugundan goruntu sinirina degmiyor; eski mantik kacirirdi.
+        img[2:22, 20:80] = 250
+
+        oncesi_parlak = int((img[2:22, 20:80] >= 220).sum())
+        assert oncesi_parlak > 0
+
+        temiz = isleyici.kenar_artefakt_temizle(img)
+
+        # Band tamamen baski altina alinmali (>=220 piksel kalmamali).
+        assert int((temiz[2:22, 20:80] >= 220).sum()) == 0
+        # Goruntu degisti -> uzanan band yakalandi.
+        assert not np.array_equal(temiz, img)
+
+    def test_temizleme_merkeze_bagli_bandi_kismi_temizler(self, monkeypatch):
+        """Parlak band, parlak korteks/orta dokuya bagli olsa bile serit
+        icindeki pay temizlenmeli; merkez doku korunmalidir.
+
+        Bu, gercek veri setinde sik gorulen senaryodur: ust kenar bandi
+        beyin korteksindeki saturasyonlu pikseller araciligiyla beyne
+        baglidir; tek bir buyuk baglantili bilesen olusur. Bu durumda
+        bilesenin sadece serit icindeki pikselleri silinmeli.
+        """
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_TEMIZLEME_AKTIF", True)
+        isleyici = GorselIsleyici()
+
+        # 128x128 sentetik MRI: merkezde parlak (saturasyonlu) blob,
+        # ust seritte parlak band, ikisi parlak ince bir koprode birlesir.
+        img = np.full((128, 128), 25, dtype=np.uint8)
+        # Merkezdeki parlak blob (anatomik) - kenarlardan uzak
+        cy, cx = 70, 64
+        yy, xx = np.ogrid[:128, :128]
+        merkez = (yy - cy) ** 2 + (xx - cx) ** 2 <= 28 ** 2
+        img[merkez] = 250
+        # Ust kenar bandi (artefakt) - rows 0..6, cols 30..100
+        img[0:7, 30:100] = 250
+        # Bandı merkeze baglayan dik parlak kopru (rows 7..43, col 64-65)
+        img[7:43, 63:66] = 250
+
+        # Beklenti: tek baglantili bilesen olusur (band+kopru+merkez).
+        merkez_oncesi = int((img[merkez] >= 220).sum())
+        ust_oncesi = int((img[:8, :] >= 220).sum())
+        assert merkez_oncesi > 0 and ust_oncesi > 0
+
+        temiz = isleyici.kenar_artefakt_temizle(img)
+
+        # Ust serit (kalinlik = round(128*0.12) = 15) parlaklik orani
+        # esigin altina dusurulmeli.
+        ust_serit = temiz[:15, :]
+        ust_oran = float((ust_serit >= 220).sum()) / float(ust_serit.size)
+        assert ust_oran < gi.KENAR_PARLAK_PIXEL_ORANI_ESIGI
+
+        # Merkez parlak yapi korunmali (cogunlugu hala parlak).
+        merkez_sonrasi = int((temiz[merkez] >= 220).sum())
+        assert merkez_sonrasi >= int(0.8 * merkez_oncesi)
+
+    def test_kismi_temizleme_min_pixel_ayarlari_davranisi_degistirir(self, monkeypatch):
+        """Kismi temizlikteki oran/mutlak piksel esikleri ayarlardan gelmeli."""
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_TEMIZLEME_AKTIF", True)
+        monkeypatch.setattr(gi, "KENAR_BILESEN_SERIT_PAY_ESIGI", 0.9)
+        isleyici = GorselIsleyici()
+
+        img = np.full((128, 128), 25, dtype=np.uint8)
+        # Ust seride kismen giren ama tamamen kenar artefakti sayilmayacak
+        # kadar merkeze uzayan parlak bilesen: serit payi ~0.325 < 0.9.
+        img[2:42, 30:50] = 250
+        serit_once = int((img[:15, :] >= 220).sum())
+        assert serit_once > 0
+
+        monkeypatch.setattr(gi, "KENAR_KISMI_TEMIZLEME_MIN_PIXEL_ORANI", 0.01)
+        monkeypatch.setattr(gi, "KENAR_KISMI_TEMIZLEME_MIN_PIXEL", 50)
+        temiz_dusuk_esik = isleyici.kenar_artefakt_temizle(img)
+        assert int((temiz_dusuk_esik[:15, :] >= 220).sum()) < serit_once
+
+        monkeypatch.setattr(gi, "KENAR_KISMI_TEMIZLEME_MIN_PIXEL_ORANI", 1.0)
+        monkeypatch.setattr(gi, "KENAR_KISMI_TEMIZLEME_MIN_PIXEL", 10_000)
+        temiz_yuksek_esik = isleyici.kenar_artefakt_temizle(img)
+        np.testing.assert_array_equal(temiz_yuksek_esik, img)
+
+    def test_temizleme_tespit_kapaliyken_de_calisir(self, monkeypatch):
+        """KONTROL_AKTIF=False, TEMIZLEME_AKTIF=True kombinasyonu temizlemeli.
+
+        Ayar dokumantasyonu tespit ve temizlemenin bagimsiz oldugunu
+        soyler; pipeline da bu sozlesmeye uymali.
+        """
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_KONTROL_AKTIF", False)
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_TEMIZLEME_AKTIF", True)
+
+        isleyici = GorselIsleyici()
+        img = self._temiz_mri_benzeri_goruntu(seed=12)
+        img[:12, 20:80] = 250
+
+        with __import__("tempfile").TemporaryDirectory() as tmp:
+            path = Path(tmp) / "edge.png"
+            Image.fromarray(img, mode="L").save(path)
+
+            sonuc = isleyici.goruntu_isle(str(path))
+
+        assert sonuc is not None
+        # Tespit kapali oldugundan tespit sayaci sifir kalmali.
+        assert isleyici.kalite_istatistikleri.get("kenar_artefakt_tespit", 0) == 0
+        # Temizleme yine de calismali.
+        assert isleyici.kalite_istatistikleri.get("kenar_artefakt_temizlendi", 0) == 1
+
+    def test_temizleme_kapaliyken_goruntu_degismez(self, monkeypatch):
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_TEMIZLEME_AKTIF", False)
+        isleyici = GorselIsleyici()
+        img = self._temiz_mri_benzeri_goruntu(seed=8)
+        img[:10, 20:80] = 250
+
+        temiz = isleyici.kenar_artefakt_temizle(img)
+
+        np.testing.assert_array_equal(temiz, img)
+
+    def test_goruntu_isle_kenar_artefakt_temizleme_ile_256x256_uint8(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_KONTROL_AKTIF", True)
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_TEMIZLEME_AKTIF", True)
+
+        isleyici = GorselIsleyici()
+        img = self._temiz_mri_benzeri_goruntu(seed=9)
+        img[:12, 20:80] = 250
+        path = tmp_path / "edge.png"
+        Image.fromarray(img, mode="L").save(path)
+
+        sonuc = isleyici.goruntu_isle(str(path))
+
+        assert sonuc is not None
+        assert sonuc.shape == (256, 256)
+        assert sonuc.dtype == np.uint8
+
+    def test_goruntu_isle_temizleme_kapaliyken_uyumluluk_korunur(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_KONTROL_AKTIF", False)
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_TEMIZLEME_AKTIF", False)
+
+        isleyici = GorselIsleyici()
+        img = self._temiz_mri_benzeri_goruntu(seed=10)
+        path = tmp_path / "clean.png"
+        Image.fromarray(img, mode="L").save(path)
+
+        sonuc = isleyici.goruntu_isle(str(path))
+
+        assert sonuc is not None
+        assert sonuc.shape == (256, 256)
+        assert sonuc.dtype == np.uint8
+        # Yeni sayaclar varsa bile sifir kalmali
+        assert isleyici.kalite_istatistikleri.get("kenar_artefakt_tespit", 0) == 0
+        assert isleyici.kalite_istatistikleri.get("kenar_artefakt_temizlendi", 0) == 0
+
+    def test_toplu_isleme_kenar_artefakt_sayaclarini_toplar(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_KONTROL_AKTIF", True)
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_TEMIZLEME_AKTIF", True)
+
+        isleyici = GorselIsleyici()
+        isleyici.n_jobs = 1
+
+        dataset = tmp_path / "dataset"
+        sinif_klasoru = dataset / "NonDemented"
+        sinif_klasoru.mkdir(parents=True)
+
+        # Iki goruntu, ikisinde de ust kenar artefakti
+        for i in range(2):
+            img = self._temiz_mri_benzeri_goruntu(seed=20 + i)
+            img[:12, 20:80] = 250
+            Image.fromarray(img, mode="L").save(sinif_klasoru / f"art_{i}.png")
+
+        cikti = tmp_path / "cikti"
+        cikti.mkdir()
+
+        isleyici.tum_gorselleri_isle(cikti, giris_klasoru=dataset)
+
+        assert isleyici.kalite_istatistikleri["kenar_artefakt_tespit"] >= 2
+        assert isleyici.kalite_istatistikleri["kenar_artefakt_temizlendi"] >= 2
+
+
 class TestGorselIsleyiciEdgeCases:
     """Sınır durumları ve hata yönetimi testleri."""
 
@@ -479,6 +1259,40 @@ class TestGorselIsleyiciEdgeCases:
 
         assert normalized.shape == constant_img.shape
         assert not np.isnan(normalized).any()
+        assert normalized.dtype == np.uint8
+
+    def test_yogunluk_normalize_all_zero_image_background_kalir(self):
+        """Tam siyah goruntu maske yokken sifir ve uint8 kalmali."""
+        isleyici = GorselIsleyici()
+        img = np.zeros((64, 64), dtype=np.uint8)
+
+        normalized = isleyici.yogunluk_normalize(img)
+
+        np.testing.assert_array_equal(normalized, img)
+        assert normalized.dtype == np.uint8
+
+    def test_yogunluk_normalize_tiny_foreground_reddedilir(self):
+        """Cok kucuk foreground percentile hesabi icin guvenilir sayilmamali."""
+        isleyici = GorselIsleyici()
+        img = np.zeros((64, 64), dtype=np.uint8)
+        img[30:32, 30:32] = 180
+
+        normalized = isleyici.yogunluk_normalize(img)
+
+        assert int(normalized.max()) == 0
+        assert normalized.dtype == np.uint8
+
+    def test_yogunluk_normalize_low_contrast_foreground_sifir_doner(self):
+        """Dusuk kontrastli foreground normalize edilirken NaN veya yapay sinyal uretmemeli."""
+        isleyici = GorselIsleyici()
+        img = np.zeros((96, 96), dtype=np.uint8)
+        yy, xx = np.ogrid[:96, :96]
+        beyin = (yy - 48) ** 2 + (xx - 48) ** 2 <= 24 ** 2
+        img[beyin] = 120
+
+        normalized = isleyici.yogunluk_normalize(img)
+
+        assert int(normalized.max()) == 0
         assert normalized.dtype == np.uint8
 
 

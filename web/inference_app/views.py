@@ -10,14 +10,11 @@ from django.core.files.base import ContentFile
 
 from .models import PredictionRecord
 from .services.model_loader import registry
+from .services.xgb_inference import predict_image_xgb_local
 
-# Mevcut ML modüllerinden fonksiyonları import et
-# settings.py içindeki sys.path eklemesi sayesinde çalışacak
-try:
-    from model.inference import predict_image, predict_image_xgb
-    from model.dl.utils import get_device
-except ImportError as e:
-    print(f"ML modülleri import edilemedi: {e}")
+# NOT: `model.inference` modül seviyesinde torch import ediyor. Torch web env'de
+# zorunlu olmadığından (yalnızca ResNet için gerekli), ResNet ile ilgili
+# importlar request anında, tek tek branch içinde lazy yapılır.
 
 def index(request):
     """Tahmin ana sayfası - Model listesini ve yükleme alanını gösterir."""
@@ -53,6 +50,13 @@ def predict(request):
         # 3. Tahmin yap
         result = {}
         if model_name.endswith(".pt"):
+            try:
+                from model.inference import predict_image
+            except ImportError as exc:
+                return JsonResponse(
+                    {"error": f"ResNet inference için torch kurulu olmalı: {exc}"},
+                    status=503,
+                )
             model, meta = registry.get_resnet(model_path)
             result = predict_image(
                 model,
@@ -67,7 +71,7 @@ def predict(request):
             model_type = "resnet"
         elif model_name.endswith(".json"):
             model, meta = registry.get_xgboost(model_path)
-            result = predict_image_xgb(
+            result = predict_image_xgb_local(
                 model,
                 tmp_path,
                 meta["image_size"],

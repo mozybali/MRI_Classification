@@ -39,6 +39,27 @@ __all__ = [
     # Kalite kontrol
     "KALITE_KONTROL_AKTIF", "MIN_MEAN_INTENSITY", "MAX_MEAN_INTENSITY",
     "MIN_STD_INTENSITY", "MAX_BLACK_RATIO",
+    "EGIM_KALITE_KONTROL_AKTIF", "EGIM_KALITE_RED_ESIGI",
+    "EGIM_KALITE_ADAYLARI_KAYDET", "EGIM_KALITE_ADAYLARI_KLASOR_ADI",
+    "EGIM_KALITE_MANIFEST_DOSYA_ADI",
+    # Kenar artefakt kontrol
+    "KENAR_ARTEFAKT_KONTROL_AKTIF", "KENAR_ARTEFAKT_TEMIZLEME_AKTIF",
+    "KENAR_SERIT_ORANI", "KENAR_PARLAKLIK_ESIGI", "KENAR_COK_PARLAKLIK_ESIGI",
+    "KENAR_PARLAK_PIXEL_ORANI_ESIGI", "KENAR_BILESEN_ORANI_ESIGI",
+    "KENAR_BILESEN_SERIT_PAY_ESIGI",
+    "KENAR_KISMI_TEMIZLEME_MIN_PIXEL_ORANI", "KENAR_KISMI_TEMIZLEME_MIN_PIXEL",
+    "KENAR_TEMIZLEME_DEGERI", "KENAR_ARTEFAKT_RAPORLA",
+    "KENAR_ANATOMI_KORUMA_ORANI",
+    # Padding davranisi
+    "PADDING_OTOMATIK_ARKAPLAN",
+    # Egim duzeltme guvenilirlik
+    "EGIM_MIN_EKSEN_ORANI",
+    # Eğim düzeltme
+    "EGIM_DUZELTME_AKTIF", "EGIM_DUZELTME_RAPORLA",
+    "EGIM_ONIZLEME_URET", "EGIM_MIN_ACI", "EGIM_MAKS_ACI",
+    "EGIM_RMSE_MAKS", "EGIM_MIN_SATIR_SAYISI", "EGIM_MIN_X_SPAN",
+    "EGIM_MIN_FOREGROUND_ORANI", "EGIM_DOLDURMA_DEGERI",
+    "EGIM_ROTASYON_PADDING_ORANI",
 ]
 
 # ==================== GENEL AYARLAR ====================
@@ -96,7 +117,16 @@ BOYUTLANDIRMA_MODU = "pad"  # "pad" veya "stretch"
 
 # "pad" modunda eklenen kenar piksellerinin doldurulacagi yogunluk degeri.
 # MRI 2D dilimlerinde arka plan tipik olarak siyah oldugu icin 0 onerilir.
+# PADDING_OTOMATIK_ARKAPLAN True ise bu deger yalnizca tahmin basarisiz
+# oldugunda fallback olarak kullanilir.
 PADDING_DEGERI = 0
+
+# Padding canvas'ini doldururken otomatik arka plan tahmini kullanilsin mi?
+# True ise olceklenmis goruntunun dort kose yamasinin medyani padding
+# degeri olarak kullanilir. Boylece CLAHE gibi normalizasyon sonrasi
+# "0" arka plan ile padding "0"'i arasinda olusan gorunur sinir bandi
+# engellenir. False ise yukaridaki PADDING_DEGERI sabiti kullanilir.
+PADDING_OTOMATIK_ARKAPLAN = True
 
 # Normalizasyon ayarları
 # Kırpma yüzdeleri: Aşırı karanlık ve aydınlık pikselleri temizler
@@ -139,8 +169,9 @@ BIAS_FIELD_METHOD = "n4itk"  # "n4itk" (profesyonel) veya "simple" (hızlı)
 # Registration/Hizalama
 # Kaggle 2D slice veri seti onceden kabaca hizalanmistir; basit center-of-mass
 # kaydirma fazla deger katmaz ve kenar kayiplari yaratabilir. Default kapali.
-# Ham veri icin REGISTRATION_AKTIF=True ve REGISTRATION_METHOD="affine" + sabit
-# atlas onerilir.
+# Egim duzeltme aktif edilen akislarda merkez hizalamayi acmak icin
+# REGISTRATION_AKTIF=True; ham hacim/atlas tabanli akislar icin "affine"
+# veya "rigid" + sabit atlas onerilir.
 REGISTRATION_AKTIF = False
 REGISTRATION_METHOD = "simple"  # "simple" (center-of-mass), "affine" (gelişmiş), "rigid"
 
@@ -198,7 +229,115 @@ RASTGELE_TOHUM = 42        # Tekrarlanabilirlik için sabit tohum
 # ==================== KALİTE KONTROL AYARLARI ====================
 # Görüntü kalite kontrol eşikleri
 KALITE_KONTROL_AKTIF = True
-MIN_MEAN_INTENSITY = 5       # Minimum ortalama yoğunluk (çok karanlık kontrol)
+MIN_MEAN_INTENSITY = 5        # Minimum ortalama yoğunluk (çok karanlık kontrol)
 MAX_MEAN_INTENSITY = 245      # Maksimum ortalama yoğunluk (çok aydınlık kontrol)
 MIN_STD_INTENSITY = 5         # Minimum standart sapma (düz görüntü kontrol)
 MAX_BLACK_RATIO = 0.8         # Maksimum siyah piksel oranı (boş görüntü kontrol)
+
+# Guvenilir egim tahmini kalite kontrolu. Esik trainval ve test icin aynidir;
+# test performansina gore degistirilmez. Reddedilen goruntuler ham veriden
+# silinmez, cikti klasorunde ayri bir aday klasorune kopya olarak yazilir.
+#
+# Esik EGIM_MAKS_ACI'nin uzerinde tutulur: kucuk-orta egimlerin once
+# "duzeltilebilir" sayilmasini saglar; yalnizca acikca asiri (>= 10 derece)
+# eğimler kalite reddi olarak ayrilir. Daha dusuk degerler (orn. 1-3) aktif
+# duzeltme akisini bypass edip duzeltilebilir egimleri reddeder.
+EGIM_KALITE_KONTROL_AKTIF = True
+EGIM_KALITE_RED_ESIGI = 10.0
+EGIM_KALITE_ADAYLARI_KAYDET = True
+EGIM_KALITE_ADAYLARI_KLASOR_ADI = "kalite_kontrol_adaylari"
+EGIM_KALITE_MANIFEST_DOSYA_ADI = "egim_kalite_kontrol_manifest.csv"
+
+# ==================== KENAR ARTEFAKT AYARLARI ====================
+# Bazi MRI gorsellerinde ust/alt/sol/sag kenarlarda parlak/saturasyona
+# yakin artefaktlar bulunur. Bu artefaktlar global mean/std/black-ratio
+# kontrollerinden gecer ancak CLAHE ile yerel olarak guclendirildiginde
+# beyin dokusunun siniflandirmasini bozabilir. Asagidaki ayarlar yalnizca
+# kenar seritlerine bakarak konservatif bir tespit ve temizlik adimini
+# yonetir; merkezi beyin dokusuna mudahale etmez.
+
+# Kenar artefakt tespit/raporlama aktif mi?
+KENAR_ARTEFAKT_KONTROL_AKTIF = True
+
+# Tespit edilen kenar artefaktlarini temizle.
+# Tespit ile temizleme bagimsiz yonetilir; tespit acik ama temizleme
+# kapali ise sadece istatistik toplanir. Varsayilan aktif oldugunda
+# normalize/CLAHE oncesi konservatif kenar temizligi uygulanir.
+KENAR_ARTEFAKT_TEMIZLEME_AKTIF = True
+
+# Kenar serit kalinligi (yukseklik/genisligin orani). 0.12 -> %12.
+KENAR_SERIT_ORANI = 0.12
+
+# "Parlak" piksel esigi (uint8, 0-255). Bu esigin ustundeki pikseller
+# kenar serit istatistiklerinde parlak sayilir.
+KENAR_PARLAKLIK_ESIGI = 220
+
+# "Cok parlak" piksel esigi (uint8). p99 bu esigin ustundeyse kenar
+# suspicious kabul edilir ve temizleme cagrildiginda hedef olur.
+KENAR_COK_PARLAKLIK_ESIGI = 245
+
+# Bir kenar seridinde parlak piksel orani >= bu deger ise kenar
+# suspicious sayilir (varsayilan: %1).
+KENAR_PARLAK_PIXEL_ORANI_ESIGI = 0.01
+
+# Kenar seridi icindeki en buyuk parlak baglantili bilesenin tum kenar
+# serit alanina orani >= bu deger ise kenar suspicious sayilir.
+KENAR_BILESEN_ORANI_ESIGI = 0.003
+
+# Temizleme kriteri: bir parlak baglantili bilesenin piksellerinin
+# kenar seritlerine dusen pay'i >= bu deger ise bilesen artefakt sayilir
+# ve silinir. 0.6 -> bilesenin %60'indan fazlasi serit icindeyse temizle.
+# Boylece serit kalinligini biraz asarak merkeze tasan parlak bantlar
+# da yakalanir; merkezdeki anatomik parlak bolgeler (serit pay'i dusuk)
+# korunur.
+KENAR_BILESEN_SERIT_PAY_ESIGI = 0.6
+
+# Kismi temizleme kriteri: bilesen merkeze bagli oldugu icin tamamen
+# silinmeyecekse, serit icindeki parlak piksel sayisi hem asagidaki oran
+# hem de mutlak piksel esigi ile kontrol edilir. Bu iki esikten buyugu
+# kullanilir. 0.01 -> goruntu alaninin %1'i.
+KENAR_KISMI_TEMIZLEME_MIN_PIXEL_ORANI = 0.01
+KENAR_KISMI_TEMIZLEME_MIN_PIXEL = 50
+
+# Temizleme sirasinda artefakt piksellerine yazilacak deger (uint8).
+# MRI arka plani genelde 0 oldugundan varsayilan 0.
+KENAR_TEMIZLEME_DEGERI = 0
+
+# Bir parlak baglantili bilesenin alani toplam goruntu alaninin bu oranindan
+# buyukse anatomik kabul edilir ve dokunulmaz. 0.5 -> goruntunun yarisindan
+# buyuk parlak yapilar (ornegin saturasyonlu beyin dokusu) korunur. Deger
+# [0.0, 1.0] araligi disinda verilirse uyarilir ve guvenli sinirlara klempelenir.
+KENAR_ANATOMI_KORUMA_ORANI = 0.5
+
+# Kalite raporlamada kenar artefakt sayaclari yazdirilsin mi?
+KENAR_ARTEFAKT_RAPORLA = True
+
+# ==================== EGIM DUZELTME AYARLARI ====================
+# Hafif sola/saga yatmis 2D MRI dilimleri icin konservatif egim duzeltme.
+# Varsayilan politika: kucuk-orta egimleri otomatik degistirme; yuksek
+# egimli ve guvenilir bulunan dilimleri kalite adayi olarak egitim ciktilarindan
+# ayir. Egim duzeltme opt-in acilirsa 1-6 derece arasi guvenilir egimler
+# dondurulur; daha buyuk acilar otomatik dondurulmez.
+EGIM_DUZELTME_AKTIF = False
+EGIM_DUZELTME_RAPORLA = False
+EGIM_ONIZLEME_URET = False
+EGIM_MIN_ACI = 1.0
+EGIM_MAKS_ACI = 6.0
+# PCA ve minAreaRect acilari arasindaki izin verilen maksimum fark (derece).
+EGIM_RMSE_MAKS = 2.5
+EGIM_MIN_SATIR_SAYISI = 45
+EGIM_MIN_X_SPAN = 8.0
+# Ana foreground bileseni goruntu alaninin en az bu orani kadar olmali.
+EGIM_MIN_FOREGROUND_ORANI = 0.04
+EGIM_DOLDURMA_DEGERI = 0
+EGIM_ROTASYON_PADDING_ORANI = 0.12
+
+# Egim tahmini PCA tabanli olarak yapilir; minor/major eksen orani bu
+# esikten buyukse maske neredeyse izotropik (dairesel) kabul edilir ve
+# tahmin guvenilmez sayilir. OASIS/Kaggle 2D Alzheimer dilimleri beyin
+# kirpilmis ve nispeten izotropik gorundugu icin 0.80 tum gercek dilimleri
+# "maske_isotropik" sayabiliyordu. 0.95, yuksek egimli adaylari egitim
+# ciktilarindan ayirmak icin daha kullanisli ama hala konservatif bir
+# baslangic esigidir; daha agresif ayrim icin veri setinden orneklerle
+# 0.98 ayrica degerlendirilmelidir.
+EGIM_MIN_EKSEN_ORANI = 0.95

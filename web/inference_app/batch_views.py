@@ -8,12 +8,10 @@ from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 
 from .services.model_loader import registry
+from .services.xgb_inference import predict_image_xgb_local
 
-# ML modülleri
-try:
-    from model.inference import predict_image, predict_image_xgb
-except ImportError:
-    predict_image = None
+# `model.inference` torch'u zorunlu kıldığı için ResNet branch'inde lazy import
+# yapılır; XGBoost akışı `predict_image_xgb_local` ile torch'tan bağımsız çalışır.
 
 def batch_predict(request):
     """
@@ -46,11 +44,18 @@ def batch_predict(request):
                         
                         # 3. Tahmin yap
                         if model_name.endswith(".pt"):
+                            try:
+                                from model.inference import predict_image
+                            except ImportError as exc:
+                                return JsonResponse(
+                                    {"error": f"ResNet inference için torch kurulu olmalı: {exc}"},
+                                    status=503,
+                                )
                             model, meta = registry.get_resnet(model_path)
                             res = predict_image(model, tmp_path, meta["image_size"], meta["class_names"], meta["device"], apply_mri_preprocessing=apply_preprocess)
                         else:
                             model, meta = registry.get_xgboost(model_path)
-                            res = predict_image_xgb(model, tmp_path, meta["image_size"], meta["class_names"], apply_mri_preprocessing=apply_preprocess)
+                            res = predict_image_xgb_local(model, tmp_path, meta["image_size"], meta["class_names"], apply_mri_preprocessing=apply_preprocess)
                         
                         results.append({
                             "filename": filename,

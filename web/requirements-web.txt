@@ -3,3 +3,18 @@ whitenoise>=6.7.0
 pillow>=10.0.0
 python-dotenv>=1.0.0
 gunicorn>=21.0.0
+psycopg[binary]>=3.1
+
+# XGBoost inference dependencies (used by web/inference_app via model.sl + goruntu_isleme)
+xgboost>=2.0
+scikit-learn>=1.3
+numpy>=1.24
+scipy>=1.10
+opencv-python>=4.8
+scikit-image>=0.21
+# tqdm: goruntu_isleme/toplu_islem.py modül seviyesinde import ediyor.
+# XGBoost + "preprocess" akışı GorselIsleyici üzerinden bu modülü tetikler.
+tqdm>=4.62.0
+# NOT: ResNet (.pt) inference torch+torchvision gerektirir — minimal web env'de yer almaz.
+# ResNet kullanılacaksa proje kökünden requirements-torch-cpu.txt veya
+# requirements-torch-cu128.txt kurulmalı. XGBoost-only akışlar torchsuz çalışır.
