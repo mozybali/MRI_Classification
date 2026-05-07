@@ -18,20 +18,31 @@ from xgboost import XGBClassifier
 def build_xgb_classifier(
     num_classes: int,
     params: dict[str, Any] | None = None,
+    *,
+    eval_metric: Any = None,
 ) -> XGBClassifier:
     """Siniflandirma icin XGBClassifier olustur.
 
     Parameters
     ----------
     num_classes : int
-        Sinif sayisi.
+        Sinif sayisi. Sanity-check icin kullanilir; XGBoost'a dogrudan
+        aktarilmaz (num_class fit sirasinda y'den cikarilir).
     params : dict | None
         Opsiyonel XGBoost parametreleri.
+    eval_metric : str | callable | list | None
+        Override icin eval_metric. None ise "mlogloss" kullanilir. Liste
+        verilirse XGBoost early stopping listenin son metrigine gore karar
+        verir.
 
     Returns
     -------
     XGBClassifier
     """
+    if num_classes < 2:
+        raise ValueError(
+            f"num_classes en az 2 olmali, {num_classes} verildi."
+        )
     defaults: dict[str, Any] = {
         "n_estimators": 300,
         "max_depth": 6,
@@ -42,12 +53,13 @@ def build_xgb_classifier(
         "min_child_weight": 1,
         "objective": "multi:softprob",
         "eval_metric": "mlogloss",
-        "use_label_encoder": False,
         "verbosity": 0,
         "random_state": 42,
     }
     if params:
         defaults.update(params)
+    if eval_metric is not None:
+        defaults["eval_metric"] = eval_metric
     return XGBClassifier(**defaults)
 
 
@@ -68,10 +80,16 @@ def save_xgb_model(
     import json
 
     path = Path(path)
+    if path.suffix == "":
+        path = path.with_suffix(".json")
+    elif path.suffix.lower() != ".json":
+        raise ValueError(
+            f"XGBoost model yolu .json uzantili olmali, alindi: {path.suffix}"
+        )
     path.parent.mkdir(parents=True, exist_ok=True)
     model.save_model(str(path))
 
-    if image_size is not None or class_names is not None:
+    if image_size is not None or class_names is not None or seed is not None:
         meta: dict[str, Any] = {}
         if image_size is not None:
             meta["image_size"] = image_size

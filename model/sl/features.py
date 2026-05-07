@@ -77,20 +77,20 @@ def feature_group_slices(image_size: int) -> dict[str, slice]:
 def _ensure_gray_uint8(image: np.ndarray) -> np.ndarray:
     """Goruntunun 2D gri-ton uint8 formatinda olmasini garanti et.
 
-    Not: uint8 giriste max 255 > 1.0 oldugundan min-max normalizasyon her zaman
-    uygulanir.  Float [0,1] girdi icin de min-max kaydirma yapilir; bu tutarli
-    bir davranistir ancak min > 0 ise hafif brightness shift'e neden olabilir.
+    Onisleme hatti (goruntu_isleme/on_isleme.py) zaten percentile clip + CLAHE
+    ile [0,255] uint8 uretir; burada ikinci bir goruntu-bazli min-max yapilmaz.
     """
     if image.ndim == 3:
-        # RGB -> gri-ton donusumu
         image = np.dot(image[..., :3], [0.2989, 0.5870, 0.1140])
-    img = image.astype(np.float64)
-    if img.max() > 1.0 or img.min() < 0.0:
-        img = img - img.min()
-        denom = img.max()
-        if denom > 0:
-            img = img / denom
-    return (img * 255).astype(np.uint8)
+    if isinstance(image, np.ndarray) and image.dtype == np.uint8:
+        return image
+    arr = np.asarray(image)
+    if np.issubdtype(arr.dtype, np.floating):
+        arr_min = float(arr.min(initial=0.0))
+        arr_max = float(arr.max(initial=0.0))
+        if 0.0 <= arr_min and arr_max <= 1.0:
+            return (np.clip(arr, 0.0, 1.0) * 255).astype(np.uint8)
+    return np.clip(arr, 0, 255).astype(np.uint8)
 
 
 def _extract_hog(gray: np.ndarray) -> np.ndarray:
@@ -133,18 +133,21 @@ def _extract_glcm(gray: np.ndarray) -> np.ndarray:
 
 
 def _extract_histogram_stats(gray: np.ndarray) -> np.ndarray:
-    hist, _ = np.histogram(gray.ravel(), bins=_HIST_BINS, range=(0, 256), density=True)
+    counts, _ = np.histogram(gray.ravel(), bins=_HIST_BINS, range=(0, 256), density=False)
+    hist = counts.astype(np.float64) / max(counts.sum(), 1)
     flat = gray.ravel().astype(np.float64)
     mean = float(np.mean(flat))
     std = float(np.std(flat))
-    skew = float(sp_stats.skew(flat))
-    kurt = float(sp_stats.kurtosis(flat))
-    # Sabit goruntuler icin skew/kurtosis NaN donebilir; 0.0 olarak ele al
-    if not np.isfinite(skew):
+    if std == 0.0:
         skew = 0.0
-    if not np.isfinite(kurt):
         kurt = 0.0
-    # Shannon entropy
+    else:
+        skew = float(sp_stats.skew(flat))
+        kurt = float(sp_stats.kurtosis(flat))
+        if not np.isfinite(skew):
+            skew = 0.0
+        if not np.isfinite(kurt):
+            kurt = 0.0
     hist_nonzero = hist[hist > 0]
     entropy = float(-np.sum(hist_nonzero * np.log2(hist_nonzero)))
     stats_vec = np.array([mean, std, skew, kurt, entropy], dtype=np.float64)

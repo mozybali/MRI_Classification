@@ -13,7 +13,6 @@ reuse ederek leak-free grup bilgisini korur.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 from PIL import Image
@@ -22,7 +21,7 @@ from tqdm import tqdm
 from ..dl.dataset import (
     GORUNTU_UZANTILARI,
     SINIF_ETIKETI,
-    SINIF_ISIMLERI,
+    _validate_expected_classes,
     kaynak_id_belirle,
 )
 from .features import extract_features
@@ -56,14 +55,20 @@ def build_feature_matrix(
         Goruntu dosya yollarinin string listesi.
     """
     data_dir = Path(data_dir)
+    _validate_expected_classes(data_dir, "Trainval")
     if cache_path is not None:
         cache_path = Path(cache_path)
         if cache_path.exists():
             data = np.load(cache_path, allow_pickle=True)
             # Metadata dogrulama: cache dosyasi farkli image_size ile
             # veya veri diziniyle olusturulmussa stale cache kullanilmasini onle
-            cached_image_size = int(data["image_size"]) if "image_size" in data else None
-            if cached_image_size is not None and cached_image_size != image_size:
+            if "image_size" not in data:
+                raise ValueError(
+                    "Cache dosyasi image_size metadata'si icermiyor. "
+                    f"Stale cache riskini onlemek icin dosyayi silin veya farkli cache yolu kullanin: {cache_path}"
+                )
+            cached_image_size = int(data["image_size"])
+            if cached_image_size != image_size:
                 raise ValueError(
                     f"Cache dosyasi farkli image_size ile olusturulmus: "
                     f"cache={cached_image_size}, istenen={image_size}. "
@@ -108,8 +113,8 @@ def build_feature_matrix(
 
     features_list: list[np.ndarray] = []
     for img_path in tqdm(image_paths, desc="Ozellik cikarma", unit="img"):
-        img = Image.open(img_path).convert("L")
-        img = img.resize((image_size, image_size), Image.LANCZOS)
+        with Image.open(img_path) as raw:
+            img = raw.convert("L").resize((image_size, image_size), Image.LANCZOS)
         arr = np.array(img, dtype=np.uint8)
         features_list.append(extract_features(arr))
 

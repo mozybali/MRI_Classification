@@ -24,8 +24,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import (
     accuracy_score,
+    f1_score,
     log_loss,
     precision_recall_fscore_support,
+    precision_score,
+    recall_score,
 )
 
 from ..ayarlar import (
@@ -59,6 +62,76 @@ from .features import feature_group_slices
 from .xgb_classifier import build_xgb_classifier, save_xgb_model
 
 SUPPORTED_SELECTION_METRICS = {"loss", "accuracy", "precision", "recall", "f1"}
+
+
+# ==================== Custom XGBoost eval metric callable'lari ====================
+#
+# XGBoost custom_metric'i varsayilan olarak minimize edildigi icin maximize
+# istenen metriklerden 1.0 - metric donduren "loss-like" callable'lar uretiriz.
+# Module-level isimli fonksiyonlar; functools.partial XGBoost 3.2'de
+# `__name__` aramasinda hata veriyor. Multiprocessing/HPO icin de pickle-safe.
+
+
+def _xgb_predicted_labels(y_pred: np.ndarray) -> tuple[np.ndarray, list[int]]:
+    arr = np.asarray(y_pred)
+    if arr.ndim != 2:
+        raise ValueError(
+            f"Custom metric multiclass softprob bekliyor; aldi shape={arr.shape}"
+        )
+    return arr.argmax(axis=1), list(range(arr.shape[1]))
+
+
+def _xgb_macro_f1_loss(y_true, y_pred):
+    preds, labels = _xgb_predicted_labels(y_pred)
+    return 1.0 - f1_score(
+        y_true, preds, labels=labels, average="macro", zero_division=0,
+    )
+
+
+def _xgb_macro_precision_loss(y_true, y_pred):
+    preds, labels = _xgb_predicted_labels(y_pred)
+    return 1.0 - precision_score(
+        y_true, preds, labels=labels, average="macro", zero_division=0,
+    )
+
+
+def _xgb_macro_recall_loss(y_true, y_pred):
+    preds, labels = _xgb_predicted_labels(y_pred)
+    return 1.0 - recall_score(
+        y_true, preds, labels=labels, average="macro", zero_division=0,
+    )
+
+
+def _xgb_accuracy_loss(y_true, y_pred):
+    preds, _labels = _xgb_predicted_labels(y_pred)
+    return 1.0 - accuracy_score(y_true, preds)
+
+
+_SELECTION_METRIC_CALLABLES: dict[str, Any] = {
+    "f1": _xgb_macro_f1_loss,
+    "precision": _xgb_macro_precision_loss,
+    "recall": _xgb_macro_recall_loss,
+    "accuracy": _xgb_accuracy_loss,
+}
+
+
+def _xgb_eval_metric_for_selection(selection_metric: str) -> tuple[Any, str]:
+    """selection_metric -> (eval_metric, xgb_early_stopping_metric_label).
+
+    ``loss`` icin tek metrik ("mlogloss") doner; diger metrikler icin
+    [mlogloss, custom_loss] listesi doner. XGBoost early stopping listenin
+    son metrigine gore karar verdigi icin custom metric daima son sirada.
+    """
+    if selection_metric not in SUPPORTED_SELECTION_METRICS:
+        raise ValueError(
+            f"Gecersiz selection metric: {selection_metric!r}. "
+            f"Desteklenen: {sorted(SUPPORTED_SELECTION_METRICS)}"
+        )
+    if selection_metric == "loss":
+        return "mlogloss", "mlogloss"
+    callable_metric = _SELECTION_METRIC_CALLABLES[selection_metric]
+    label = f"1 - macro_{selection_metric}" if selection_metric != "accuracy" else "1 - accuracy"
+    return ["mlogloss", callable_metric], label
 
 
 @dataclass(slots=True)
@@ -410,15 +483,25 @@ def _plot_xgb_training_curves(
     save_path.parent.mkdir(parents=True, exist_ok=True)
 
     fig, ax = plt.subplots(figsize=(10, 6))
+    metric_names_seen: set[str] = set()
     for label, metrics in evals_result.items():
         for metric_name, values in metrics.items():
+            metric_names_seen.add(metric_name)
             ax.plot(range(1, len(values) + 1), values, label=f"{label} {metric_name}", linewidth=2)
 
     if best_iteration is not None:
-        ax.axvline(best_iteration, color="gray", linestyle=":", alpha=0.7, label=f"Best iter={best_iteration}")
+        # XGBoost best_iteration 0-bazli; eksen 1-bazli oldugu icin +1.
+        best_round_1based = int(best_iteration) + 1
+        ax.axvline(
+            best_round_1based, color="gray", linestyle=":", alpha=0.7,
+            label=f"Best iter={best_round_1based}",
+        )
 
     ax.set_xlabel("Boosting Round")
-    ax.set_ylabel("Log Loss")
+    if metric_names_seen == {"mlogloss"}:
+        ax.set_ylabel("Log Loss")
+    else:
+        ax.set_ylabel("Loss / Metric")
     ax.set_title("XGBoost Egitim Egrisi")
     ax.legend()
     ax.grid(True, alpha=0.3)
@@ -527,6 +610,12 @@ def run_sl_training(
         require_test_dir=evaluate_test_set,
         full_trainval=full_trainval,
     )
+
+    if selection_metric not in SUPPORTED_SELECTION_METRICS:
+        raise ValueError(
+            f"Gecersiz selection_metric: {selection_metric!r}. "
+            f"Desteklenen: {sorted(SUPPORTED_SELECTION_METRICS)}"
+        )
 
     np.random.seed(config.seed)
 
@@ -673,7 +762,8 @@ def run_sl_training(
         "min_child_weight": config.min_child_weight,
         "random_state": config.seed,
     }
-    model = build_xgb_classifier(num_classes, xgb_params)
+    eval_metric, xgb_early_stopping_metric = _xgb_eval_metric_for_selection(selection_metric)
+    model = build_xgb_classifier(num_classes, xgb_params, eval_metric=eval_metric)
 
     # Fit
     fit_params: dict[str, Any] = {"verbose": verbose}
@@ -688,6 +778,11 @@ def run_sl_training(
 
     best_iteration = getattr(model, "best_iteration", None)
     evals_result = model.evals_result()
+
+    history: dict[str, list[float]] = {}
+    for set_name, set_metrics in evals_result.items():
+        for metric_name, values in set_metrics.items():
+            history[f"{set_name}_{metric_name}"] = [float(v) for v in values]
 
     # Val metrikleri — predict/predict_proba erken durdurma sonrasi best_iteration
     # kullanir; train_loss da ayni iteration'a karsilik gelsin diye predict_proba
@@ -832,12 +927,6 @@ def run_sl_training(
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         report_path = output_dirs["reports"] / f"rapor_{artifact_stem}_{timestamp}.json"
 
-        # logloss listelerini history olarak kaydet
-        history: dict[str, list[float]] = {}
-        for set_name, set_metrics in evals_result.items():
-            for metric_name, values in set_metrics.items():
-                history[f"{set_name}_{metric_name}"] = [float(v) for v in values]
-
         selection_mode = "fixed_epoch_full_trainval" if full_trainval else _selection_mode_for_metric(selection_metric)
 
         report: dict[str, Any] = {
@@ -849,6 +938,7 @@ def run_sl_training(
             "best_iteration": best_iteration,
             "selection_metric": selection_metric,
             "selection_mode": selection_mode,
+            "xgb_early_stopping_metric": xgb_early_stopping_metric,
             "best_selection_value": round(best_selection_value, 6) if best_selection_value is not None else None,
             "best_val_metrics": (
                 {
@@ -943,8 +1033,9 @@ def run_sl_training(
         "best_selection_value": best_selection_value,
         "selection_metric": selection_metric,
         "selection_mode": "fixed_epoch_full_trainval" if full_trainval else _selection_mode_for_metric(selection_metric),
+        "xgb_early_stopping_metric": xgb_early_stopping_metric,
         "test_metrics": test_metrics,
-        "history": history if output_dirs else {},
+        "history": history,
         "data_info": {
             **split_info,
             "test_size": test_size,
@@ -1043,6 +1134,13 @@ def run_sl_cv_training(
         require_test_dir=evaluate_test_set,
         full_trainval=False,
     )
+
+    if selection_metric not in SUPPORTED_SELECTION_METRICS:
+        raise ValueError(
+            f"Gecersiz selection_metric: {selection_metric!r}. "
+            f"Desteklenen: {sorted(SUPPORTED_SELECTION_METRICS)}"
+        )
+    _, xgb_early_stopping_metric = _xgb_eval_metric_for_selection(selection_metric)
 
     np.random.seed(config.seed)
     trainval_dir, test_dir = resolve_sl_data_dirs(config)
@@ -1201,6 +1299,8 @@ def run_sl_cv_training(
             "timestamp": timestamp,
             "n_folds": n_folds,
             "selection_metric": selection_metric,
+            "selection_mode": _selection_mode_for_metric(selection_metric),
+            "xgb_early_stopping_metric": xgb_early_stopping_metric,
             "aggregate": aggregate,
             "folds": [
                 {
@@ -1249,6 +1349,7 @@ def run_sl_cv_training(
         "cv_summary_path": cv_summary_path,
         "selection_metric": selection_metric,
         "selection_mode": _selection_mode_for_metric(selection_metric),
+        "xgb_early_stopping_metric": xgb_early_stopping_metric,
         "trainval_dir": trainval_dir,
         "test_dir": test_dir,
         "config": sl_config_to_dict(config),
