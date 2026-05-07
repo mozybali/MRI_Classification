@@ -7,6 +7,7 @@ engine.py
 Egitim ve degerlendirme donguleri, early stopping mekanizmasi.
 """
 
+import math
 from typing import Dict
 
 import numpy as np
@@ -15,6 +16,20 @@ import torch.nn as nn
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 
 from ..ayarlar import VARSAYILAN_EARLY_STOPPING_SABIR
+
+
+def _batch_loss_sum(loss: torch.Tensor, criterion: nn.Module, batch_size: int) -> float:
+    """Criterion'un reduction moduna gore batch icindeki toplam kaybi dondurur.
+
+    reduction="none" -> elemanlari topla; "sum" -> oldugu gibi; "mean" -> batch ile carp.
+    """
+    detached = loss.detach()
+    if detached.dim() > 0:
+        return float(detached.sum().item())
+    reduction = getattr(criterion, "reduction", "mean")
+    if reduction == "sum":
+        return float(detached.item())
+    return float(detached.item()) * batch_size
 
 
 def train_one_epoch(
@@ -38,7 +53,7 @@ def train_one_epoch(
         loss.backward()
         optimizer.step()
 
-        running_loss += loss.item() * images.size(0)
+        running_loss += _batch_loss_sum(loss, criterion, images.size(0))
         preds = outputs.argmax(dim=1).cpu().numpy()
         all_preds.extend(preds)
         all_labels.extend(labels.cpu().numpy())
@@ -75,7 +90,7 @@ def evaluate(
         loss = criterion(outputs, labels)
         probs = torch.softmax(outputs, dim=1)
 
-        running_loss += loss.item() * images.size(0)
+        running_loss += _batch_loss_sum(loss, criterion, images.size(0))
         preds = probs.argmax(dim=1).cpu().numpy()
         all_preds.extend(preds)
         all_labels.extend(labels.cpu().numpy())
@@ -110,9 +125,20 @@ class EarlyStopping:
         self.should_stop = False
 
     def __call__(self, val_loss: float) -> bool:
+        # NaN/Inf gelirse karsilastirmalar False doner ve best_score bozulur;
+        # bu durumu acik bir bozulma adimi olarak say.
+        if not math.isfinite(val_loss):
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.should_stop = True
+            return self.should_stop
+
         score = -val_loss
         if self.best_score is None:
+            # Ilk gecerli skor baseline'i kurar; onceki NaN/Inf adimlarinda
+            # artmis olabilecek counter'i sifirla.
             self.best_score = score
+            self.counter = 0
         elif score < self.best_score + self.min_delta:
             self.counter += 1
             if self.counter >= self.patience:

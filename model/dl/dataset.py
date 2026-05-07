@@ -63,13 +63,16 @@ def compute_dataset_stats(
         idxs = rng.choice(len(paths), size=max_samples, replace=False)
         paths = [paths[i] for i in sorted(idxs.tolist())]
 
+    deterministic_ops = _resize_and_crop(image_size)
+
     sum_ = np.zeros(3, dtype=np.float64)
     sum_sq = np.zeros(3, dtype=np.float64)
     pixel_count = 0
     for path in paths:
         with Image.open(path) as raw:
             img = raw.convert("RGB")
-            img = img.resize((image_size, image_size), Image.BILINEAR)
+            for op in deterministic_ops:
+                img = op(img)
             arr = np.asarray(img, dtype=np.float64) / 255.0
         flat = arr.reshape(-1, 3)
         sum_ += flat.sum(axis=0)

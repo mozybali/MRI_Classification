@@ -448,18 +448,44 @@ def test_build_model_resnet_cpu_olusturur():
     assert y.shape == (2, 4)
 
 
-def test_resnet_pretrained_yuklenemezse_acik_hata_verir(monkeypatch):
+def test_resnet_pretrained_indirilemezse_acik_hata_verir(monkeypatch):
+    from urllib.error import URLError
+
     def fake_resnet18(*args, **kwargs):
-        raise RuntimeError("download failed")
+        raise URLError("download failed")
 
     monkeypatch.setattr("model.dl.models.resnet_classifier.models.resnet18", fake_resnet18)
 
-    try:
+    with pytest.raises(RuntimeError, match="indirilemedi") as exc_info:
         ResNetClassifier(num_classes=4, pretrained=True)
-    except RuntimeError as exc:
-        assert "pretrained agirliklar istendi ama yuklenemedi" in str(exc)
-    else:
-        raise AssertionError("Beklenen RuntimeError olusmadi.")
+    assert isinstance(exc_info.value.__cause__, URLError)
+
+
+def test_resnet_pretrained_oserror_da_sarilir(monkeypatch):
+    def fake_resnet18(*args, **kwargs):
+        raise OSError("cache write failed")
+
+    monkeypatch.setattr("model.dl.models.resnet_classifier.models.resnet18", fake_resnet18)
+
+    with pytest.raises(RuntimeError, match="indirilemedi"):
+        ResNetClassifier(num_classes=4, pretrained=True)
+
+
+def test_resnet_pretrained_api_hatasi_sarilmadan_yukselir(monkeypatch):
+    def fake_resnet18(*args, **kwargs):
+        raise TypeError("unexpected keyword argument 'weights'")
+
+    monkeypatch.setattr("model.dl.models.resnet_classifier.models.resnet18", fake_resnet18)
+
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        ResNetClassifier(num_classes=4, pretrained=True)
+
+
+def test_resnet_num_classes_gecersizse_hata_verir():
+    with pytest.raises(ValueError, match="num_classes"):
+        ResNetClassifier(num_classes=1, pretrained=False)
+    with pytest.raises(ValueError, match="num_classes"):
+        ResNetClassifier(num_classes=0, pretrained=False)
 
 
 def test_load_checkpoint_guvenli_modu_kullanir(monkeypatch, tmp_path):

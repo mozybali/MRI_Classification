@@ -269,13 +269,17 @@ def plot_prediction_confidence(
 ):
     """Dogru ve yanlis tahminlerin guven dagilimini goster."""
     save_path = _prepare_save_path(save_path)
-    labels = np.asarray(labels)
-    preds = np.asarray(preds)
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    labels = np.asarray(labels).reshape(-1)
+    preds = np.asarray(preds).reshape(-1)
     confidences = np.asarray(confidences, dtype=np.float32).reshape(-1)
 
     if labels.shape != preds.shape:
-        raise ValueError("labels ve preds ayni sekilde olmali.")
+        raise ValueError(
+            f"labels ve preds ayni sekilde olmali. "
+            f"Alinan: labels={labels.shape}, preds={preds.shape}."
+        )
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
     if confidences.size != labels.size:
         for ax in axes:
@@ -342,10 +346,26 @@ def plot_multiclass_roc_pr_curves(
 ):
     """Cok sinifli one-vs-rest ROC ve PR egirilerini ciz."""
     save_path = _prepare_save_path(save_path)
-    labels = np.asarray(labels)
+    labels = np.asarray(labels).reshape(-1)
     probs = np.asarray(probs)
-    classes = np.arange(len(class_names))
+    n_classes = len(class_names)
+
+    if probs.ndim != 2 or probs.shape[1] != n_classes:
+        raise ValueError(
+            "probs (n_samples, n_classes) seklinde 2B bir dizi olmalidir. "
+            f"Alinan: probs.shape={probs.shape}, beklenen sinif sayisi={n_classes}."
+        )
+    if probs.shape[0] != labels.shape[0]:
+        raise ValueError(
+            "probs ile labels ornek sayisi uyusmuyor. "
+            f"Alinan: probs={probs.shape}, labels={labels.shape}."
+        )
+
+    classes = np.arange(n_classes)
     labels_bin = label_binarize(labels, classes=classes)
+    # Ikili sinifta label_binarize (n, 1) dondurur; (n, 2) sekline genislet.
+    if labels_bin.shape[1] == 1 and n_classes == 2:
+        labels_bin = np.hstack([1 - labels_bin, labels_bin])
 
     fig, (ax_roc, ax_pr) = plt.subplots(1, 2, figsize=(16, 6))
     valid_class_count = 0
