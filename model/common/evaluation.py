@@ -18,7 +18,8 @@ from sklearn.metrics import (
     precision_recall_fscore_support,
     roc_auc_score,
 )
-from sklearn.preprocessing import label_binarize
+
+_PROB_TOL = 1e-6
 
 
 def scalar_metrics(metrics: dict[str, Any]) -> dict[str, float]:
@@ -43,12 +44,17 @@ def compute_valid_multiclass_auc_ap(
     probs: np.ndarray,
     class_names: list[str],
 ) -> tuple[float | None, float | None]:
-    """Yalnizca gecerli siniflari kullanarak macro ROC-AUC ve AP hesapla."""
-    labels_bin = label_binarize(labels, classes=np.arange(len(class_names)))
+    """Yalnizca gecerli siniflari kullanarak macro ROC-AUC ve AP hesapla.
+
+    Caller (`build_detailed_eval_report`) sekil ve aralik validasyonunu yaptigi
+    icin burada manuel one-hot ikili/cok sinifli ayrimi yapmadan calisir.
+    """
+    n_classes = len(class_names)
+    labels_bin = np.eye(n_classes, dtype=int)[np.asarray(labels, dtype=int)]
     auc_scores: list[float] = []
     ap_scores: list[float] = []
 
-    for class_idx in range(len(class_names)):
+    for class_idx in range(n_classes):
         positives = labels_bin[:, class_idx]
         if positives.size == 0 or positives.max() == 0 or positives.min() == 1:
             continue
@@ -75,14 +81,53 @@ def build_detailed_eval_report(
     class_names: list[str],
 ) -> dict[str, Any]:
     """Derinlemesine degerlendirme metriklerini JSON uyumlu sekilde ozetle."""
-    labels = np.asarray(labels)
-    preds = np.asarray(preds)
-    probs = np.asarray(probs) if probs is not None else np.empty((len(labels), 0), dtype=np.float32)
+    n_classes = len(class_names)
+    if n_classes <= 0:
+        raise ValueError("class_names bos olamaz.")
+
+    labels = np.asarray(labels, dtype=int)
+    preds = np.asarray(preds, dtype=int)
+    if labels.shape != preds.shape:
+        raise ValueError(
+            f"labels ve preds sekilleri uyusmuyor: {labels.shape} vs {preds.shape}"
+        )
+    if labels.ndim != 1:
+        raise ValueError(f"labels 1D olmali, gelen sekil: {labels.shape}")
+    if labels.size:
+        for arr, name in ((labels, "labels"), (preds, "preds")):
+            if arr.min() < 0 or arr.max() >= n_classes:
+                raise ValueError(
+                    f"{name} class_names araligi disinda: min={int(arr.min())}, "
+                    f"max={int(arr.max())}, n_classes={n_classes}"
+                )
+
+    if probs is None:
+        probs = np.empty((labels.shape[0], 0), dtype=np.float32)
+    else:
+        probs = np.asarray(probs, dtype=np.float32)
+        if probs.size and not np.isfinite(probs).all():
+            raise ValueError("probs NaN/Inf icermemeli.")
+        if probs.ndim == 1:
+            if n_classes != 2:
+                raise ValueError(
+                    f"1D probs yalnizca ikili siniflandirmada kabul edilir "
+                    f"(n_classes={n_classes})."
+                )
+            if probs.size and (
+                probs.min() < -_PROB_TOL or probs.max() > 1 + _PROB_TOL
+            ):
+                raise ValueError("1D probs [0, 1] araliginda olmali.")
+            probs = np.column_stack([1.0 - probs, probs]).astype(np.float32)
+        if probs.shape != (labels.shape[0], n_classes):
+            raise ValueError(
+                f"probs sekli {probs.shape}, beklenen "
+                f"{(labels.shape[0], n_classes)}"
+            )
 
     precision, recall, f1, support = precision_recall_fscore_support(
         labels,
         preds,
-        labels=list(range(len(class_names))),
+        labels=list(range(n_classes)),
         zero_division=0,
     )
     per_class = {

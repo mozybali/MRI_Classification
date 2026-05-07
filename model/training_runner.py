@@ -149,6 +149,7 @@ def resolve_data_dirs(
     config: TrainingConfig,
 ) -> tuple[Path, Path | None]:
     """Resolve split source directory and optional external test directory."""
+    explicit_trainval_root: Path | None = None
     if config.trainval_dir:
         explicit_trainval_root = Path(config.trainval_dir)
         trainval_dir = _resolve_split_subdir(explicit_trainval_root, "trainval") or explicit_trainval_root
@@ -158,6 +159,17 @@ def resolve_data_dirs(
     if config.test_dir:
         explicit_test_root = Path(config.test_dir)
         test_dir = _resolve_split_subdir(explicit_test_root, "test") or explicit_test_root
+    elif (
+        explicit_trainval_root is not None
+        and trainval_dir != explicit_trainval_root
+    ):
+        # Kullanici split kokunu verdi (trainval/ alt dizinine inildi);
+        # global default yerine ayni kokun altindaki test/ kardesini tercih et.
+        sibling_test = explicit_trainval_root / "test"
+        if sibling_test.exists() and _contains_class_dirs(sibling_test):
+            test_dir = sibling_test
+        else:
+            test_dir = _resolve_default_test_dir(trainval_dir)
     else:
         test_dir = _resolve_default_test_dir(trainval_dir)
     return trainval_dir, test_dir
@@ -208,7 +220,12 @@ def validate_training_config(
         raise ValueError("--color-jitter negatif olamaz.")
 
     trainval_dir, test_dir = resolve_data_dirs(config)
-    if not full_trainval and test_dir is None and config.val_ratio + config.test_ratio >= 1.0:
+    if (
+        not full_trainval
+        and require_test_dir
+        and test_dir is None
+        and config.val_ratio + config.test_ratio >= 1.0
+    ):
         raise ValueError("--val-ratio + --test-ratio 1'den kucuk olmali.")
     if require_test_dir and test_dir is None and config.test_ratio <= 0.0:
         raise ValueError("Harici test dizini yoksa --test-ratio pozitif olmali.")
@@ -216,7 +233,8 @@ def validate_training_config(
         raise FileNotFoundError(f"TrainVal veri dizini bulunamadi: {trainval_dir}")
     if test_dir is not None and not test_dir.exists():
         raise FileNotFoundError(f"Test veri dizini bulunamadi: {test_dir}")
-    if full_trainval and require_test_dir:
+    if full_trainval:
+        # Full-trainval val split uretmez; degerlendirilecek harici test sart.
         if test_dir is None:
             raise ValueError(
                 "Full-trainval final egitim icin harici test dizini gerekli. "
@@ -268,8 +286,10 @@ def _build_output_dirs(output_root: Path) -> dict[str, Path]:
 def _checkpoint_payload(
     config: TrainingConfig,
     epoch: int,
-    selection_loss: float | None,
+    selection_metric: str,
+    selection_value: float | None,
     selection_source: Literal["val", "train"],
+    val_loss: float | None,
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     num_classes: int,
@@ -278,16 +298,18 @@ def _checkpoint_payload(
 ) -> dict[str, Any]:
     """Checkpoint sozlugu olustur.
 
-    ``val_loss`` yalnizca validation seti varken doldurulur. Full-trainval
-    modunda secim sinyali train kayipi oldugundan ``selection_source="train"``
-    ile ``selection_loss`` saklanir ve ``val_loss=None`` birakilir.
+    ``val_loss`` yalnizca validation seti varken doldurulur. ``selection_value``
+    secim icin kullanilan metrigin (``selection_metric``) o epoch'taki degerini
+    saklar; ``selection_source`` bu sinyalin val'dan mi yoksa full-trainval'da
+    train'den mi geldigini belirtir.
     """
     return {
         "epoch": epoch,
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
-        "val_loss": selection_loss if selection_source == "val" else None,
-        "selection_loss": selection_loss,
+        "val_loss": val_loss,
+        "selection_metric": selection_metric,
+        "selection_value": selection_value,
         "selection_source": selection_source,
         "model_name": config.model,
         "pretrained": config.pretrained,
@@ -322,6 +344,13 @@ def run_training(
     govdesini tek bir kod yolundan gecirebilir.
     """
     selection_mode = _selection_mode_for_metric(selection_metric)
+    if full_trainval and not evaluate_test_set:
+        # Full-trainval val split uretmez; degerlendirilecek harici test
+        # kapatilirsa egitim sinyali kalmaz. Kombinasyonu basta reddet.
+        raise ValueError(
+            "full_trainval=True yalnizca harici test ile anlamli; "
+            "evaluate_test_set=True olmali."
+        )
     validate_training_config(
         config,
         require_test_dir=evaluate_test_set,
@@ -553,8 +582,10 @@ def run_training(
                     _checkpoint_payload(
                         config=config,
                         epoch=epoch,
-                        selection_loss=val_scalars["loss"],
+                        selection_metric=selection_metric,
+                        selection_value=current_selection_value,
                         selection_source="val",
+                        val_loss=val_scalars["loss"],
                         model=model,
                         optimizer=optimizer,
                         num_classes=num_classes,
@@ -586,8 +617,10 @@ def run_training(
                 _checkpoint_payload(
                     config=config,
                     epoch=best_epoch,
-                    selection_loss=selected_epoch_train_loss,
+                    selection_metric=selection_metric,
+                    selection_value=best_selection_value,
                     selection_source="train",
+                    val_loss=None,
                     model=model,
                     optimizer=optimizer,
                     num_classes=num_classes,

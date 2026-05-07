@@ -316,6 +316,130 @@ def test_detayli_rapor_auc_ap_ortalamasinda_eksik_siniflari_atlar():
     assert report["per_class"]["ModerateDemented"]["support"] == 0
 
 
+def test_detayli_rapor_ikili_2d_probs_calisir():
+    labels = np.array([0, 0, 1, 1])
+    preds = np.array([0, 1, 1, 1])
+    probs = np.array(
+        [
+            [0.80, 0.20],
+            [0.40, 0.60],
+            [0.30, 0.70],
+            [0.10, 0.90],
+        ],
+        dtype=np.float32,
+    )
+
+    report = training_runner._build_detailed_eval_report(
+        labels, preds, probs, ["neg", "poz"]
+    )
+
+    assert report["macro_auc_ovr"] is not None
+    assert report["macro_average_precision"] is not None
+    assert report["per_class"]["neg"]["support"] == 2
+    assert report["per_class"]["poz"]["support"] == 2
+
+
+def test_detayli_rapor_ikili_1d_probs_otomatik_genisletir():
+    labels = np.array([0, 0, 1, 1])
+    preds = np.array([0, 1, 1, 1])
+    probs_1d = np.array([0.20, 0.60, 0.70, 0.90], dtype=np.float32)
+
+    report = training_runner._build_detailed_eval_report(
+        labels, preds, probs_1d, ["neg", "poz"]
+    )
+
+    assert report["macro_auc_ovr"] is not None
+    assert report["confidence"]["mean_confidence"] is not None
+
+
+def test_detayli_rapor_probs_none_ise_auc_ap_bos():
+    labels = np.array([0, 1, 1, 0])
+    preds = np.array([0, 1, 0, 0])
+
+    report = training_runner._build_detailed_eval_report(
+        labels, preds, None, ["neg", "poz"]
+    )
+
+    assert report["macro_auc_ovr"] is None
+    assert report["macro_average_precision"] is None
+    assert report["confidence"]["mean_confidence"] is None
+
+
+def test_detayli_rapor_label_aralik_disi_hata_verir():
+    labels = np.array([0, 1, 2, 0])
+    preds = np.array([0, 1, 1, 0])
+
+    with pytest.raises(ValueError, match="araligi disinda"):
+        training_runner._build_detailed_eval_report(
+            labels, preds, None, ["neg", "poz"]
+        )
+
+
+def test_detayli_rapor_labels_preds_uzunlugu_uyumsuz_hata_verir():
+    labels = np.array([0, 1, 1, 0])
+    preds = np.array([0, 1, 1])
+
+    with pytest.raises(ValueError, match="sekilleri uyusmuyor"):
+        training_runner._build_detailed_eval_report(
+            labels, preds, None, ["neg", "poz"]
+        )
+
+
+def test_detayli_rapor_probs_kolon_sayisi_uyumsuz_hata_verir():
+    labels = np.array([0, 1, 1, 0])
+    preds = np.array([0, 1, 1, 0])
+    probs = np.array(
+        [[0.6, 0.3, 0.1]] * 4,
+        dtype=np.float32,
+    )
+
+    with pytest.raises(ValueError, match="probs sekli"):
+        training_runner._build_detailed_eval_report(
+            labels, preds, probs, ["neg", "poz"]
+        )
+
+
+def test_detayli_rapor_probs_nan_hata_verir():
+    labels = np.array([0, 1, 1, 0])
+    preds = np.array([0, 1, 1, 0])
+    probs = np.array(
+        [
+            [0.6, 0.4],
+            [np.nan, 0.5],
+            [0.3, 0.7],
+            [0.8, 0.2],
+        ],
+        dtype=np.float32,
+    )
+
+    with pytest.raises(ValueError, match="NaN/Inf"):
+        training_runner._build_detailed_eval_report(
+            labels, preds, probs, ["neg", "poz"]
+        )
+
+
+def test_detayli_rapor_1d_probs_aralik_disi_hata_verir():
+    labels = np.array([0, 1, 1, 0])
+    preds = np.array([0, 1, 1, 0])
+    probs_1d = np.array([0.2, 1.5, 0.7, 0.3], dtype=np.float32)
+
+    with pytest.raises(ValueError, match=r"\[0, 1\]"):
+        training_runner._build_detailed_eval_report(
+            labels, preds, probs_1d, ["neg", "poz"]
+        )
+
+
+def test_detayli_rapor_1d_probs_cok_sinifli_hata_verir():
+    labels = np.array([0, 1, 2, 0])
+    preds = np.array([0, 1, 2, 0])
+    probs_1d = np.array([0.2, 0.6, 0.7, 0.3], dtype=np.float32)
+
+    with pytest.raises(ValueError, match="1D probs yalnizca ikili"):
+        training_runner._build_detailed_eval_report(
+            labels, preds, probs_1d, ["a", "b", "c"]
+        )
+
+
 def test_build_model_resnet_cpu_olusturur():
     device = torch.device("cpu")
     model = build_model("resnet", num_classes=4, device=device, pretrained=False)
@@ -835,15 +959,18 @@ def test_checkpoint_payload_full_trainval_validation_loss_metadata_bos():
     payload = training_runner._checkpoint_payload(
         config=training_runner.TrainingConfig(model="resnet"),
         epoch=3,
-        selection_loss=0.123,
+        selection_metric="f1",
+        selection_value=0.876,
         selection_source="train",
+        val_loss=None,
         model=model,
         optimizer=optimizer,
         num_classes=4,
     )
 
     assert payload["val_loss"] is None
-    assert payload["selection_loss"] == pytest.approx(0.123)
+    assert payload["selection_metric"] == "f1"
+    assert payload["selection_value"] == pytest.approx(0.876)
     assert payload["selection_source"] == "train"
 
 
