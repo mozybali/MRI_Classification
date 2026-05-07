@@ -395,6 +395,77 @@ class TestGorselIsleyici:
         assert {d["sinif"] for d in trainval_dosyalar} == set(gi.SINIF_KLASORLERI)
         assert {d["sinif"] for d in test_dosyalar} == set(gi.SINIF_KLASORLERI)
 
+    def test_veri_dosyalarini_bol_dengesiz_dagilimda_tum_siniflari_korur(self):
+        """Cogunluk sinifi azinliklari ezse bile her sinif iki tarafta da bulunmali."""
+        isleyici = GorselIsleyici()
+        sinif_grup_sayilari = {
+            "NonDemented": 100,
+            "VeryMildDemented": 2,
+            "MildDemented": 2,
+            "ModerateDemented": 2,
+        }
+
+        dosyalar = []
+        for sinif_adi, grup_sayisi in sinif_grup_sayilari.items():
+            for idx in range(grup_sayisi):
+                kaynak_id = f"{sinif_adi.lower()}_{idx:03d}"
+                dosyalar.append({
+                    "yol": f"/sanal/{sinif_adi}/{kaynak_id}.jpg",
+                    "sinif": sinif_adi,
+                    "etiket": gi.SINIF_ETIKETI[sinif_adi],
+                    "kaynak_id": kaynak_id,
+                    "kaynak_grup": f"{sinif_adi}::{kaynak_id}",
+                })
+
+        trainval, test = isleyici.veri_dosyalarini_bol(dosyalar, test_orani=0.15)
+
+        trainval_gruplar = {d["kaynak_grup"] for d in trainval}
+        test_gruplar = {d["kaynak_grup"] for d in test}
+
+        assert trainval_gruplar.isdisjoint(test_gruplar)
+        assert {d["sinif"] for d in trainval} == set(sinif_grup_sayilari)
+        assert {d["sinif"] for d in test} == set(sinif_grup_sayilari)
+
+        # Her azinlik sinifindan test tarafinda en az 1, trainval tarafinda en az 1 grup olmali.
+        for sinif_adi in sinif_grup_sayilari:
+            assert any(d["sinif"] == sinif_adi for d in test), f"{sinif_adi} test tarafinda yok"
+            assert any(d["sinif"] == sinif_adi for d in trainval), f"{sinif_adi} trainval tarafinda yok"
+
+    def test_veri_dosyalarini_bol_esit_dagilimda_kalan_slotlari_yayilir(self):
+        """Esit sinif buyuklugunde kalan kota tek sinifa yiglmamali (largest-remainder)."""
+        isleyici = GorselIsleyici()
+        siniflar = list(gi.SINIF_KLASORLERI)
+        grup_basina = 10
+
+        dosyalar = []
+        for sinif_adi in siniflar:
+            for idx in range(grup_basina):
+                kaynak_id = f"{sinif_adi.lower()}_{idx:03d}"
+                dosyalar.append({
+                    "yol": f"/sanal/{sinif_adi}/{kaynak_id}.jpg",
+                    "sinif": sinif_adi,
+                    "etiket": gi.SINIF_ETIKETI[sinif_adi],
+                    "kaynak_id": kaynak_id,
+                    "kaynak_grup": f"{sinif_adi}::{kaynak_id}",
+                })
+
+        _, test = isleyici.veri_dosyalarini_bol(dosyalar, test_orani=0.25)
+
+        sinif_test_sayilari = {sinif_adi: 0 for sinif_adi in siniflar}
+        for d in test:
+            sinif_test_sayilari[d["sinif"]] += 1
+
+        # Toplam test grup sayisi ceil(40 * 0.25) = 10 olmali.
+        assert sum(sinif_test_sayilari.values()) == 10
+        # Esit ideal (2.5) durumunda dagilim {3,3,2,2} olmali; multiset karsilastirmasi.
+        assert sorted(sinif_test_sayilari.values()) == [2, 2, 3, 3]
+
+    def test_veri_dosyalarini_bol_bos_girdide_hata_verir(self):
+        """Bos dosya listesi sessiz dis-akista bug yutmamali, acik hata vermeli."""
+        isleyici = GorselIsleyici()
+        with pytest.raises(ValueError, match="goruntu/kaynak grup bulunamadi"):
+            isleyici.veri_dosyalarini_bol([], test_orani=0.15)
+
     def test_giris_klasoru_gercekten_kullaniliyor(self, test_dataset_structure, tmp_path):
         """tum_gorselleri_isle giris_klasoru parametresini kullanmalı."""
         isleyici = GorselIsleyici()
@@ -1400,3 +1471,260 @@ class TestGorselIsleyiciRegressions:
 
         assert "⚡" not in output
         assert "📊" not in output
+
+
+class TestBackgroundInvariant:
+    """Pipeline boyunca background=0 invariant'i ve final QC testleri."""
+
+    @staticmethod
+    def _beyin_benzeri_uint8(seed: int = 0) -> np.ndarray:
+        rng = np.random.default_rng(seed)
+        img = np.zeros((128, 128), dtype=np.uint8)
+        yy, xx = np.ogrid[:128, :128]
+        beyin = (yy - 64) ** 2 + (xx - 64) ** 2 <= 40 ** 2
+        doku = rng.integers(80, 180, size=img.shape, dtype=np.uint8)
+        img[beyin] = doku[beyin]
+        return img
+
+    def test_histogram_esitle_none_girdi(self):
+        isleyici = GorselIsleyici()
+        assert isleyici.histogram_esitle(None) is None
+
+    def test_histogram_esitle_bos_array(self):
+        isleyici = GorselIsleyici()
+        bos = np.zeros((0, 0), dtype=np.uint8)
+        sonuc = isleyici.histogram_esitle(bos)
+        assert isinstance(sonuc, np.ndarray)
+        assert sonuc.size == 0
+
+    def test_histogram_esitle_background_sifir_kalir(self):
+        isleyici = GorselIsleyici()
+        img = self._beyin_benzeri_uint8(seed=1)
+        background = img == 0
+        assert background.any()
+
+        sonuc = isleyici.histogram_esitle(img, adaptive=False)
+
+        assert sonuc.dtype == np.uint8
+        assert sonuc.ndim == 2
+        # CLAHE arka plani 0'dan kaydirabilir; helper'in geri sifirlamasi gerek
+        assert int(sonuc[background].max()) == 0
+        # Foreground'da hala sinyal olmali
+        assert int(sonuc[~background].max()) > 0
+
+    def test_z_score_normalize_background_sifir_kalir(self):
+        isleyici = GorselIsleyici()
+        img = self._beyin_benzeri_uint8(seed=2).astype(np.uint8)
+        background = img == 0
+        assert background.any()
+
+        sonuc = isleyici.z_score_normalize(img)
+
+        assert sonuc.dtype == np.uint8
+        assert sonuc.shape == img.shape
+        assert int(sonuc[background].max()) == 0
+
+    def test_aggressive_strateji_background_griye_tasinmaz(self, monkeypatch):
+        monkeypatch.setattr(gi, "NORMALIZASYON_STRATEJISI", "aggressive")
+        isleyici = GorselIsleyici()
+        img = self._beyin_benzeri_uint8(seed=3)
+        background = img == 0
+        assert background.any()
+
+        sonuc = isleyici._apply_normalization_strategy(img)
+
+        assert sonuc.dtype == np.uint8
+        # Aggressive (yogunluk_normalize + CLAHE + z-score) sonucunda
+        # background hala sifir kalmalidir.
+        assert int(sonuc[background].max()) == 0
+
+    def test_pipeline_sonu_kalite_kontrol_helper_siyah_reddeder(self):
+        isleyici = GorselIsleyici()
+        siyah = np.zeros((64, 64), dtype=np.uint8)
+        ok, sebep = isleyici._pipeline_sonu_kalite_kontrol(siyah)
+        assert ok is False
+        assert sebep
+
+    def test_pipeline_sonu_kalite_kontrol_helper_dusuk_kontrast_reddeder(self):
+        isleyici = GorselIsleyici()
+        img = np.zeros((96, 96), dtype=np.uint8)
+        # Genis ama tek tonlu foreground; std cok dusuk
+        img[20:80, 20:80] = 100
+        ok, sebep = isleyici._pipeline_sonu_kalite_kontrol(img)
+        assert ok is False
+        assert sebep
+
+    def test_pipeline_sonu_kalite_kontrol_helper_saglikli_kabul_eder(self):
+        isleyici = GorselIsleyici()
+        img = self._beyin_benzeri_uint8(seed=4)
+        ok, _ = isleyici._pipeline_sonu_kalite_kontrol(img)
+        assert ok is True
+
+    @staticmethod
+    def _pipeline_no_op_monkeypatch(monkeypatch, isleyici, kaynak):
+        monkeypatch.setattr(gi, "EGIM_DUZELTME_AKTIF", False)
+        monkeypatch.setattr(gi, "EGIM_KALITE_KONTROL_AKTIF", False)
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_KONTROL_AKTIF", False)
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_TEMIZLEME_AKTIF", False)
+        monkeypatch.setattr(isleyici, "goruntu_yukle", lambda _: kaynak)
+        monkeypatch.setattr(isleyici, "goruntu_kalite_kontrol", lambda _: (True, ""))
+        monkeypatch.setattr(isleyici, "gurultu_gider", lambda img, metod='auto': img)
+        monkeypatch.setattr(isleyici, "bias_field_correction", lambda img: img)
+        monkeypatch.setattr(isleyici, "skull_strip", lambda img: img)
+        monkeypatch.setattr(isleyici, "center_of_mass_alignment", lambda img: img)
+        monkeypatch.setattr(isleyici, "_apply_normalization_strategy", lambda img: img)
+
+    def test_final_qc_siyah_pipeline_ciktisini_reddeder(self, monkeypatch):
+        isleyici = GorselIsleyici()
+        kaynak = self._beyin_benzeri_uint8(seed=5)
+        self._pipeline_no_op_monkeypatch(monkeypatch, isleyici, kaynak)
+        # boyutlandir sonrasi siyah cikti simulasyonu
+        siyah = np.zeros((64, 64), dtype=np.uint8)
+        monkeypatch.setattr(isleyici, "boyutlandir", lambda img: siyah)
+
+        sonuc = isleyici.goruntu_isle_sonuc("dummy.png")
+
+        assert sonuc["processed_image"] is None
+        assert sonuc["quality_rejected"] is True
+        assert sonuc["quality_reason"] == "pipeline_sonu_red"
+        assert isleyici.kalite_istatistikleri["pipeline_sonu_red"] == 1
+        # Egim sayaci karismamali
+        assert isleyici.kalite_istatistikleri["egim_kalite_red"] == 0
+
+    def test_final_qc_dusuk_kontrastli_pipeline_ciktisini_reddeder(self, monkeypatch):
+        isleyici = GorselIsleyici()
+        kaynak = self._beyin_benzeri_uint8(seed=6)
+        self._pipeline_no_op_monkeypatch(monkeypatch, isleyici, kaynak)
+        # Foreground dolu ama std neredeyse sifir
+        dusuk = np.full((64, 64), 100, dtype=np.uint8)
+        monkeypatch.setattr(isleyici, "boyutlandir", lambda img: dusuk)
+
+        sonuc = isleyici.goruntu_isle_sonuc("dummy.png")
+
+        assert sonuc["processed_image"] is None
+        assert sonuc["quality_rejected"] is True
+        assert sonuc["quality_reason"] == "pipeline_sonu_red"
+        assert isleyici.kalite_istatistikleri["pipeline_sonu_red"] == 1
+
+    def test_final_qc_saglikli_ciktiyi_gecirir(self, monkeypatch):
+        isleyici = GorselIsleyici()
+        kaynak = self._beyin_benzeri_uint8(seed=7)
+        self._pipeline_no_op_monkeypatch(monkeypatch, isleyici, kaynak)
+        monkeypatch.setattr(isleyici, "boyutlandir", lambda img: img)
+
+        sonuc = isleyici.goruntu_isle_sonuc("dummy.png")
+
+        assert sonuc["processed_image"] is not None
+        assert sonuc["quality_rejected"] is False
+        assert isleyici.kalite_istatistikleri.get("pipeline_sonu_red", 0) == 0
+
+    def test_histogram_esitle_tek_kanalli_3d_girdi(self):
+        # shape[2]==1 OpenCV cvtColor'da hata verir; helper squeeze etmeli.
+        isleyici = GorselIsleyici()
+        img = self._beyin_benzeri_uint8(seed=11)[..., None]
+        sonuc = isleyici.histogram_esitle(img, adaptive=False)
+        assert sonuc.dtype == np.uint8
+        assert sonuc.ndim == 2
+
+    def test_z_score_normalize_uint16_girdi_uint8_doner(self):
+        # std cok dusuk ve foreground yetersiz oldugu erken donus akislarinda
+        # bile sozlesme uint8 olmali.
+        isleyici = GorselIsleyici()
+        sabit_uint16 = np.full((64, 64), 1000, dtype=np.uint16)
+        sonuc = isleyici.z_score_normalize(sabit_uint16)
+        assert sonuc.dtype == np.uint8
+
+    def test_egim_kalite_red_ve_pipeline_sonu_red_bagimsiz_artar(self, monkeypatch):
+        # Spec: yeni final QC reddi egim_kalite_red sayacini etkilemez.
+        # Bir goruntu hem asiri egimliyse hem de pipeline sonu QC'yi
+        # geciremiyorsa, iki sayac da artar; toplu_islem tarafinda manifest
+        # yine yazilmaz cunku quality_reason "pipeline_sonu_red" olur.
+        monkeypatch.setattr(gi, "EGIM_DUZELTME_AKTIF", False)
+        monkeypatch.setattr(gi, "EGIM_KALITE_KONTROL_AKTIF", True)
+        monkeypatch.setattr(gi, "EGIM_KALITE_RED_ESIGI", 1.0)
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_KONTROL_AKTIF", False)
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_TEMIZLEME_AKTIF", False)
+
+        isleyici = GorselIsleyici()
+        kaynak = self._beyin_benzeri_uint8(seed=9)
+        monkeypatch.setattr(isleyici, "goruntu_yukle", lambda _: kaynak)
+        monkeypatch.setattr(isleyici, "goruntu_kalite_kontrol", lambda _: (True, ""))
+        # Asiri egim simulasyonu: guvenilir + esik ustu.
+        monkeypatch.setattr(
+            isleyici, "egim_acisi_hesapla",
+            lambda _img: isleyici._egim_sonucu(
+                aci=12.0, rmse=0.5, x_span=120.0, satir_sayisi=80,
+                guvenilir=True, sebep="ok",
+            ),
+        )
+        monkeypatch.setattr(isleyici, "gurultu_gider", lambda img, metod='auto': img)
+        monkeypatch.setattr(isleyici, "bias_field_correction", lambda img: img)
+        monkeypatch.setattr(isleyici, "skull_strip", lambda img: img)
+        monkeypatch.setattr(isleyici, "center_of_mass_alignment", lambda img: img)
+        monkeypatch.setattr(isleyici, "_apply_normalization_strategy", lambda img: img)
+        monkeypatch.setattr(
+            isleyici, "boyutlandir",
+            lambda img: np.zeros((64, 64), dtype=np.uint8),
+        )
+
+        sonuc = isleyici.goruntu_isle_sonuc("dummy.png")
+
+        assert sonuc["processed_image"] is None
+        assert sonuc["quality_rejected"] is True
+        # Final QC kararı, raporlanan reason'i ele gecirir.
+        assert sonuc["quality_reason"] == "pipeline_sonu_red"
+        # Iki sayac da artmis olmali; her biri kendi olcumunu raporluyor.
+        assert isleyici.kalite_istatistikleri["egim_kalite_red"] == 1
+        assert isleyici.kalite_istatistikleri["pipeline_sonu_red"] == 1
+
+    def test_pipeline_sonu_red_toplu_islem_egim_kalite_red_ile_karismaz(
+        self, tmp_path, monkeypatch
+    ):
+        # Toplu islem akisinda final QC reddi: normal cikti yok, aday yok,
+        # manifest dosyasi yok ve egim_kalite_red sayaci artmaz.
+        monkeypatch.setattr(gi, "EGIM_DUZELTME_AKTIF", False)
+        monkeypatch.setattr(gi, "EGIM_KALITE_KONTROL_AKTIF", True)
+        monkeypatch.setattr(gi, "EGIM_KALITE_ADAYLARI_KAYDET", True)
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_KONTROL_AKTIF", False)
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_TEMIZLEME_AKTIF", False)
+        monkeypatch.setattr(gi, "REGISTRATION_AKTIF", False)
+
+        isleyici = GorselIsleyici()
+        isleyici.n_jobs = 1
+
+        # Kaynak goruntuyu yaz
+        kaynak_dir = tmp_path / "kaynak" / "NonDemented"
+        kaynak_dir.mkdir(parents=True)
+        kaynak_yol = kaynak_dir / "ornek.jpg"
+        Image.fromarray(self._beyin_benzeri_uint8(seed=8), mode="L").save(kaynak_yol)
+
+        # boyutlandir sonrasi siyah cikti simulasyonu (final QC reddi tetiklenmeli)
+        monkeypatch.setattr(
+            GorselIsleyici, "boyutlandir",
+            lambda self, img, *a, **k: np.zeros((64, 64), dtype=np.uint8),
+        )
+
+        dosya_info = {
+            "yol": str(kaynak_yol),
+            "sinif": "NonDemented",
+            "etiket": gi.SINIF_ETIKETI["NonDemented"],
+            "kaynak_id": kaynak_yol.stem,
+            "kaynak_grup": f"NonDemented::{kaynak_yol.stem}",
+        }
+
+        cikti = tmp_path / "cikti"
+        istatistikler = isleyici.tum_gorselleri_isle(
+            cikti / "trainval",
+            dosyalar=[dosya_info],
+            artirma_carpanlari={"NonDemented": 0},
+            split_adi="trainval",
+        )
+
+        normal_yol = cikti / "trainval" / "NonDemented" / "ornek_jpg.png"
+        aday_kok = cikti / gi.EGIM_KALITE_ADAYLARI_KLASOR_ADI
+
+        assert istatistikler["NonDemented"] == 0
+        assert not normal_yol.exists()
+        assert not aday_kok.exists()
+        assert isleyici.kalite_istatistikleri.get("pipeline_sonu_red", 0) == 1
+        assert isleyici.kalite_istatistikleri.get("egim_kalite_red", 0) == 0

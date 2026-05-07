@@ -22,30 +22,16 @@ if __package__ in {None, ""}:
         sys.path.insert(0, str(PROJECT_ROOT))
 
     from model.ayarlar import VARSAYILAN_EARLY_STOPPING_SABIR
-    from model.training_runner import (
-        TrainingConfig,
-        build_model,
-        run_cv_training,
-        run_training,
-    )
-    from model.sl.training_runner import (
-        SLTrainingConfig,
-        run_sl_cv_training,
-        run_sl_training,
-    )
 else:
     from .ayarlar import VARSAYILAN_EARLY_STOPPING_SABIR
-    from .training_runner import (
-        TrainingConfig,
-        build_model,
-        run_cv_training,
-        run_training,
-    )
-    from .sl.training_runner import (
-        SLTrainingConfig,
-        run_sl_cv_training,
-        run_sl_training,
-    )
+
+
+def build_model(*args, **kwargs):
+    if __package__ in {None, ""}:
+        from model.training_runner import build_model as _impl
+    else:
+        from .training_runner import build_model as _impl
+    return _impl(*args, **kwargs)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -214,7 +200,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
 
     if args.folds < 1:
         print("[HATA] --folds en az 1 olmali.")
@@ -224,30 +211,34 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if args.model == "xgboost":
-        # DL'ye ozgu argumanlarin kullanilip kullanilmadigini kontrol et
         import warnings
-        dl_args = {
-            "epochs": (args.epochs, 50),
-            "batch_size": (args.batch_size, 32),
-            "lr": (args.lr, 1e-4),
-            "loss": (args.loss, "ce"),
-            "pretrained": (args.pretrained, False),
-            "weight_decay": (args.weight_decay, 1e-4),
-            "scheduler_factor": (args.scheduler_factor, 0.5),
-            "scheduler_patience": (args.scheduler_patience, 5),
-            "focal_gamma": (args.focal_gamma, 2.0),
-            "num_workers": (args.num_workers, 0),
-            "dropout": (args.dropout, 0.5),
-            "label_smoothing": (args.label_smoothing, 0.0),
-            "hflip_p": (args.hflip_p, 0.0),
-            "rotation_degrees": (args.rotation_degrees, 10.0),
-            "color_jitter": (args.color_jitter, 0.1),
-        }
-        used_dl_args = [k for k, (val, default) in dl_args.items() if val != default]
+        dl_arg_names = (
+            "epochs", "batch_size", "lr", "patience", "loss", "pretrained",
+            "weight_decay", "scheduler_factor", "scheduler_patience",
+            "focal_gamma", "num_workers", "dropout", "label_smoothing",
+            "hflip_p", "rotation_degrees", "color_jitter",
+        )
+        used_dl_args = [
+            name for name in dl_arg_names
+            if getattr(args, name) != parser.get_default(name)
+        ]
         if used_dl_args:
             warnings.warn(
                 f"XGBoost modunda DL'ye ozgu arguman(lar) yok sayildi: {', '.join(used_dl_args)}",
                 stacklevel=1,
+            )
+
+        if __package__ in {None, ""}:
+            from model.sl.training_runner import (
+                SLTrainingConfig,
+                run_sl_cv_training,
+                run_sl_training,
+            )
+        else:
+            from .sl.training_runner import (
+                SLTrainingConfig,
+                run_sl_cv_training,
+                run_sl_training,
             )
 
         config = SLTrainingConfig(
@@ -285,6 +276,35 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     # DL (ResNet) akisi
+    import warnings
+    sl_arg_names = (
+        "xgb_n_estimators", "xgb_max_depth", "xgb_learning_rate",
+        "xgb_subsample", "xgb_colsample_bytree", "xgb_reg_lambda",
+        "xgb_min_child_weight", "feature_cache",
+    )
+    used_sl_args = [
+        name for name in sl_arg_names
+        if getattr(args, name) != parser.get_default(name)
+    ]
+    if used_sl_args:
+        warnings.warn(
+            f"ResNet modunda XGBoost'a ozgu arguman(lar) yok sayildi: {', '.join(used_sl_args)}",
+            stacklevel=1,
+        )
+
+    if __package__ in {None, ""}:
+        from model.training_runner import (
+            TrainingConfig,
+            run_cv_training,
+            run_training,
+        )
+    else:
+        from .training_runner import (
+            TrainingConfig,
+            run_cv_training,
+            run_training,
+        )
+
     config = TrainingConfig(
         model=args.model,
         epochs=args.epochs,

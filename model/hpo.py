@@ -333,10 +333,33 @@ def validate_search_args(args: argparse.Namespace) -> None:
         raise ValueError("--trials en az 1 olmali.")
     if args.timeout is not None and args.timeout < 1:
         raise ValueError("--timeout pozitif olmali.")
-    if not args.batch_size_choices:
-        raise ValueError("--batch-size-choices bos olamaz.")
     if not args.image_size_choices:
         raise ValueError("--image-size-choices bos olamaz.")
+    if args.n_startup_trials < 1:
+        raise ValueError("--n-startup-trials en az 1 olmali.")
+    if args.pruner_startup_trials < 0:
+        raise ValueError("--pruner-startup-trials negatif olamaz.")
+    if args.pruner_warmup_epochs < 0:
+        raise ValueError("--pruner-warmup-epochs negatif olamaz.")
+    if args.hpo_folds < 1:
+        raise ValueError("--hpo-folds en az 1 olmali.")
+
+    if args.model == "xgboost":
+        base_sl_config = SLTrainingConfig(
+            image_size=min(args.image_size_choices),
+            trainval_dir=args.trainval_dir,
+            test_dir=args.test_dir,
+            val_ratio=args.val_ratio,
+            test_ratio=args.test_ratio,
+            seed=args.seed,
+        )
+        validate_sl_config(base_sl_config, require_test_dir=False, full_trainval=False)
+        if not args.skip_final_train:
+            validate_sl_config(base_sl_config, require_test_dir=True, full_trainval=True)
+        return
+
+    if not args.batch_size_choices:
+        raise ValueError("--batch-size-choices bos olamaz.")
     if args.lr_min <= 0 or args.lr_max <= 0 or args.lr_min >= args.lr_max:
         raise ValueError("lr araligi pozitif olmali ve min < max olmali.")
     if (
@@ -383,28 +406,6 @@ def validate_search_args(args: argparse.Namespace) -> None:
         raise ValueError("color jitter araligi gecersiz.")
     if not args.loss_choices:
         raise ValueError("--loss-choices bos olamaz.")
-    if args.n_startup_trials < 1:
-        raise ValueError("--n-startup-trials en az 1 olmali.")
-    if args.pruner_startup_trials < 0:
-        raise ValueError("--pruner-startup-trials negatif olamaz.")
-    if args.pruner_warmup_epochs < 0:
-        raise ValueError("--pruner-warmup-epochs negatif olamaz.")
-    if args.hpo_folds < 1:
-        raise ValueError("--hpo-folds en az 1 olmali.")
-
-    if args.model == "xgboost":
-        base_sl_config = SLTrainingConfig(
-            image_size=min(args.image_size_choices),
-            trainval_dir=args.trainval_dir,
-            test_dir=args.test_dir,
-            val_ratio=args.val_ratio,
-            test_ratio=args.test_ratio,
-            seed=args.seed,
-        )
-        validate_sl_config(base_sl_config, require_test_dir=False, full_trainval=False)
-        if not args.skip_final_train:
-            validate_sl_config(base_sl_config, require_test_dir=True, full_trainval=True)
-        return
 
     base_config = _build_config_from_args(
         args,

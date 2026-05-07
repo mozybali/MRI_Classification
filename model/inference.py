@@ -172,6 +172,15 @@ def load_xgb_model_for_inference(model_path: Path):
     xgb_model, meta = load_xgb_model_with_meta(model_path)
     image_size = meta.get("image_size", 224)
     class_names = meta.get("class_names", SINIF_ISIMLERI)
+
+    model_n_classes = getattr(xgb_model, "n_classes_", None)
+    if model_n_classes is not None and len(class_names) != model_n_classes:
+        raise ValueError(
+            "XGBoost metadata tutarsiz: class_names uzunlugu "
+            f"({len(class_names)}) modelin n_classes_ ({model_n_classes}) "
+            "degeri ile eslesmiyor."
+        )
+
     return xgb_model, image_size, class_names
 
 
@@ -311,15 +320,30 @@ Ornekler:
 
             print(f"\n[INFO] Batch tahmin: {len(images)} goruntu")
             results = []
+            failures: list[tuple[Path, str]] = []
             for img_path in sorted(images):
-                result = predict_fn(model, img_path, image_size, class_names)
+                try:
+                    result = predict_fn(model, img_path, image_size, class_names)
+                except (RuntimeError, ValueError, OSError, IndexError) as item_exc:
+                    failures.append((img_path, str(item_exc)))
+                    print(f"  {img_path.name}: [HATA] {item_exc}")
+                    continue
                 results.append(result)
                 print(f"  {img_path.name}: {result['tahmin_adi']} ({result['guven_skoru']:.2%})")
 
-            counts = Counter(r["tahmin_adi"] for r in results)
-            print("\nTahmin Dagilimi:")
-            for cls, cnt in counts.most_common():
-                print(f"   {cls:25s}: {cnt}")
+            if results:
+                counts = Counter(r["tahmin_adi"] for r in results)
+                print("\nTahmin Dagilimi:")
+                for cls, cnt in counts.most_common():
+                    print(f"   {cls:25s}: {cnt}")
+
+            if failures:
+                print(f"\n[UYARI] {len(failures)} goruntu islenemedi:")
+                for img_path, msg in failures:
+                    print(f"   {img_path.name}: {msg}")
+
+            if not results:
+                return 1
 
     except (RuntimeError, ValueError, OSError) as exc:
         print(f"[HATA] {exc}")
