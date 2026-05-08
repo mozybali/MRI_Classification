@@ -841,6 +841,14 @@ class TestEgimKaliteKontrol:
         }
 
     @staticmethod
+    def _belirsiz_dis_kontur_parlak_doku_goruntusu(aci: float = 8.0) -> np.ndarray:
+        img = np.zeros((160, 160), dtype=np.uint8)
+        merkez = (80, 80)
+        cv2.circle(img, merkez, 58, 80, -1)
+        cv2.ellipse(img, merkez, (18, 50), aci, 0, 360, 180, -1)
+        return img
+
+    @staticmethod
     def _egim_qc_ayarlarini_ac(monkeypatch):
         monkeypatch.setattr(gi, "EGIM_DUZELTME_AKTIF", True)
         monkeypatch.setattr(gi, "EGIM_KALITE_KONTROL_AKTIF", True)
@@ -901,6 +909,201 @@ class TestEgimKaliteKontrol:
         assert float(satir["detected_angle"]) == pytest.approx(analiz["aci"], abs=0.5)
         assert satir["reason"] == "excessive_tilt"
         assert satir["candidate_path"] == str(aday_yol)
+
+    def test_parlak_doku_egimi_belirsiz_dis_kontur_icin_kalite_reddi_uretir(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(gi, "EGIM_KALITE_KONTROL_AKTIF", True)
+        monkeypatch.setattr(gi, "EGIM_KALITE_RED_ESIGI", 4.0)
+        monkeypatch.setattr(gi, "EGIM_PARLAK_DOKU_KALITE_KONTROL_AKTIF", True)
+        isleyici = GorselIsleyici()
+        img = self._belirsiz_dis_kontur_parlak_doku_goruntusu(aci=8.0)
+
+        ana_analiz = isleyici.egim_acisi_hesapla(img)
+        genis_analiz = isleyici._egim_kalite_analizini_genislet(img, ana_analiz)
+        kalite_reddi, neden, aci = isleyici._egim_kalite_reddi_degerlendir(genis_analiz)
+
+        assert abs(float(ana_analiz["aci"])) < gi.EGIM_KALITE_RED_ESIGI
+        assert ana_analiz["sebep"] in {"maske_isotropik", "kontur_ambiguous", "aci_uyumsuz"}
+        assert genis_analiz["kalite_kaynak"] == "parlak_doku"
+        assert abs(float(genis_analiz["kalite_aci"])) > gi.EGIM_KALITE_RED_ESIGI
+        assert genis_analiz["parlak_doku"]["guvenilir"] is True
+        assert kalite_reddi is True
+        assert neden == "excessive_tilt"
+        assert abs(float(aci)) > gi.EGIM_KALITE_RED_ESIGI
+
+    def test_parlak_doku_fallback_kapatilinca_belirsiz_kontur_gecer(self, monkeypatch):
+        monkeypatch.setattr(gi, "EGIM_KALITE_KONTROL_AKTIF", True)
+        monkeypatch.setattr(gi, "EGIM_KALITE_RED_ESIGI", 4.0)
+        monkeypatch.setattr(gi, "EGIM_PARLAK_DOKU_KALITE_KONTROL_AKTIF", False)
+        isleyici = GorselIsleyici()
+        img = self._belirsiz_dis_kontur_parlak_doku_goruntusu(aci=8.0)
+
+        ana_analiz = isleyici.egim_acisi_hesapla(img)
+        genis_analiz = isleyici._egim_kalite_analizini_genislet(img, ana_analiz)
+        kalite_reddi, neden, aci = isleyici._egim_kalite_reddi_degerlendir(genis_analiz)
+
+        assert "kalite_aci" not in genis_analiz
+        assert "parlak_doku" not in genis_analiz
+        assert kalite_reddi is False
+        assert neden == ""
+        assert abs(float(aci)) < gi.EGIM_KALITE_RED_ESIGI
+
+    def test_guvenilirlik_zorunlu_degilse_guvenilmez_esik_ustu_egim_reddedilir(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(gi, "EGIM_KALITE_KONTROL_AKTIF", True)
+        monkeypatch.setattr(gi, "EGIM_KALITE_RED_ESIGI", 4.0)
+        monkeypatch.setattr(gi, "EGIM_KALITE_GUVENILIRLIK_ZORUNLU", False)
+        isleyici = GorselIsleyici()
+        analiz = isleyici._egim_sonucu(
+            aci=6.0,
+            rmse=8.0,
+            x_span=80.0,
+            satir_sayisi=140,
+            guvenilir=False,
+            sebep="maske_isotropik",
+        )
+
+        kalite_reddi, neden, aci = isleyici._egim_kalite_reddi_degerlendir(analiz)
+
+        assert kalite_reddi is True
+        assert neden == "excessive_tilt"
+        assert aci == pytest.approx(6.0)
+
+    def test_egim_kalite_esigi_kapsayicidir(self, monkeypatch):
+        monkeypatch.setattr(gi, "EGIM_KALITE_KONTROL_AKTIF", True)
+        monkeypatch.setattr(gi, "EGIM_KALITE_RED_ESIGI", 3.0)
+        isleyici = GorselIsleyici()
+        analiz = isleyici._egim_sonucu(
+            aci=-3.0,
+            rmse=1.0,
+            x_span=80.0,
+            satir_sayisi=140,
+            guvenilir=True,
+            sebep="ok",
+        )
+
+        kalite_reddi, neden, aci = isleyici._egim_kalite_reddi_degerlendir(analiz)
+
+        assert kalite_reddi is True
+        assert neden == "excessive_tilt"
+        assert aci == pytest.approx(-3.0)
+
+    def test_guvenilirlik_zorunluysa_guvenilmez_esik_ustu_egim_gecer(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(gi, "EGIM_KALITE_KONTROL_AKTIF", True)
+        monkeypatch.setattr(gi, "EGIM_KALITE_RED_ESIGI", 4.0)
+        monkeypatch.setattr(gi, "EGIM_KALITE_GUVENILIRLIK_ZORUNLU", True)
+        monkeypatch.setattr(gi, "EGIM_KALITE_GUVENILMEZ_BUYUK_ACI_RED_ESIGI", 25.0)
+        isleyici = GorselIsleyici()
+        analiz = isleyici._egim_sonucu(
+            aci=6.0,
+            rmse=8.0,
+            x_span=80.0,
+            satir_sayisi=140,
+            guvenilir=False,
+            sebep="maske_isotropik",
+        )
+
+        kalite_reddi, neden, aci = isleyici._egim_kalite_reddi_degerlendir(analiz)
+
+        assert kalite_reddi is False
+        assert neden == ""
+        assert aci == pytest.approx(6.0)
+
+    def test_guvenilmez_ama_uyumlu_izotropik_egim_reddedilir(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(gi, "EGIM_KALITE_KONTROL_AKTIF", True)
+        monkeypatch.setattr(gi, "EGIM_KALITE_RED_ESIGI", 5.0)
+        monkeypatch.setattr(gi, "EGIM_KALITE_GUVENILIRLIK_ZORUNLU", True)
+        monkeypatch.setattr(gi, "EGIM_KALITE_GUVENILMEZ_UYUMLU_RMSE_ESIGI", 1.0)
+        isleyici = GorselIsleyici()
+        analiz = isleyici._egim_sonucu(
+            aci=-5.3,
+            rmse=0.4,
+            x_span=80.0,
+            satir_sayisi=140,
+            guvenilir=False,
+            sebep="maske_isotropik",
+        )
+
+        kalite_reddi, neden, aci = isleyici._egim_kalite_reddi_degerlendir(analiz)
+
+        assert kalite_reddi is True
+        assert neden == "excessive_tilt"
+        assert aci == pytest.approx(-5.3)
+
+    def test_guvenilirlik_zorunluysa_bile_guvenilmez_cok_buyuk_egim_reddedilir(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(gi, "EGIM_KALITE_KONTROL_AKTIF", True)
+        monkeypatch.setattr(gi, "EGIM_KALITE_RED_ESIGI", 5.0)
+        monkeypatch.setattr(gi, "EGIM_KALITE_GUVENILIRLIK_ZORUNLU", True)
+        monkeypatch.setattr(gi, "EGIM_KALITE_GUVENILMEZ_BUYUK_ACI_RED_ESIGI", 25.0)
+        isleyici = GorselIsleyici()
+        analiz = isleyici._egim_sonucu(
+            aci=28.0,
+            rmse=30.0,
+            x_span=80.0,
+            satir_sayisi=140,
+            guvenilir=False,
+            sebep="maske_isotropik",
+        )
+
+        kalite_reddi, neden, aci = isleyici._egim_kalite_reddi_degerlendir(analiz)
+
+        assert kalite_reddi is True
+        assert neden == "excessive_tilt"
+        assert aci == pytest.approx(28.0)
+
+    def test_egim_reddinde_eski_normal_cikti_temizlenir(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(gi, "EGIM_KALITE_ADAYLARI_KAYDET", True)
+        isleyici = GorselIsleyici()
+        isleyici.n_jobs = 1
+
+        kaynak = tmp_path / "ornek.jpg"
+        Image.fromarray(np.full((32, 32), 80, dtype=np.uint8), mode="L").save(kaynak)
+        cikti = tmp_path / "cikti"
+        normal_dir = cikti / "trainval" / "NonDemented"
+        normal_dir.mkdir(parents=True)
+        normal_yol = normal_dir / "ornek_jpg.png"
+        eski_aug_yol = normal_dir / "ornek_jpg_aug1.png"
+        normal_yol.write_bytes(b"stale")
+        eski_aug_yol.write_bytes(b"stale")
+
+        goruntu = np.full((32, 32), 120, dtype=np.uint8)
+        monkeypatch.setattr(
+            isleyici,
+            "_goruntu_isle_sonucunu_al",
+            lambda _yol: isleyici._pipeline_sonucu(
+                processed_image=goruntu,
+                quality_rejected=True,
+                quality_reason="excessive_tilt",
+                tilt_angle=6.0,
+            ),
+        )
+
+        sonuc = isleyici._tek_goruntu_isle(
+            self._dosya_info(kaynak),
+            cikti / "trainval",
+            {"NonDemented": 0},
+            split_adi="trainval",
+        )
+
+        aday_yol = (
+            cikti
+            / gi.EGIM_KALITE_ADAYLARI_KLASOR_ADI
+            / "trainval"
+            / "NonDemented"
+            / "ornek_jpg.png"
+        )
+        assert sonuc["egim_kalite_red"] == 1
+        assert not normal_yol.exists()
+        assert not eski_aug_yol.exists()
+        assert aday_yol.is_file()
 
     def test_egim_kalite_kurali_trainval_ve_test_icin_aynidir(self, tmp_path, monkeypatch):
         self._egim_qc_ayarlarini_ac(monkeypatch)
@@ -963,6 +1166,143 @@ class TestEgimKaliteKontrol:
         assert normal_yol.is_file()
         assert not aday_kok.exists()
         assert isleyici.kalite_istatistikleri["egim_kalite_red"] == 0
+
+
+class TestAnatomikKaliteKontrol:
+    """Merkezi bosluk/ventrikul gorunumlu dilimleri egitim-test disina alma."""
+
+    @staticmethod
+    def _merkezi_bosluklu_goruntu(seed: int = 0, size: int = 160) -> np.ndarray:
+        rng = np.random.default_rng(seed)
+        img = np.zeros((size, size), dtype=np.uint8)
+        yy, xx = np.ogrid[:size, :size]
+        merkez = (size // 2, size // 2)
+        beyin = (
+            ((yy - merkez[1]) ** 2) / ((size * 0.40) ** 2)
+            + ((xx - merkez[0]) ** 2) / ((size * 0.34) ** 2)
+            <= 1
+        )
+        doku = rng.integers(80, 180, size=img.shape, dtype=np.uint8)
+        img[beyin] = doku[beyin]
+        cv2.circle(img, merkez, int(size * 0.19), 0, -1)
+        return img
+
+    @staticmethod
+    def _dosya_info(yol: Path) -> dict:
+        return {
+            "yol": str(yol),
+            "sinif": "NonDemented",
+            "etiket": gi.SINIF_ETIKETI["NonDemented"],
+            "kaynak_id": yol.stem,
+            "kaynak_grup": f"NonDemented::{yol.stem}",
+        }
+
+    def test_anatomik_kalite_analizi_merkezi_bosluklu_goruntuyu_reddeder(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(gi, "ANATOMIK_KALITE_KONTROL_AKTIF", True)
+        monkeypatch.setattr(gi, "ANATOMIK_MERKEZ_BOSLUK_RED_ESIGI", 0.28)
+        isleyici = GorselIsleyici()
+        img = self._merkezi_bosluklu_goruntu(seed=1)
+
+        analiz = isleyici.anatomik_kalite_analizi(img)
+        reddet, neden = isleyici._anatomik_kalite_reddi_degerlendir(analiz)
+
+        assert analiz["guvenilir"] is True
+        assert analiz["reddet"] is True
+        assert analiz["sebep"] == "anatomik_merkez_bosluk"
+        assert analiz["skor"] >= gi.ANATOMIK_MERKEZ_BOSLUK_RED_ESIGI
+        assert reddet is True
+        assert neden == "anatomik_merkez_bosluk"
+
+    def test_anatomik_kalite_reddi_goruntu_isle_sonucunda_normal_ciktiyi_engeller(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(gi, "ANATOMIK_KALITE_KONTROL_AKTIF", True)
+        monkeypatch.setattr(gi, "ANATOMIK_MERKEZ_BOSLUK_RED_ESIGI", 0.28)
+        monkeypatch.setattr(gi, "EGIM_KALITE_KONTROL_AKTIF", False)
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_KONTROL_AKTIF", False)
+        monkeypatch.setattr(gi, "KENAR_ARTEFAKT_TEMIZLEME_AKTIF", False)
+
+        isleyici = GorselIsleyici()
+        kaynak = self._merkezi_bosluklu_goruntu(seed=2)
+        monkeypatch.setattr(isleyici, "goruntu_yukle", lambda _: kaynak)
+        monkeypatch.setattr(isleyici, "goruntu_kalite_kontrol", lambda _: (True, ""))
+        monkeypatch.setattr(isleyici, "gurultu_gider", lambda img, metod='auto': img)
+        monkeypatch.setattr(isleyici, "bias_field_correction", lambda img: img)
+        monkeypatch.setattr(isleyici, "skull_strip", lambda img: img)
+        monkeypatch.setattr(isleyici, "center_of_mass_alignment", lambda img: img)
+        monkeypatch.setattr(isleyici, "_apply_normalization_strategy", lambda img: img)
+        monkeypatch.setattr(isleyici, "boyutlandir", lambda img: kaynak)
+
+        sonuc = isleyici.goruntu_isle_sonuc("dummy.png")
+
+        assert sonuc["processed_image"] is kaynak
+        assert sonuc["quality_rejected"] is True
+        assert sonuc["quality_reason"] == "anatomik_merkez_bosluk"
+        assert sonuc["quality_analysis"]["skor"] >= gi.ANATOMIK_MERKEZ_BOSLUK_RED_ESIGI
+        assert isleyici.kalite_istatistikleri["anatomik_kalite_red"] == 1
+        assert isleyici.goruntu_isle("dummy.png") is None
+
+    def test_anatomik_reddedilen_goruntu_trainval_yerine_anatomik_adaya_yazilir(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(gi, "ANATOMIK_ADAYLARI_KAYDET", True)
+        isleyici = GorselIsleyici()
+        isleyici.n_jobs = 1
+
+        kaynak = tmp_path / "ornek.jpg"
+        goruntu = self._merkezi_bosluklu_goruntu(seed=3)
+        Image.fromarray(goruntu, mode="L").save(kaynak)
+
+        cikti = tmp_path / "cikti"
+        normal_dir = cikti / "trainval" / "NonDemented"
+        normal_dir.mkdir(parents=True)
+        normal_yol = normal_dir / "ornek_jpg.png"
+        eski_aug_yol = normal_dir / "ornek_jpg_aug1.png"
+        normal_yol.write_bytes(b"stale")
+        eski_aug_yol.write_bytes(b"stale")
+        analiz = isleyici.anatomik_kalite_analizi(goruntu)
+
+        monkeypatch.setattr(
+            isleyici,
+            "_goruntu_isle_sonucunu_al",
+            lambda _yol: isleyici._pipeline_sonucu(
+                processed_image=goruntu,
+                quality_rejected=True,
+                quality_reason="anatomik_merkez_bosluk",
+                quality_analysis=analiz,
+            ),
+        )
+
+        sonuc = isleyici._tek_goruntu_isle(
+            self._dosya_info(kaynak),
+            cikti / "trainval",
+            {"NonDemented": 0},
+            split_adi="trainval",
+        )
+
+        anatomik_aday = (
+            cikti
+            / gi.ANATOMIK_ADAYLARI_KLASOR_ADI
+            / "trainval"
+            / "NonDemented"
+            / "ornek_jpg.png"
+        )
+        egim_aday_kok = cikti / gi.EGIM_KALITE_ADAYLARI_KLASOR_ADI
+
+        assert sonuc["basarili"] == 0
+        assert sonuc["basarisiz"] == 1
+        assert sonuc["egim_kalite_red"] == 0
+        assert sonuc["anatomik_kalite_red"] == 1
+        assert not normal_yol.exists()
+        assert not eski_aug_yol.exists()
+        assert anatomik_aday.is_file()
+        assert not egim_aday_kok.exists()
+        satir = sonuc["anatomik_aday_manifest_satirlari"][0]
+        assert satir["reason"] == "anatomik_merkez_bosluk"
+        assert satir["candidate_path"] == str(anatomik_aday)
+        assert float(satir["score"]) == pytest.approx(float(analiz["skor"]), abs=1e-6)
 
 
 class TestKenarArtefaktTespitVeTemizleme:
@@ -1204,6 +1544,7 @@ class TestKenarArtefaktTespitVeTemizleme:
         """
         monkeypatch.setattr(gi, "KENAR_ARTEFAKT_KONTROL_AKTIF", False)
         monkeypatch.setattr(gi, "KENAR_ARTEFAKT_TEMIZLEME_AKTIF", True)
+        monkeypatch.setattr(gi, "EGIM_KALITE_KONTROL_AKTIF", False)
 
         isleyici = GorselIsleyici()
         img = self._temiz_mri_benzeri_goruntu(seed=12)
@@ -1234,6 +1575,7 @@ class TestKenarArtefaktTespitVeTemizleme:
     def test_goruntu_isle_kenar_artefakt_temizleme_ile_256x256_uint8(self, monkeypatch, tmp_path):
         monkeypatch.setattr(gi, "KENAR_ARTEFAKT_KONTROL_AKTIF", True)
         monkeypatch.setattr(gi, "KENAR_ARTEFAKT_TEMIZLEME_AKTIF", True)
+        monkeypatch.setattr(gi, "EGIM_KALITE_KONTROL_AKTIF", False)
 
         isleyici = GorselIsleyici()
         img = self._temiz_mri_benzeri_goruntu(seed=9)
@@ -1396,7 +1738,8 @@ class TestGorselIsleyiciRegressions:
         assert isleyici_a._random.random() != isleyici_b._random.random()
         assert not np.array_equal(isleyici_a.gaussian_noise(img), isleyici_b.gaussian_noise(img))
 
-    def test_ayni_stem_farkli_uzantilar_birbirini_ezmez(self, tmp_path):
+    def test_ayni_stem_farkli_uzantilar_birbirini_ezmez(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(gi, "MIN_STD_INTENSITY", 5)
         isleyici = GorselIsleyici()
         isleyici.n_jobs = 1
 
@@ -1425,6 +1768,7 @@ class TestGorselIsleyiciRegressions:
 
         monkeypatch.setattr(gi, "Pool", FailingPool)
         monkeypatch.setattr(gi, "tqdm", lambda iterable, **kwargs: iterable)
+        monkeypatch.setattr(gi, "EGIM_KALITE_KONTROL_AKTIF", False)
 
         isleyici = GorselIsleyici()
         isleyici.n_jobs = 2
@@ -1618,6 +1962,49 @@ class TestBackgroundInvariant:
         assert sonuc["quality_rejected"] is False
         assert isleyici.kalite_istatistikleri.get("pipeline_sonu_red", 0) == 0
 
+    def test_final_egim_qc_cikti_uzerinden_kacan_egimi_reddeder(self, monkeypatch):
+        isleyici = GorselIsleyici()
+        kaynak = self._beyin_benzeri_uint8(seed=13)
+        self._pipeline_no_op_monkeypatch(monkeypatch, isleyici, kaynak)
+        monkeypatch.setattr(gi, "EGIM_KALITE_KONTROL_AKTIF", True)
+        monkeypatch.setattr(gi, "EGIM_KALITE_RED_ESIGI", 4.0)
+        monkeypatch.setattr(gi, "EGIM_KALITE_GUVENILIRLIK_ZORUNLU", False)
+
+        final_cikti = cv2.resize(kaynak, (96, 96), interpolation=cv2.INTER_AREA)
+        monkeypatch.setattr(isleyici, "boyutlandir", lambda img: final_cikti)
+        monkeypatch.setattr(isleyici, "_pipeline_sonu_kalite_kontrol", lambda img: (True, ""))
+
+        def sahte_egim_analizi(img):
+            if img.shape == final_cikti.shape:
+                return isleyici._egim_sonucu(
+                    aci=-5.0,
+                    rmse=1.0,
+                    x_span=80.0,
+                    satir_sayisi=90,
+                    guvenilir=True,
+                    sebep="ok",
+                )
+            return isleyici._egim_sonucu(
+                aci=-3.0,
+                rmse=1.0,
+                x_span=80.0,
+                satir_sayisi=90,
+                guvenilir=True,
+                sebep="ok",
+            )
+
+        monkeypatch.setattr(isleyici, "egim_acisi_hesapla", sahte_egim_analizi)
+
+        sonuc = isleyici.goruntu_isle_sonuc("dummy.png")
+
+        assert sonuc["processed_image"] is final_cikti
+        assert sonuc["quality_rejected"] is True
+        assert sonuc["quality_reason"] == "excessive_tilt"
+        assert sonuc["tilt_angle"] == pytest.approx(-5.0)
+        assert sonuc["tilt_analysis"]["kalite_asamasi"] == "cikti"
+        assert sonuc["tilt_analysis"]["ham_analiz"]["aci"] == pytest.approx(-3.0)
+        assert isleyici.kalite_istatistikleri["egim_kalite_red"] == 1
+
     def test_histogram_esitle_tek_kanalli_3d_girdi(self):
         # shape[2]==1 OpenCV cvtColor'da hata verir; helper squeeze etmeli.
         isleyici = GorselIsleyici()
@@ -1684,6 +2071,7 @@ class TestBackgroundInvariant:
         # manifest dosyasi yok ve egim_kalite_red sayaci artmaz.
         monkeypatch.setattr(gi, "EGIM_DUZELTME_AKTIF", False)
         monkeypatch.setattr(gi, "EGIM_KALITE_KONTROL_AKTIF", True)
+        monkeypatch.setattr(gi, "EGIM_KALITE_GUVENILIRLIK_ZORUNLU", True)
         monkeypatch.setattr(gi, "EGIM_KALITE_ADAYLARI_KAYDET", True)
         monkeypatch.setattr(gi, "KENAR_ARTEFAKT_KONTROL_AKTIF", False)
         monkeypatch.setattr(gi, "KENAR_ARTEFAKT_TEMIZLEME_AKTIF", False)

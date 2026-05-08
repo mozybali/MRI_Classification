@@ -239,10 +239,10 @@ Temel ayarlar `ayarlar.py` içinde tutulur:
 | Augmentation çarpanı | `0` |
 | Sınıf bazlı augmentation | Kapalı |
 | Kalite kontrol | Aktif |
-| Minimum ortalama yoğunluk | `5` |
-| Maksimum ortalama yoğunluk | `245` |
-| Minimum standart sapma | `5` |
-| Maksimum siyah piksel oranı | `0.8` |
+| Minimum ortalama yoğunluk | `10` |
+| Maksimum ortalama yoğunluk | `180` |
+| Minimum standart sapma | `15` |
+| Maksimum siyah piksel oranı | `0.75` |
 | Kenar artefakt kontrol | Aktif |
 | Kenar artefakt temizleme | Aktif |
 | Kenar şerit oranı | `0.12` |
@@ -252,7 +252,7 @@ Temel ayarlar `ayarlar.py` içinde tutulur:
 | Eğim minimum açı | `1.0` |
 | Eğim maksimum açı | `6.0` |
 | Eğim kalite kontrol | Aktif |
-| Eğim kalite red eşiği | `10.0` |
+| Eğim kalite red eşiği | `6.0` |
 | Eğim kalite aday klasörü | `kalite_kontrol_adaylari` |
 
 Kalite kontrol varsayılan olarak çok karanlık, çok aydınlık, düşük kontrastlı veya siyah piksel oranı çok yüksek görüntüleri eler. Kenar artefakt temizliği strict kalite kontrolünden önce çalışır; böylece parlak kenar bantları yüzünden reddedilecek ama temizlenebilir görüntüler kurtarılabilir. Açıkça boş/bozuk görüntüler yine erken elenir.
@@ -323,8 +323,8 @@ Başlangıç için önerilen eşikler (özellik manuel olarak açıldığında):
 | `EGIM_DUZELTME_AKTIF` | `False` | Eğim düzeltmeyi aç/kapat (varsayılan kapalı; opt-in). |
 | `EGIM_DUZELTME_RAPORLA` | `False` | Özellik aktifken toplu işlem özetinde eğim sayaçlarını yazdır. |
 | `EGIM_ONIZLEME_URET` | `False` | Varsayılan akışta dosya yazmaz; preview üretilirse bu bayrakla yönetilir. |
-| `EGIM_MIN_ACI` | `1.0` | Bu açı altındaki tahminleri otomatik düzeltme. |
-| `EGIM_MAKS_ACI` | `6.0` | Bu açı üstündeki güvenilir tahminleri manuel kontrol adayı say. |
+| `EGIM_MIN_ACI` | `2.0` | Bu açı altındaki tahminleri otomatik düzeltme. |
+| `EGIM_MAKS_ACI` | `20.0` | Bu açı üstündeki güvenilir tahminleri manuel kontrol adayı say. |
 | `EGIM_RMSE_MAKS` | `2.5` | PCA ve minAreaRect açıları arasındaki maksimum fark (derece). Açı-duyarlı tolerans `max(EGIM_RMSE_MAKS, abs(pca_aci))` olarak uygulanır; küçük açılarda minAreaRect kuantizasyonu yüzünden statik eşik aşılırsa bile sonuç güvenilir sayılabilir. |
 | `EGIM_MIN_SATIR_SAYISI` | `45` | Ana maskenin gereken minimum dikey bbox yüksekliği. |
 | `EGIM_MIN_X_SPAN` | `8.0` | PCA major eksen uzanımı için minimum piksel eşiği. |
@@ -337,7 +337,9 @@ Toplu işlemde `egim_tespit`, `egim_duzeltildi`, `egim_gorsel_kontrol_adayi` ve 
 
 ## Eğim Kalite Kontrolü
 
-`EGIM_KALITE_KONTROL_AKTIF = True` iken güvenilir eğim tahmini bulunan ve `abs(angle) > EGIM_KALITE_RED_ESIGI` olan görüntüler normal `trainval` veya `test` çıktılarına yazılmaz. Varsayılan eşik `10.0` derecedir ve aynı sabit eşik hem `trainval` hem de `test` için kullanılır; test performansına göre eşik seçilmez veya ayarlanmaz.
+`EGIM_KALITE_KONTROL_AKTIF = True` iken kalite açısı `abs(angle) >= EGIM_KALITE_RED_ESIGI` olan görüntüler normal `trainval` veya `test` çıktılarına yazılmaz. Varsayılan eşik `3.0` derecedir ve aynı sabit eşik hem `trainval` hem de `test` için kullanılır; test performansına göre eşik seçilmez veya ayarlanmaz.
+
+Ana dış kontur belirsizse parlak iç doku ölçümü (`EGIM_PARLAK_DOKU_KALITE_KONTROL_AKTIF`) kalite kararı için fallback olarak kullanılır. `EGIM_KALITE_GUVENILIRLIK_ZORUNLU = False` olduğunda güvenilirlik filtresine takılan ama eşik üstü kalan şüpheli dilimler de normal çıktılardan ayrılır.
 
 Bu görüntüler ham veri klasöründen silinmez ve kaynak dosyalar değiştirilmez. Bunun yerine `EGIM_KALITE_ADAYLARI_KAYDET = True` ise ön işleme çıktı kökü altında ayrı bir kontrol adayı olarak kaydedilir:
 
@@ -359,12 +361,36 @@ Manifest CSV her reddedilen görüntü için en az şu alanları içerir: `origi
 
 Aday klasör yerleşimi `split_adi`'na göre belirlenir: `tum_gorselleri_isle_ve_bol` (önerilen akış) `trainval` ve `test` için `split_adi`'yı otomatik geçirir; aday klasörü `cikti/kalite_kontrol_adaylari/<split>/<SinifAdi>/` olarak `cikti/<split>/` ile kardeş üretilir. `tum_gorselleri_isle` doğrudan no-split bir çıktı klasörüyle çağrıldığında (örneğin `cikti_klasoru="cikti"` ve `split_adi=None`) aday klasörü deterministik biçimde aynı çıktının içine `cikti/kalite_kontrol_adaylari/<SinifAdi>/` olarak yuvalanır; manifest CSV bu nested kökte yer alır. Konfigürasyon hatasına yol açan örtük bir fallback değildir, belgelenmiş ikinci bir yerleşimdir.
 
+## Anatomik Kalite Kontrolü
+
+`ANATOMIK_KALITE_KONTROL_AKTIF = True` iken merkezi karanlık boşluk/ventrikül oranı `ANATOMIK_MERKEZ_BOSLUK_RED_ESIGI` eşiğini aşan görüntüler de normal `trainval` veya `test` çıktılarına yazılmaz. Bu kontrol eğimden bağımsızdır; reason değeri `anatomik_merkez_bosluk` olur.
+
+Reddedilen görüntüler, denetim için ayrı aday klasörüne ve manifest dosyasına yazılır:
+
+```text
+goruntu_isleme/cikti/
+|-- anatomik_kontrol_adaylari/
+|   |-- anatomik_kontrol_manifest.csv
+|   |-- trainval/
+|   |   `-- <SinifAdi>/
+|   `-- test/
+|       `-- <SinifAdi>/
+|-- trainval/
+`-- test/
+```
+
+Manifest alanları: `original_path`, `split`, `class_name`, `reason`, `score`, `central_dark_ratio`, `central_hole_ratio` ve `candidate_path`. Bu adaylar model eğitim/test klasörlerinde tutulmaz; yalnızca görsel denetim ve eşik ayarı için saklanır.
+
 ## Beklenen Çıktı Yapısı
 
 `preprocess` tamamlandığında çıktı şu yapıda olur:
 
 ```text
 goruntu_isleme/cikti/
+|-- anatomik_kontrol_adaylari/
+|   |-- anatomik_kontrol_manifest.csv
+|   |-- trainval/
+|   `-- test/
 |-- kalite_kontrol_adaylari/
 |   |-- egim_kalite_kontrol_manifest.csv
 |   |-- trainval/

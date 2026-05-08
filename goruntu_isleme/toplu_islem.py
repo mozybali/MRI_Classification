@@ -99,6 +99,32 @@ class GorselTopluIslemMixin:
         return aday_kok / sinif
 
     @staticmethod
+    def _anatomik_kalite_kok_dizini(cikti_klasoru: Path, split_adi: str) -> Path:
+        """Anatomik kalite adaylari icin preprocessing kok dizinini bul."""
+        cikti_klasoru = Path(cikti_klasoru)
+        if split_adi in {"trainval", "test"} and cikti_klasoru.name == split_adi:
+            kok = cikti_klasoru.parent
+        else:
+            kok = cikti_klasoru
+        return kok / ANATOMIK_ADAYLARI_KLASOR_ADI
+
+    def _anatomik_kalite_manifest_yolu(self, cikti_klasoru: Path, split_adi: str) -> Path:
+        """Anatomik kalite manifest dosyasinin yolunu dondur."""
+        return (
+            self._anatomik_kalite_kok_dizini(cikti_klasoru, split_adi)
+            / ANATOMIK_MANIFEST_DOSYA_ADI
+        )
+
+    def _anatomik_kalite_aday_sinif_dizini(
+        self, cikti_klasoru: Path, split_adi: str, sinif: str
+    ) -> Path:
+        """Anatomik aday goruntu icin split/sinif yapisini koruyan dizini dondur."""
+        aday_kok = self._anatomik_kalite_kok_dizini(cikti_klasoru, split_adi)
+        if split_adi:
+            return aday_kok / split_adi / sinif
+        return aday_kok / sinif
+
+    @staticmethod
     def _goruntu_isle_metodu_ozel_mi(instance) -> bool:
         """Testlerdeki instance-level monkeypatch'leri geriye donuk destekle."""
         metod = getattr(instance, "goruntu_isle", None)
@@ -140,6 +166,34 @@ class GorselTopluIslemMixin:
             for satir in satirlar:
                 yazici.writerow({alan: satir.get(alan, "") for alan in alanlar})
 
+    def _anatomik_kalite_manifest_yaz(
+        self,
+        manifest_yolu: Path,
+        satirlar: List[Dict[str, object]],
+    ) -> None:
+        """Reddedilen anatomik adaylari manifest CSV'sine ekle."""
+        if not satirlar:
+            return
+
+        self.klasor_olustur(manifest_yolu.parent)
+        alanlar = [
+            "original_path",
+            "split",
+            "class_name",
+            "reason",
+            "score",
+            "central_dark_ratio",
+            "central_hole_ratio",
+            "candidate_path",
+        ]
+        yeni_dosya = not manifest_yolu.exists() or manifest_yolu.stat().st_size == 0
+        with manifest_yolu.open("a", newline="", encoding="utf-8") as dosya:
+            yazici = csv.DictWriter(dosya, fieldnames=alanlar)
+            if yeni_dosya:
+                yazici.writeheader()
+            for satir in satirlar:
+                yazici.writerow({alan: satir.get(alan, "") for alan in alanlar})
+
     def _tek_goruntu_isle(self, dosya_info: Dict, cikti_klasoru: Path,
                           artirma_carpanlari: Dict[str, int],
                           split_adi: Optional[str] = None) -> Optional[Dict]:
@@ -167,6 +221,7 @@ class GorselTopluIslemMixin:
             egim_duzeltme_oncesi = self.kalite_istatistikleri.get('egim_duzeltildi', 0)
             egim_kontrol_oncesi = self.kalite_istatistikleri.get('egim_gorsel_kontrol_adayi', 0)
             egim_kalite_red_oncesi = self.kalite_istatistikleri.get('egim_kalite_red', 0)
+            anatomik_kalite_red_oncesi = self.kalite_istatistikleri.get('anatomik_kalite_red', 0)
             pipeline_sonu_red_oncesi = self.kalite_istatistikleri.get('pipeline_sonu_red', 0)
 
             # Görüntüyü işle (kalite kontrol içinde yapılır)
@@ -194,6 +249,10 @@ class GorselTopluIslemMixin:
             egim_kalite_red_artis = (
                 self.kalite_istatistikleri.get('egim_kalite_red', 0) - egim_kalite_red_oncesi
             )
+            anatomik_kalite_red_artis = (
+                self.kalite_istatistikleri.get('anatomik_kalite_red', 0)
+                - anatomik_kalite_red_oncesi
+            )
             pipeline_sonu_red_artis = (
                 self.kalite_istatistikleri.get('pipeline_sonu_red', 0) - pipeline_sonu_red_oncesi
             )
@@ -209,50 +268,96 @@ class GorselTopluIslemMixin:
                 'egim_duzeltildi': egim_duzeltme_artis,
                 'egim_gorsel_kontrol_adayi': egim_kontrol_artis,
                 'egim_kalite_red': egim_kalite_red_artis,
+                'anatomik_kalite_red': anatomik_kalite_red_artis,
                 'pipeline_sonu_red': pipeline_sonu_red_artis,
                 'kalite_aday_manifest_satirlari': [],
+                'anatomik_aday_manifest_satirlari': [],
                 'istatistikler': {sinif: 0 for sinif in SINIF_KLASORLERI}
             }
 
             dosya_adi = self._cikti_dosya_koku(dosya_info["yol"])
+            normal_yol = sinif_cikti / f"{dosya_adi}.png"
+
+            def normal_cikti_temizle() -> None:
+                try:
+                    if normal_yol.exists():
+                        normal_yol.unlink()
+                    for eski_aug in sinif_cikti.glob(f"{dosya_adi}_aug*.png"):
+                        eski_aug.unlink()
+                except OSError as exc:
+                    print(f"[UYARI] Eski normal cikti temizlenemedi {normal_yol}: {exc}")
 
             # Pipeline sonu reddi: normal cikti yok, manifest yok, aday yok.
             # Egim kalite reddi sayaclari/manifest davranisi etkilenmemeli.
             if kalite_reddedildi and kalite_reddi_nedeni == "pipeline_sonu_red":
                 sonuc['basarisiz'] = 1
                 sonuc['pipeline_sonu_red'] = max(sonuc.get('pipeline_sonu_red', 0), 1)
+                normal_cikti_temizle()
                 return sonuc
 
             if goruntu is not None and kalite_reddedildi:
                 sonuc['basarisiz'] = 1
-                sonuc['egim_kalite_red'] = max(sonuc.get('egim_kalite_red', 0), 1)
+                anatomik_red_mi = kalite_reddi_nedeni.startswith("anatomik_")
+                if anatomik_red_mi:
+                    sonuc['anatomik_kalite_red'] = max(sonuc.get('anatomik_kalite_red', 0), 1)
+                else:
+                    sonuc['egim_kalite_red'] = max(sonuc.get('egim_kalite_red', 0), 1)
+                normal_cikti_temizle()
 
                 split = self._split_adi_cozumle(cikti_klasoru, split_adi)
                 aday_yolu = ""
-                if EGIM_KALITE_ADAYLARI_KAYDET:
-                    aday_sinif_cikti = self._egim_kalite_aday_sinif_dizini(
-                        cikti_klasoru, split, dosya_info["sinif"]
-                    )
-                    self.klasor_olustur(aday_sinif_cikti)
-                    aday_yolu_obj = aday_sinif_cikti / f"{dosya_adi}.png"
-                    aday_yolu = str(aday_yolu_obj)
-                    if not self.goruntu_kaydet(goruntu, str(aday_yolu_obj)):
-                        sonuc['kaydetme_hatasi'] = 1
-                        return sonuc
+                if anatomik_red_mi:
+                    if ANATOMIK_ADAYLARI_KAYDET:
+                        aday_sinif_cikti = self._anatomik_kalite_aday_sinif_dizini(
+                            cikti_klasoru, split, dosya_info["sinif"]
+                        )
+                        self.klasor_olustur(aday_sinif_cikti)
+                        aday_yolu_obj = aday_sinif_cikti / f"{dosya_adi}.png"
+                        aday_yolu = str(aday_yolu_obj)
+                        if not self.goruntu_kaydet(goruntu, str(aday_yolu_obj)):
+                            sonuc['kaydetme_hatasi'] = 1
+                            return sonuc
 
-                aci = islem_sonucu.get("tilt_angle")
-                aci_yaz = "" if aci is None else f"{float(aci):.6f}"
-                sonuc['kalite_aday_manifest_satirlari'].append({
-                    "original_path": str(dosya_info["yol"]),
-                    "split": split,
-                    "class_name": dosya_info["sinif"],
-                    "detected_angle": aci_yaz,
-                    "reason": islem_sonucu.get("quality_reason") or "excessive_tilt",
-                    "candidate_path": aday_yolu,
-                })
+                    kalite_analizi = dict(islem_sonucu.get("quality_analysis") or {})
+                    sonuc['anatomik_aday_manifest_satirlari'].append({
+                        "original_path": str(dosya_info["yol"]),
+                        "split": split,
+                        "class_name": dosya_info["sinif"],
+                        "reason": islem_sonucu.get("quality_reason") or "anatomik_kalite_red",
+                        "score": f"{float(kalite_analizi.get('skor', 0.0)):.6f}",
+                        "central_dark_ratio": (
+                            f"{float(kalite_analizi.get('merkez_karanlik_orani', 0.0)):.6f}"
+                        ),
+                        "central_hole_ratio": (
+                            f"{float(kalite_analizi.get('merkez_bosluk_orani', 0.0)):.6f}"
+                        ),
+                        "candidate_path": aday_yolu,
+                    })
+                else:
+                    if EGIM_KALITE_ADAYLARI_KAYDET:
+                        aday_sinif_cikti = self._egim_kalite_aday_sinif_dizini(
+                            cikti_klasoru, split, dosya_info["sinif"]
+                        )
+                        self.klasor_olustur(aday_sinif_cikti)
+                        aday_yolu_obj = aday_sinif_cikti / f"{dosya_adi}.png"
+                        aday_yolu = str(aday_yolu_obj)
+                        if not self.goruntu_kaydet(goruntu, str(aday_yolu_obj)):
+                            sonuc['kaydetme_hatasi'] = 1
+                            return sonuc
+
+                    aci = islem_sonucu.get("tilt_angle")
+                    aci_yaz = "" if aci is None else f"{float(aci):.6f}"
+                    sonuc['kalite_aday_manifest_satirlari'].append({
+                        "original_path": str(dosya_info["yol"]),
+                        "split": split,
+                        "class_name": dosya_info["sinif"],
+                        "detected_angle": aci_yaz,
+                        "reason": islem_sonucu.get("quality_reason") or "excessive_tilt",
+                        "candidate_path": aday_yolu,
+                    })
             elif goruntu is not None:
                 # Orijinal görüntüyü kaydet
-                cikti_yolu = sinif_cikti / f"{dosya_adi}.png"
+                cikti_yolu = normal_yol
                 if not self.goruntu_kaydet(goruntu, str(cikti_yolu)):
                     sonuc['basarisiz'] = 1
                     sonuc['kaydetme_hatasi'] = 1
@@ -276,6 +381,7 @@ class GorselTopluIslemMixin:
             else:
                 sonuc['basarisiz'] = 1
                 sonuc['kalite_hatasi'] = kalite_artis
+                normal_cikti_temizle()
 
             return sonuc
 
@@ -297,8 +403,10 @@ class GorselTopluIslemMixin:
                 'egim_duzeltildi': 0,
                 'egim_gorsel_kontrol_adayi': 0,
                 'egim_kalite_red': 0,
+                'anatomik_kalite_red': 0,
                 'pipeline_sonu_red': 0,
                 'kalite_aday_manifest_satirlari': [],
+                'anatomik_aday_manifest_satirlari': [],
                 'istatistikler': {sinif: 0 for sinif in SINIF_KLASORLERI}
             }
 
@@ -399,6 +507,7 @@ class GorselTopluIslemMixin:
             "egim_duzeltildi": 0,
             "egim_gorsel_kontrol_adayi": 0,
             "egim_kalite_red": 0,
+            "anatomik_kalite_red": 0,
             "pipeline_sonu_red": 0,
         }
 
@@ -415,8 +524,10 @@ class GorselTopluIslemMixin:
         egim_duzeltme_toplam = 0
         egim_kontrol_toplam = 0
         egim_kalite_red_toplam = 0
+        anatomik_kalite_red_toplam = 0
         pipeline_sonu_red_toplam = 0
         kalite_manifest_satirlari = []
+        anatomik_manifest_satirlari = []
         istatistikler = {sinif: 0 for sinif in SINIF_KLASORLERI}
 
         # Her görüntü için argümanları hazırla
@@ -473,9 +584,13 @@ class GorselTopluIslemMixin:
                 egim_duzeltme_toplam += sonuc.get('egim_duzeltildi', 0)
                 egim_kontrol_toplam += sonuc.get('egim_gorsel_kontrol_adayi', 0)
                 egim_kalite_red_toplam += sonuc.get('egim_kalite_red', 0)
+                anatomik_kalite_red_toplam += sonuc.get('anatomik_kalite_red', 0)
                 pipeline_sonu_red_toplam += sonuc.get('pipeline_sonu_red', 0)
                 kalite_manifest_satirlari.extend(
                     sonuc.get('kalite_aday_manifest_satirlari', [])
+                )
+                anatomik_manifest_satirlari.extend(
+                    sonuc.get('anatomik_aday_manifest_satirlari', [])
                 )
                 for sinif, sayi in sonuc['istatistikler'].items():
                     istatistikler[sinif] += sayi
@@ -489,12 +604,18 @@ class GorselTopluIslemMixin:
         self.kalite_istatistikleri['egim_duzeltildi'] = egim_duzeltme_toplam
         self.kalite_istatistikleri['egim_gorsel_kontrol_adayi'] = egim_kontrol_toplam
         self.kalite_istatistikleri['egim_kalite_red'] = egim_kalite_red_toplam
+        self.kalite_istatistikleri['anatomik_kalite_red'] = anatomik_kalite_red_toplam
         self.kalite_istatistikleri['pipeline_sonu_red'] = pipeline_sonu_red_toplam
 
         if kalite_manifest_satirlari:
             self._egim_kalite_manifest_yaz(
                 self._egim_kalite_manifest_yolu(cikti_klasoru, split),
                 kalite_manifest_satirlari,
+            )
+        if anatomik_manifest_satirlari:
+            self._anatomik_kalite_manifest_yaz(
+                self._anatomik_kalite_manifest_yolu(cikti_klasoru, split),
+                anatomik_manifest_satirlari,
             )
 
         # Sonuçları yazdır
@@ -515,6 +636,8 @@ class GorselTopluIslemMixin:
             print(f"Egim gorsel kontrol adayi: {egim_kontrol_toplam}")
         if EGIM_KALITE_KONTROL_AKTIF:
             print(f"Egim kalite reddi: {egim_kalite_red_toplam}")
+        if ANATOMIK_KALITE_KONTROL_AKTIF:
+            print(f"Anatomik kalite reddi: {anatomik_kalite_red_toplam}")
         if pipeline_sonu_red_toplam:
             print(f"Pipeline sonu reddi: {pipeline_sonu_red_toplam}")
         print(f"\nSinif bazli istatistikler (augmentation sonrasi):")

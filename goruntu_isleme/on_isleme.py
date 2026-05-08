@@ -33,6 +33,7 @@ class PipelineSonucu(TypedDict):
     tilt_angle: Optional[float]
     tilt_reliable: bool
     tilt_analysis: Dict[str, object]
+    quality_analysis: Dict[str, object]
 
 
 class GorselOnIslemeMixin:
@@ -190,6 +191,16 @@ class GorselOnIslemeMixin:
             return float(varsayilan)
         return sayi
 
+    def _egim_kalite_red_esigi(self) -> float:
+        """Egim kalite red esigini tek noktadan oku."""
+        return self._egim_float_ayar(
+            "EGIM_KALITE_RED_ESIGI",
+            EGIM_KALITE_RED_ESIGI,
+            10.0,
+            0.0,
+            45.0,
+        )
+
     @staticmethod
     def _pipeline_sonucu(
         processed_image: Optional[np.ndarray] = None,
@@ -199,6 +210,7 @@ class GorselOnIslemeMixin:
         tilt_angle: Optional[float] = None,
         tilt_reliable: bool = False,
         tilt_analysis: Optional[Dict[str, object]] = None,
+        quality_analysis: Optional[Dict[str, object]] = None,
     ) -> PipelineSonucu:
         """Tekil goruntu pipeline'i icin standart sonuc sozlugu uret."""
         return PipelineSonucu(
@@ -208,37 +220,366 @@ class GorselOnIslemeMixin:
             tilt_angle=tilt_angle,
             tilt_reliable=bool(tilt_reliable),
             tilt_analysis=dict(tilt_analysis or {}),
+            quality_analysis=dict(quality_analysis or {}),
         )
 
     def _egim_kalite_reddi_degerlendir(
         self, analiz: Optional[Dict[str, object]]
     ) -> Tuple[bool, str, Optional[float]]:
-        """Guvenilir ve esik ustu egimi kalite reddi olarak degerlendir."""
+        """Esik ustu kalite acisini kalite reddi olarak degerlendir."""
         if not EGIM_KALITE_KONTROL_AKTIF or not analiz:
             return False, "", None
 
         try:
-            aci = float(analiz.get("aci", 0.0))
+            aci = float(analiz.get("kalite_aci", analiz.get("aci", 0.0)))
         except (TypeError, ValueError):
             return False, "", None
 
         if not np.isfinite(aci):
             return False, "", None
 
-        if not bool(analiz.get("guvenilir", False)):
-            return False, "", aci
+        esik = self._egim_kalite_red_esigi()
+        mutlak_aci = abs(aci)
+        guvenilir = bool(analiz.get("kalite_guvenilir", analiz.get("guvenilir", False)))
+        if not guvenilir:
+            if bool(EGIM_KALITE_GUVENILIRLIK_ZORUNLU):
+                sebep = str(analiz.get("kalite_sebep", analiz.get("sebep", "")))
+                try:
+                    rmse = float(analiz.get("rmse", float("nan")))
+                except (TypeError, ValueError):
+                    rmse = float("nan")
+                uyumlu_rmse_esigi = self._egim_float_ayar(
+                    "EGIM_KALITE_GUVENILMEZ_UYUMLU_RMSE_ESIGI",
+                    EGIM_KALITE_GUVENILMEZ_UYUMLU_RMSE_ESIGI,
+                    1.0,
+                    0.0,
+                    45.0,
+                )
+                if (
+                    sebep == "maske_isotropik"
+                    and mutlak_aci >= esik
+                    and np.isfinite(rmse)
+                    and rmse <= uyumlu_rmse_esigi
+                ):
+                    return True, "excessive_tilt", aci
 
-        esik = self._egim_float_ayar(
-            "EGIM_KALITE_RED_ESIGI",
-            EGIM_KALITE_RED_ESIGI,
-            10.0,
-            0.0,
-            45.0,
-        )
-        if abs(aci) > esik:
+                buyuk_aci_esigi = self._egim_float_ayar(
+                    "EGIM_KALITE_GUVENILMEZ_BUYUK_ACI_RED_ESIGI",
+                    EGIM_KALITE_GUVENILMEZ_BUYUK_ACI_RED_ESIGI,
+                    25.0,
+                    esik,
+                    45.0,
+                )
+                buyuk_aci_sebepleri = {
+                    "maske_isotropik",
+                    "kontur_ambiguous",
+                    "aci_uyumsuz",
+                }
+                if mutlak_aci >= buyuk_aci_esigi and sebep in buyuk_aci_sebepleri:
+                    return True, "excessive_tilt", aci
+                return False, "", aci
+
+        if mutlak_aci >= esik:
             return True, "excessive_tilt", aci
 
         return False, "", aci
+
+    def parlak_doku_egim_acisi_hesapla(self, goruntu: np.ndarray) -> Dict[str, object]:
+        """Parlak ic doku piksellerinden fallback egim acisi hesapla.
+
+        Bu olcum dis beyin konturu neredeyse yuvarlak/ambiguous oldugunda
+        kalite kontrol icin kullanilir. Otomatik egim duzeltmeye girdi olmaz.
+        """
+        if goruntu is None:
+            return self._egim_sonucu(sebep="parlak_doku_bos_goruntu")
+
+        arr = self._uint8_goruntu(goruntu)
+        if arr.ndim != 2 or arr.size == 0:
+            return self._egim_sonucu(sebep="parlak_doku_gecersiz_boyut")
+
+        h, w = arr.shape[:2]
+        if h < 8 or w < 8:
+            return self._egim_sonucu(sebep="parlak_doku_goruntu_cok_kucuk")
+
+        foreground_esigi = self._egim_float_ayar(
+            "EGIM_PARLAK_DOKU_FOREGROUND_ESIGI",
+            EGIM_PARLAK_DOKU_FOREGROUND_ESIGI,
+            10.0,
+            0.0,
+            254.0,
+        )
+        min_piksel_orani = self._egim_float_ayar(
+            "EGIM_PARLAK_DOKU_MIN_PIXEL_ORANI",
+            EGIM_PARLAK_DOKU_MIN_PIXEL_ORANI,
+            0.02,
+            0.0,
+            0.5,
+        )
+        min_piksel = max(20, int(round(arr.size * min_piksel_orani)))
+
+        foreground_mask = arr > foreground_esigi
+        foreground_degerleri = arr[foreground_mask]
+        if foreground_degerleri.size < min_piksel:
+            return self._egim_sonucu(sebep="parlak_doku_foreground_zayif")
+
+        percentile = self._egim_float_ayar(
+            "EGIM_PARLAK_DOKU_PERCENTILE",
+            EGIM_PARLAK_DOKU_PERCENTILE,
+            50.0,
+            1.0,
+            99.0,
+        )
+        parlak_esik = float(np.percentile(foreground_degerleri, percentile))
+        parlak_mask = foreground_mask & (arr >= parlak_esik)
+        ys, xs = np.nonzero(parlak_mask)
+        if xs.size < min_piksel:
+            return self._egim_sonucu(sebep="parlak_doku_piksel_zayif")
+
+        coords_xy = np.column_stack([xs, ys]).astype(np.float64)
+        try:
+            _, eigvecs, eigvals = _cv_yardimci.pca_compute_2d(coords_xy)
+        except cv2.error:
+            return self._egim_sonucu(sebep="parlak_doku_pca_basarisiz")
+
+        if not np.all(np.isfinite(eigvals)) or not np.all(np.isfinite(eigvecs)):
+            return self._egim_sonucu(sebep="parlak_doku_pca_gecersiz")
+
+        eig_max = float(max(eigvals[0], 0.0))
+        eig_min = float(max(eigvals[1], 0.0)) if eigvals.size > 1 else 0.0
+        eig_min = min(eig_min, eig_max)
+        if eig_max <= 0.0 or eigvecs.shape[0] < 1:
+            return self._egim_sonucu(sebep="parlak_doku_pca_gecersiz")
+
+        theta_x_deg = float(
+            np.degrees(np.arctan2(float(eigvecs[0][1]), float(eigvecs[0][0])))
+        )
+        aci = self._egim_cizgi_acisindan_tilt(theta_x_deg)
+        major_extent = 2.0 * float(np.sqrt(eig_max))
+        eksen_orani = float(np.sqrt(eig_min / eig_max)) if eig_max > 0 else 1.0
+        y_span = int(ys.max() - ys.min() + 1)
+
+        maks_eksen_orani = self._egim_float_ayar(
+            "EGIM_PARLAK_DOKU_MAKS_EKSEN_ORANI",
+            EGIM_PARLAK_DOKU_MAKS_EKSEN_ORANI,
+            0.98,
+            0.1,
+            1.0,
+        )
+
+        guvenilir = True
+        sebep = "ok"
+        if major_extent < float(EGIM_MIN_X_SPAN):
+            guvenilir = False
+            sebep = "parlak_doku_x_span_dusuk"
+        elif eksen_orani >= maks_eksen_orani:
+            guvenilir = False
+            sebep = "parlak_doku_ambiguous"
+
+        sonuc = self._egim_sonucu(
+            aci=float(aci),
+            rmse=None,
+            x_span=major_extent,
+            satir_sayisi=y_span,
+            guvenilir=guvenilir,
+            sebep=sebep,
+        )
+        sonuc.update({
+            "eksen_orani": eksen_orani,
+            "piksel_sayisi": int(xs.size),
+            "percentile": percentile,
+            "esik": parlak_esik,
+        })
+        return sonuc
+
+    def _egim_kalite_analizini_genislet(
+        self,
+        goruntu: np.ndarray,
+        analiz: Dict[str, object],
+    ) -> Dict[str, object]:
+        """Ana egim analizine kalite kontrol fallback olcumlerini ekle."""
+        sonuc = dict(analiz or {})
+        if not EGIM_PARLAK_DOKU_KALITE_KONTROL_AKTIF:
+            return sonuc
+
+        try:
+            ana_aci = float(sonuc.get("aci", 0.0))
+        except (TypeError, ValueError):
+            ana_aci = 0.0
+
+        esik = self._egim_kalite_red_esigi()
+        ana_guvenilir = bool(sonuc.get("guvenilir", False))
+        ana_reddeder = abs(ana_aci) >= esik and (
+            ana_guvenilir or not bool(EGIM_KALITE_GUVENILIRLIK_ZORUNLU)
+        )
+        if ana_reddeder:
+            sonuc["kalite_kaynak"] = "ana_maske"
+            return sonuc
+
+        fallback_sebepleri = {"maske_isotropik", "kontur_ambiguous", "aci_uyumsuz"}
+        if str(sonuc.get("sebep", "")) not in fallback_sebepleri:
+            return sonuc
+
+        parlak_analiz = self.parlak_doku_egim_acisi_hesapla(goruntu)
+        sonuc["parlak_doku"] = dict(parlak_analiz)
+        try:
+            parlak_aci = float(parlak_analiz.get("aci", 0.0))
+        except (TypeError, ValueError):
+            return sonuc
+
+        if bool(parlak_analiz.get("guvenilir", False)) and abs(parlak_aci) >= esik:
+            sonuc["kalite_aci"] = parlak_aci
+            sonuc["kalite_guvenilir"] = bool(parlak_analiz.get("guvenilir", False))
+            sonuc["kalite_kaynak"] = "parlak_doku"
+        return sonuc
+
+    def anatomik_kalite_analizi(self, goruntu: np.ndarray) -> Dict[str, object]:
+        """Merkezi karanlik bosluk oranina gore anatomik kontrol analizi yap."""
+        sonuc = {
+            "guvenilir": False,
+            "reddet": False,
+            "sebep": "",
+            "skor": 0.0,
+            "merkez_bosluk_orani": 0.0,
+            "merkez_karanlik_orani": 0.0,
+            "foreground_orani": 0.0,
+        }
+        if goruntu is None:
+            sonuc["sebep"] = "anatomik_bos_goruntu"
+            return sonuc
+
+        arr = self._uint8_goruntu(goruntu)
+        if arr.ndim != 2 or arr.size == 0:
+            sonuc["sebep"] = "anatomik_gecersiz_boyut"
+            return sonuc
+
+        foreground_esigi = self._egim_float_ayar(
+            "ANATOMIK_FOREGROUND_ESIGI",
+            ANATOMIK_FOREGROUND_ESIGI,
+            10.0,
+            0.0,
+            254.0,
+        )
+        karanlik_esik = self._egim_float_ayar(
+            "ANATOMIK_KARANLIK_ESIGI",
+            ANATOMIK_KARANLIK_ESIGI,
+            15.0,
+            0.0,
+            254.0,
+        )
+        merkez_roi_orani = self._egim_float_ayar(
+            "ANATOMIK_MERKEZ_ROI_ORANI",
+            ANATOMIK_MERKEZ_ROI_ORANI,
+            0.65,
+            0.1,
+            1.0,
+        )
+        red_esigi = self._egim_float_ayar(
+            "ANATOMIK_MERKEZ_BOSLUK_RED_ESIGI",
+            ANATOMIK_MERKEZ_BOSLUK_RED_ESIGI,
+            0.28,
+            0.0,
+            1.0,
+        )
+        min_foreground_orani = self._egim_float_ayar(
+            "ANATOMIK_MIN_FOREGROUND_ORANI",
+            ANATOMIK_MIN_FOREGROUND_ORANI,
+            0.05,
+            0.0,
+            0.8,
+        )
+
+        foreground = arr > foreground_esigi
+        num_labels, labels, stats, _ = _cv_yardimci.baglantili_bilesenler(
+            self._bool_maske_uint8(foreground),
+            connectivity=8,
+        )
+        if num_labels <= 1:
+            sonuc["sebep"] = "anatomik_foreground_yok"
+            return sonuc
+
+        en_iyi_label = max(
+            range(1, num_labels),
+            key=lambda label_idx: int(stats[label_idx, cv2.CC_STAT_AREA]),
+        )
+        ana_foreground = labels == int(en_iyi_label)
+        foreground_orani = float(ana_foreground.sum()) / float(arr.size)
+        sonuc["foreground_orani"] = foreground_orani
+        if foreground_orani < min_foreground_orani:
+            sonuc["sebep"] = "anatomik_foreground_zayif"
+            return sonuc
+
+        dis_arka_plan = np.zeros_like(ana_foreground, dtype=bool)
+        arka_plan = (~ana_foreground).astype(np.uint8)
+        flood = arka_plan.copy()
+        h, w = flood.shape
+        for x in range(w):
+            if flood[0, x] == 1:
+                cv2.floodFill(flood, None, (int(x), 0), 2)
+            if flood[h - 1, x] == 1:
+                cv2.floodFill(flood, None, (int(x), int(h - 1)), 2)
+        for y in range(h):
+            if flood[y, 0] == 1:
+                cv2.floodFill(flood, None, (0, int(y)), 2)
+            if flood[y, w - 1] == 1:
+                cv2.floodFill(flood, None, (int(w - 1), int(y)), 2)
+        dis_arka_plan[flood == 2] = True
+        beyin_zarfi = ~dis_arka_plan
+
+        ys, xs = np.nonzero(beyin_zarfi)
+        if xs.size == 0:
+            sonuc["sebep"] = "anatomik_zarf_bos"
+            return sonuc
+
+        y0, y1 = int(ys.min()), int(ys.max()) + 1
+        x0, x1 = int(xs.min()), int(xs.max()) + 1
+        bbox_h = max(1, y1 - y0)
+        bbox_w = max(1, x1 - x0)
+        roi_h = max(1, int(round(bbox_h * merkez_roi_orani)))
+        roi_w = max(1, int(round(bbox_w * merkez_roi_orani)))
+        cy0 = y0 + (bbox_h - roi_h) // 2
+        cx0 = x0 + (bbox_w - roi_w) // 2
+        cy1 = min(y1, cy0 + roi_h)
+        cx1 = min(x1, cx0 + roi_w)
+
+        roi = np.zeros_like(beyin_zarfi, dtype=bool)
+        roi[cy0:cy1, cx0:cx1] = True
+        merkez_zarf = beyin_zarfi & roi
+        merkez_alan = int(merkez_zarf.sum())
+        if merkez_alan <= 0:
+            sonuc["sebep"] = "anatomik_merkez_zarf_bos"
+            return sonuc
+
+        merkez_bosluk = merkez_zarf & (~ana_foreground)
+        merkez_karanlik = merkez_zarf & (arr <= karanlik_esik)
+        bosluk_orani = float(merkez_bosluk.sum()) / float(merkez_alan)
+        karanlik_orani = float(merkez_karanlik.sum()) / float(merkez_alan)
+        skor = max(bosluk_orani, karanlik_orani)
+
+        sonuc.update({
+            "guvenilir": True,
+            "sebep": "ok",
+            "skor": skor,
+            "merkez_bosluk_orani": bosluk_orani,
+            "merkez_karanlik_orani": karanlik_orani,
+            "merkez_alan": merkez_alan,
+            "red_esigi": red_esigi,
+            "roi_orani": merkez_roi_orani,
+        })
+        if skor >= red_esigi:
+            sonuc["reddet"] = True
+            sonuc["sebep"] = "anatomik_merkez_bosluk"
+        return sonuc
+
+    def _anatomik_kalite_reddi_degerlendir(
+        self,
+        analiz: Optional[Dict[str, object]],
+    ) -> Tuple[bool, str]:
+        """Anatomik kalite analizini normal cikti reddine cevir."""
+        if not ANATOMIK_KALITE_KONTROL_AKTIF or not analiz:
+            return False, ""
+        if bool(analiz.get("guvenilir", False)) and bool(analiz.get("reddet", False)):
+            return True, str(analiz.get("sebep") or "anatomik_kalite_red")
+        return False, ""
 
     def _egim_reddedilen_duzeltme_sayaclarini_guncelle(
         self, analiz: Dict[str, object]
@@ -1717,9 +2058,19 @@ class GorselOnIslemeMixin:
         egim_acisi = None
         egim_guvenilir = False
         if EGIM_DUZELTME_AKTIF or EGIM_KALITE_KONTROL_AKTIF:
-            egim_analizi = self.egim_acisi_hesapla(self._uint8_goruntu(goruntu))
+            egim_goruntu = self._uint8_goruntu(goruntu)
+            egim_analizi = self.egim_acisi_hesapla(egim_goruntu)
+            egim_analizi = self._egim_kalite_analizini_genislet(
+                egim_goruntu,
+                egim_analizi,
+            )
             self.son_egim_analizi = dict(egim_analizi)
-            egim_guvenilir = bool(egim_analizi.get("guvenilir", False))
+            egim_guvenilir = bool(
+                egim_analizi.get(
+                    "kalite_guvenilir",
+                    egim_analizi.get("guvenilir", False),
+                )
+            )
             kalite_reddi, kalite_reddi_nedeni, egim_acisi = (
                 self._egim_kalite_reddi_degerlendir(egim_analizi)
             )
@@ -1771,6 +2122,46 @@ class GorselOnIslemeMixin:
                 tilt_analysis=egim_analizi,
             )
 
+        kalite_analizi = {}
+        if ANATOMIK_KALITE_KONTROL_AKTIF and not kalite_reddi:
+            kalite_analizi = self.anatomik_kalite_analizi(goruntu)
+            anatomik_reddi, anatomik_nedeni = (
+                self._anatomik_kalite_reddi_degerlendir(kalite_analizi)
+            )
+            if anatomik_reddi:
+                kalite_reddi = True
+                kalite_reddi_nedeni = anatomik_nedeni
+                self.kalite_istatistikleri["anatomik_kalite_red"] = (
+                    self.kalite_istatistikleri.get("anatomik_kalite_red", 0) + 1
+                )
+
+        if EGIM_KALITE_KONTROL_AKTIF and not kalite_reddi:
+            cikti_egim_analizi = self.egim_acisi_hesapla(self._uint8_goruntu(goruntu))
+            cikti_egim_analizi = self._egim_kalite_analizini_genislet(
+                self._uint8_goruntu(goruntu),
+                cikti_egim_analizi,
+            )
+            cikti_kalite_reddi, cikti_kalite_nedeni, cikti_egim_acisi = (
+                self._egim_kalite_reddi_degerlendir(cikti_egim_analizi)
+            )
+            if cikti_kalite_reddi:
+                if egim_analizi:
+                    cikti_egim_analizi["ham_analiz"] = dict(egim_analizi)
+                cikti_egim_analizi["kalite_asamasi"] = "cikti"
+                egim_analizi = cikti_egim_analizi
+                kalite_reddi = True
+                kalite_reddi_nedeni = cikti_kalite_nedeni
+                egim_acisi = cikti_egim_acisi
+                egim_guvenilir = bool(
+                    egim_analizi.get(
+                        "kalite_guvenilir",
+                        egim_analizi.get("guvenilir", False),
+                    )
+                )
+                self.kalite_istatistikleri["egim_kalite_red"] = (
+                    self.kalite_istatistikleri.get("egim_kalite_red", 0) + 1
+                )
+
         return self._pipeline_sonucu(
             goruntu,
             quality_rejected=kalite_reddi,
@@ -1778,6 +2169,7 @@ class GorselOnIslemeMixin:
             tilt_angle=egim_acisi,
             tilt_reliable=egim_guvenilir,
             tilt_analysis=egim_analizi,
+            quality_analysis=kalite_analizi,
         )
 
     def goruntu_isle(self, dosya_yolu: str) -> Optional[np.ndarray]:

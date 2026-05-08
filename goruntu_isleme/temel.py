@@ -35,6 +35,7 @@ class GorselIsleyiciTemel:
             "egim_duzeltildi": 0,
             "egim_gorsel_kontrol_adayi": 0,
             "egim_kalite_red": 0,
+            "anatomik_kalite_red": 0,
             "pipeline_sonu_red": 0,
         }
         self.n_jobs = max(1, cpu_count() - 1)  # Bir çekirdek sisteme bırak
