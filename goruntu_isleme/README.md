@@ -197,7 +197,7 @@ Normalizasyon stratejileri:
 | `standard` | Percentile clipping ve sabit CLAHE uygular; ardından genel pipeline resize yapar. Varsayılan stratejidir. |
 | `aggressive` | Percentile clipping, sabit CLAHE ve z-score normalizasyonu uygular; ardından genel pipeline resize yapar. |
 
-Varsayılan `standard` stratejisinde foreground/beyin aday maskesi içinde `%1-%99` percentile clipping, `0-255` yoğunluk normalizasyonu, `CLAHE_CLIP_LIMIT=2.0` ve `256x256` yeniden boyutlandırma kullanılır. Arka plan pikselleri normalizasyon istatistiklerini belirlemez ve normalizasyon çıkışında arka plan olarak korunur.
+Varsayılan `standard` stratejisinde foreground/beyin aday maskesi içinde `KIRPMA_YUZDELERI=(0.5, 99.5)` percentile clipping, `0-255` yoğunluk normalizasyonu, `CLAHE_CLIP_LIMIT=2.0` ve `256x256` yeniden boyutlandırma kullanılır. Arka plan pikselleri normalizasyon istatistiklerini belirlemez ve normalizasyon çıkışında arka plan olarak korunur.
 
 Bias field correction açılırsa `simple` yöntem de aynı foreground maskesiyle düşük frekanslı bias alanını tahmin eder; siyah padding/arka plan bölgeleri bias tahminine katılmaz ve düzeltme sonrası sabit tutulur. `n4itk` yolu SimpleITK maskesini açıkça kullanır.
 

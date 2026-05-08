@@ -190,8 +190,15 @@ MORFOLOJIK_KERNEL_BOYUTU = 3
 
 # ==================== VERİ ARTIRMA AYARLARI ====================
 # Veri artırma (Data Augmentation) - Yapay veri üretimi
-# Disk üzerinde çoğaltma yerine eğitimde online augmentasyon ve
-# class-weighted loss (compute_class_weights) kullanılır.
+# Bu bolumdeki ayarlar yalnizca *offline* (disk uzerinde cogaltma) augmentasyonu
+# yonetir ve `goruntu_isleme/artirma.py` tarafindan tuketilir. Mevcut politika:
+# offline augmentasyon kapali; egitimde online augmentasyon (model/dl) ve
+# class-weighted loss (compute_class_weights) kullanilir. Bu nedenle asagidaki
+# tum alt-switch'ler False sabitlenmistir; VERI_ARTIRMA_AKTIF tek master switch
+# olarak calismaz, alt-switch'ler de ayni politikayi izler. Master True yapilirsa
+# alt-switch'lerin de bilincli olarak True'ya cekilmesi beklenir.
+# Parametre degerleri (alpha/sigma/limit/aralik) referans olarak korunur; offline
+# augmentation acildiginda kullanilacak baslangic noktasidir.
 VERI_ARTIRMA_AKTIF = False
 ARTIRMA_CARPANI = 0  # Her orijinal görüntüden kaç artırılmış versiyon üretilecek
 
@@ -214,7 +221,7 @@ PARLAKLIK_ARALIK = (-20, 20)     # Parlaklık değişimi aralığı (piksel)
 KONTRAST_ARALIK = (0.9, 1.1)     # Kontrast çarpanı aralığı
 
 # Gelişmiş medikal-spesifik artırma parametreleri
-ELASTIC_DEFORMATION_AKTIF = True
+ELASTIC_DEFORMATION_AKTIF = False
 ELASTIC_ALPHA = 15               # Daha yumuşak deformasyon
 ELASTIC_SIGMA = 8                # Deformasyon yumuşaklığı
 
@@ -225,7 +232,7 @@ GAUSSIAN_NOISE_AKTIF = False
 GAUSSIAN_NOISE_MEAN = 0
 GAUSSIAN_NOISE_SIGMA = 5         # Gürültü şiddeti
 
-INTENSITY_SHIFT_AKTIF = True
+INTENSITY_SHIFT_AKTIF = False
 INTENSITY_SHIFT_LIMIT = 0.03      # Yogunluk kaymasi limiti (%3)
 
 # ==================== VERİ BÖLÜMLEME AYARLARI ====================
@@ -346,6 +353,12 @@ KENAR_KISMI_TEMIZLEME_MIN_PIXEL = 50
 
 # Temizleme sirasinda artefakt piksellerine yazilacak deger (uint8).
 # MRI arka plani genelde 0 oldugundan varsayilan 0.
+# Not: Kenar temizligi normalize/CLAHE oncesi calistigi icin sabit 0 yazmak
+# guvenlidir; CLAHE sonrasi arka plan kucuk nonzero degerlere kayar ancak
+# temizlenen kenar pikselleri foreground maskesine dahil edilmedigi icin
+# normalizasyon istatistiklerini bozmaz. Padding tarafindaki gorsel sinir
+# riski PADDING_OTOMATIK_ARKAPLAN ile, kenar tarafinda ise temizlemenin
+# CLAHE oncesi yapilmasiyla bertaraf edilir.
 KENAR_TEMIZLEME_DEGERI = 0
 
 # Bir parlak baglantili bilesenin alani toplam goruntu alaninin bu oranindan
@@ -360,14 +373,28 @@ KENAR_ARTEFAKT_RAPORLA = True
 # ==================== EGIM DUZELTME AYARLARI ====================
 # Hafif sola/saga yatmis 2D MRI dilimleri icin konservatif egim duzeltme.
 # Mevcut politika: egim *kontrolu* yapilir (bkz. EGIM_KALITE_KONTROL_AKTIF)
-# ancak otomatik egim *duzeltmesi* yapilmaz. Asagidaki esikler yalnizca
-# duzeltme yeniden devreye alinirsa (EGIM_DUZELTME_AKTIF = True) etkindir.
+# ancak otomatik egim *duzeltmesi* yapilmaz.
+#
+# Asagidaki esiklerin etki alani parametre bazinda farklidir:
+#   * EGIM_DUZELTME_AKTIF, EGIM_DUZELTME_RAPORLA, EGIM_ONIZLEME_URET,
+#     EGIM_DOLDURMA_DEGERI, EGIM_ROTASYON_PADDING_ORANI: yalnizca otomatik
+#     dondurme akisinda (duzeltme True iken) kullanilir.
+#   * EGIM_MIN_ACI, EGIM_MAKS_ACI, EGIM_RMSE_MAKS, EGIM_MIN_SATIR_SAYISI,
+#     EGIM_MIN_X_SPAN, EGIM_MIN_FOREGROUND_ORANI: hem dondurme akisinda hem
+#     de kalite kontrol akisinda guvenilirlik/aday secimi icin kullanilir;
+#     duzeltme kapali olsa bile kalite raporlamasini ve aday klasorunu
+#     dogrudan etkiler.
 EGIM_DUZELTME_AKTIF = False
 EGIM_DUZELTME_RAPORLA = False
 EGIM_ONIZLEME_URET = False
+# Kalite kontrolde "egim_gorsel_kontrol_adayi" sayacina dusmesi icin alt sinir.
 EGIM_MIN_ACI = 1.0
+# Bu acinin ustundeki tahminler kalite akisinda da uyari/aday olarak isaretlenir;
+# ana red esigi (15 derece) ile aradaki bantta yumusak uyari saglar.
 EGIM_MAKS_ACI = 5.0
 # PCA ve minAreaRect acilari arasindaki izin verilen maksimum fark (derece).
+# Hem duzeltme guvenilirligi hem de kalite akisindaki "uyumlu" karari icin
+# ana esik. EGIM_KALITE_GUVENILMEZ_UYUMLU_RMSE_ESIGI bundan daha sikidir.
 EGIM_RMSE_MAKS = 2.5
 EGIM_MIN_SATIR_SAYISI = 45
 EGIM_MIN_X_SPAN = 8.0
@@ -380,8 +407,8 @@ EGIM_ROTASYON_PADDING_ORANI = 0.18
 # esikten buyukse maske neredeyse izotropik (dairesel) kabul edilir ve
 # tahmin guvenilmez sayilir. OASIS/Kaggle 2D Alzheimer dilimleri beyin
 # kirpilmis ve nispeten izotropik gorundugu icin 0.80 tum gercek dilimleri
-# "maske_isotropik" sayabiliyordu. 0.95, yuksek egimli adaylari egitim
-# ciktilarindan ayirmak icin daha kullanisli ama hala konservatif bir
-# baslangic esigidir; daha agresif ayrim icin veri setinden orneklerle
-# 0.98 ayrica degerlendirilmelidir.
+# "maske_isotropik" sayabiliyordu. Mevcut deger 0.88 daha az goruntuyu
+# izotropik isaretleyerek yatmis adaylari kalite akisina dusurur ve hala
+# konservatif kalir. Daha agresif ayrim icin 0.92 / 0.95 esikleri veri
+# setinden orneklerle dogrulanarak yukseltilebilir.
 EGIM_MIN_EKSEN_ORANI = 0.88
