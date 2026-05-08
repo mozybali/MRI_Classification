@@ -43,6 +43,7 @@ if __package__ in {None, ""}:
         run_sl_training,
         validate_sl_config,
     )
+    from model.dl.utils import release_cuda_memory
 else:
     from .ayarlar import (
         HPO_KLASORU,
@@ -64,6 +65,7 @@ else:
         run_sl_training,
         validate_sl_config,
     )
+    from .dl.utils import release_cuda_memory
 
 try:
     import optuna
@@ -606,84 +608,110 @@ def _objective_factory(args: argparse.Namespace, study_dir: Path):
             color_jitter=params["color_jitter"],
         )
 
+        cv_results: dict[str, Any] | None = None
+        results: dict[str, Any] | None = None
         try:
-            if use_cv:
-                cv_results = run_cv_training(
-                    config,
-                    n_folds=args.hpo_folds,
-                    save_artifacts=False,
-                    evaluate_test_set=False,
-                    verbose=args.verbose_trials,
-                    selection_metric=args.metric,
-                    deterministic=False,
-                )
-            else:
-                results = run_training(
-                    config,
-                    save_artifacts=False,
-                    evaluate_test_set=False,
-                    verbose=args.verbose_trials,
-                    selection_metric=args.metric,
-                    on_epoch_end=lambda epoch, _train, val: _on_epoch_end(
-                        trial,
-                        args.metric,
-                        epoch,
-                        val,
-                    ),
-                    deterministic=False,
-                )
-        except Exception as exc:
-            if optuna is not None and isinstance(exc, optuna.TrialPruned):
+            try:
+                if use_cv:
+                    cv_results = run_cv_training(
+                        config,
+                        n_folds=args.hpo_folds,
+                        save_artifacts=False,
+                        evaluate_test_set=False,
+                        verbose=args.verbose_trials,
+                        selection_metric=args.metric,
+                        deterministic=False,
+                    )
+                else:
+                    results = run_training(
+                        config,
+                        save_artifacts=False,
+                        evaluate_test_set=False,
+                        verbose=args.verbose_trials,
+                        selection_metric=args.metric,
+                        on_epoch_end=lambda epoch, _train, val: _on_epoch_end(
+                            trial,
+                            args.metric,
+                            epoch,
+                            val,
+                        ),
+                        deterministic=False,
+                    )
+            except Exception as exc:
+                if optuna is not None and isinstance(exc, optuna.TrialPruned):
+                    _write_json(
+                        trial_dir / "trial_summary.json",
+                        {
+                            "trial_number": trial.number,
+                            "state": "PRUNED",
+                            "params": params,
+                            "metric": args.metric,
+                            "message": str(exc),
+                        },
+                    )
+                    raise
+
                 _write_json(
                     trial_dir / "trial_summary.json",
                     {
                         "trial_number": trial.number,
-                        "state": "PRUNED",
+                        "state": "FAILED",
                         "params": params,
                         "metric": args.metric,
-                        "message": str(exc),
+                        "error": str(exc),
                     },
                 )
                 raise
 
-            _write_json(
-                trial_dir / "trial_summary.json",
-                {
-                    "trial_number": trial.number,
-                    "state": "FAILED",
-                    "params": params,
-                    "metric": args.metric,
-                    "error": str(exc),
-                },
-            )
-            raise
+            if use_cv:
+                aggregate = cv_results["aggregate"]
+                val_summary = aggregate.get("val") or {}
+                metric_summary = val_summary.get(args.metric)
+                if metric_summary is None:
+                    raise RuntimeError(
+                        f"CV val metrikleri eksik: '{args.metric}' bulunamadi."
+                    )
+                objective_value = float(metric_summary["mean"])
+                trial.set_user_attr("trial_dir", str(trial_dir))
+                trial.set_user_attr("hpo_folds", args.hpo_folds)
+                trial.set_user_attr(f"val_{args.metric}_mean", metric_summary["mean"])
+                trial.set_user_attr(f"val_{args.metric}_std", metric_summary["std"])
+                f1_summary = val_summary.get("f1")
+                if f1_summary is not None:
+                    trial.set_user_attr("best_val_f1_mean", f1_summary["mean"])
+                    trial.set_user_attr("best_val_f1_std", f1_summary["std"])
 
-        if use_cv:
-            aggregate = cv_results["aggregate"]
-            val_summary = aggregate.get("val") or {}
-            metric_summary = val_summary.get(args.metric)
-            if metric_summary is None:
-                raise RuntimeError(
-                    f"CV val metrikleri eksik: '{args.metric}' bulunamadi."
+                best_epochs = [
+                    int(r["best_epoch"]) for r in cv_results["fold_results"]
+                    if r.get("best_epoch") is not None
+                ]
+                if best_epochs:
+                    rounded = int(round(sum(best_epochs) / len(best_epochs)))
+                    trial.set_user_attr("best_epoch", rounded)
+                    trial.set_user_attr("best_epochs_per_fold", best_epochs)
+
+                _write_json(
+                    trial_dir / "trial_summary.json",
+                    {
+                        "trial_number": trial.number,
+                        "state": "COMPLETE",
+                        "metric": args.metric,
+                        "objective_value": objective_value,
+                        "params": params,
+                        "hpo_folds": args.hpo_folds,
+                        "cv_aggregate": aggregate,
+                        "config": cv_results["config"],
+                    },
                 )
-            objective_value = float(metric_summary["mean"])
-            trial.set_user_attr("trial_dir", str(trial_dir))
-            trial.set_user_attr("hpo_folds", args.hpo_folds)
-            trial.set_user_attr(f"val_{args.metric}_mean", metric_summary["mean"])
-            trial.set_user_attr(f"val_{args.metric}_std", metric_summary["std"])
-            f1_summary = val_summary.get("f1")
-            if f1_summary is not None:
-                trial.set_user_attr("best_val_f1_mean", f1_summary["mean"])
-                trial.set_user_attr("best_val_f1_std", f1_summary["std"])
+                return objective_value
 
-            best_epochs = [
-                int(r["best_epoch"]) for r in cv_results["fold_results"]
-                if r.get("best_epoch") is not None
-            ]
-            if best_epochs:
-                rounded = int(round(sum(best_epochs) / len(best_epochs)))
-                trial.set_user_attr("best_epoch", rounded)
-                trial.set_user_attr("best_epochs_per_fold", best_epochs)
+            best_val_metrics = results["best_val_metrics"]
+            objective_value = float(best_val_metrics[args.metric])
+            trial.set_user_attr("trial_dir", str(trial_dir))
+            trial.set_user_attr("best_epoch", results["best_epoch"])
+            trial.set_user_attr("best_val_loss", results["best_val_loss"])
+            trial.set_user_attr("lowest_val_loss", results["lowest_val_loss"])
+            trial.set_user_attr("best_val_f1", best_val_metrics["f1"])
 
             _write_json(
                 trial_dir / "trial_summary.json",
@@ -693,37 +721,22 @@ def _objective_factory(args: argparse.Namespace, study_dir: Path):
                     "metric": args.metric,
                     "objective_value": objective_value,
                     "params": params,
-                    "hpo_folds": args.hpo_folds,
-                    "cv_aggregate": aggregate,
-                    "config": cv_results["config"],
+                    "best_epoch": results["best_epoch"],
+                    "best_val_loss": results["best_val_loss"],
+                    "lowest_val_loss": results["lowest_val_loss"],
+                    "best_val_metrics": best_val_metrics,
+                    "config": results["config"],
                 },
             )
             return objective_value
-
-        best_val_metrics = results["best_val_metrics"]
-        objective_value = float(best_val_metrics[args.metric])
-        trial.set_user_attr("trial_dir", str(trial_dir))
-        trial.set_user_attr("best_epoch", results["best_epoch"])
-        trial.set_user_attr("best_val_loss", results["best_val_loss"])
-        trial.set_user_attr("lowest_val_loss", results["lowest_val_loss"])
-        trial.set_user_attr("best_val_f1", best_val_metrics["f1"])
-
-        _write_json(
-            trial_dir / "trial_summary.json",
-            {
-                "trial_number": trial.number,
-                "state": "COMPLETE",
-                "metric": args.metric,
-                "objective_value": objective_value,
-                "params": params,
-                "best_epoch": results["best_epoch"],
-                "best_val_loss": results["best_val_loss"],
-                "lowest_val_loss": results["lowest_val_loss"],
-                "best_val_metrics": best_val_metrics,
-                "config": results["config"],
-            },
-        )
-        return objective_value
+        finally:
+            # Trial sonu (basari/hata/prune farketmez) buyuk referanslari dusur
+            # ve PyTorch caching allocator'in tutu VRAM bloklarini surucuye geri
+            # ver. HPO sirasinda batch_size/image_size trial bazinda degistigi
+            # icin fragmentasyonun bir sonraki trial'a sarkmamasi kritik.
+            cv_results = None
+            results = None
+            release_cuda_memory()
 
     return objective
 

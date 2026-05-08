@@ -7,10 +7,11 @@ utils.py
 Yardimci fonksiyonlar: seed, device ve detayli degerlendirme gorselleri.
 """
 
+import gc
 import os
 import random
 from pathlib import Path
-from typing import List
+from typing import Any, Dict, List
 
 import numpy as np
 import torch
@@ -108,6 +109,56 @@ def get_device(verbose: bool = True) -> torch.device:
         if verbose:
             print("[UYARI] GPU bulunamadi, CPU kullaniliyor")
     return device
+
+
+def release_cuda_memory() -> None:
+    """Trial/fold sonu icin CPU+GPU bellegini deterministik bicimde serbest birak.
+
+    HPO sirasinda batch_size/image_size trial bazinda degistigi icin PyTorch'un
+    caching allocator'i fragmente bloklari sonraki trial'a sarkitabilir. Bu
+    yardimci fonksiyon:
+      1) ``gc.collect()`` ile Python referanslarini deterministik dusurur,
+      2) CUDA mevcutsa ``torch.cuda.empty_cache()`` ile caching allocator'in
+         tutu bloklarini surucuye geri verir,
+      3) ``torch.cuda.ipc_collect()`` ile DataLoader worker'larindan kalan
+         IPC handle'larini toplar.
+
+    CUDA yoksa (CPU/MPS) sadece GC calistirir; her ortamda guvenle cagrilabilir.
+    """
+    gc.collect()
+    if torch.cuda.is_available():
+        try:
+            torch.cuda.empty_cache()
+        except Exception:
+            # Surucu/CUDA durumlarinda empty_cache nadiren patlar; cleanup
+            # akisini bloklamamak icin sessizce gec.
+            pass
+        try:
+            torch.cuda.ipc_collect()
+        except Exception:
+            pass
+
+
+def clone_state_dict_to_cpu(
+    state_dict: Dict[str, Any],
+) -> Dict[str, Any]:
+    """state_dict'in CPU uzerinde bagimsiz bir kopyasini uret.
+
+    ``copy.deepcopy(model.state_dict())`` GPU tensor'lari icin GPU'da yeni
+    allocation yapar; bu da bir trial icinde efektif olarak ~2x model agirligi
+    VRAM tepe noktasi yaratir. Best checkpoint'i CPU'da tuttugumuzda bu ekstra
+    erir; ``model.load_state_dict(...)`` zaten cihaza geri yukler.
+
+    Tensor olmayan degerler oldugu gibi kopyalanir (dtype/state_dict
+    metadata'siyla uyum icin).
+    """
+    cloned: Dict[str, Any] = {}
+    for key, value in state_dict.items():
+        if isinstance(value, torch.Tensor):
+            cloned[key] = value.detach().to("cpu", copy=True)
+        else:
+            cloned[key] = value
+    return cloned
 
 
 def load_checkpoint(path: Path, map_location: torch.device | str):

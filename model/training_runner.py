@@ -9,7 +9,6 @@ Shared training utilities for single-run training and Bayesian search.
 
 from __future__ import annotations
 
-import copy
 import json
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -39,6 +38,7 @@ from .dl.engine import EarlyStopping, evaluate, train_one_epoch
 from .dl.losses import FocalLoss, compute_class_weights
 from .dl.models.resnet_classifier import ResNetClassifier
 from .dl.utils import (
+    clone_state_dict_to_cpu,
     configure_torch_runtime,
     get_device,
     plot_classification_summary,
@@ -46,6 +46,7 @@ from .dl.utils import (
     plot_multiclass_roc_pr_curves,
     plot_prediction_confidence,
     plot_training_curves,
+    release_cuda_memory,
     set_seed,
 )
 from .common.evaluation import (
@@ -602,7 +603,11 @@ def run_training(
             best_selection_value = current_selection_value
             best_epoch = epoch
             best_val_metrics = dict(val_scalars)
-            best_state_dict = copy.deepcopy(model.state_dict())
+            # CPU'da klonla: deepcopy GPU tensor'lari icin GPU'da yeni allocation
+            # yapardi ve trial-ici VRAM tepe noktasini ~1x model agirligi kadar
+            # sisirirdi. CPU klonu, model.load_state_dict cagrisinda otomatik
+            # olarak cihaza yuklenir.
+            best_state_dict = clone_state_dict_to_cpu(model.state_dict())
             selected_epoch_val_loss = val_scalars["loss"]
             best_val_eval_cache = val_metrics
             if best_checkpoint_path is not None:
@@ -637,7 +642,7 @@ def run_training(
             break
 
     if full_trainval:
-        best_state_dict = copy.deepcopy(model.state_dict())
+        best_state_dict = clone_state_dict_to_cpu(model.state_dict())
         if best_train_metrics is not None:
             best_selection_value = float(best_train_metrics[selection_metric])
         if best_checkpoint_path is not None and selected_epoch_train_loss is not None:
@@ -660,7 +665,7 @@ def run_training(
             if verbose:
                 print("  [OK] Final checkpoint kaydedildi (full-trainval)")
     elif best_state_dict is None and val_losses:
-        best_state_dict = copy.deepcopy(model.state_dict())
+        best_state_dict = clone_state_dict_to_cpu(model.state_dict())
         best_val_metrics = dict(val_scalars)
         best_epoch = epoch
         best_selection_value = float(val_scalars[selection_metric])
@@ -1098,6 +1103,13 @@ def run_cv_training(
         fold_results.append(fold_result_summary)
         if on_fold_end is not None:
             on_fold_end(fold_index, fold_result_summary)
+
+        # Fold sonu: bir sonraki fold yeni model + optimizer + DataLoader'lari
+        # allocate etmeden once PyTorch caching allocator'in tutu bloklarini
+        # geri ver. Ayni loop iterasyonundaki loader referanslari da bu noktada
+        # serbest birakilir; aksi halde fragmente VRAM bir sonraki fold'a sarkar.
+        del train_loader, val_loader, test_loader, fold_info, fold_result
+        release_cuda_memory()
 
     aggregate = _aggregate_cv_metrics(fold_results, selection_metric)
 

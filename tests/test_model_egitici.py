@@ -3,6 +3,7 @@ Derin ogrenme model katmani icin temel testler.
 Not: Dosya adi geriye donuk uyumluluk icin korunmustur.
 """
 
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -1856,3 +1857,508 @@ def test_validate_sl_config_gecersiz_n_jobs_reddeder():
     cfg = SLTrainingConfig(n_jobs=0)
     with pytest.raises(ValueError, match="--xgb-n-jobs"):
         validate_sl_config(cfg, require_test_dir=False)
+
+
+# ============================================================================
+# VRAM/RAM cleanup helper'lari ve HPO/CV entegrasyonu
+# ============================================================================
+
+
+def test_release_cuda_memory_cuda_yokken_hata_vermeden_calisir(monkeypatch):
+    """CPU-only ortamda release_cuda_memory bir gc turu yapmali ve hata atmamali."""
+    from model.dl import utils as dl_utils
+
+    # Cuda mevcut olsa bile testi predictable tutmak icin kapatiyoruz.
+    monkeypatch.setattr(dl_utils.torch.cuda, "is_available", lambda: False)
+
+    gc_calls = {"count": 0}
+    real_collect = dl_utils.gc.collect
+
+    def counting_collect(*args, **kwargs):
+        gc_calls["count"] += 1
+        return real_collect(*args, **kwargs)
+
+    monkeypatch.setattr(dl_utils.gc, "collect", counting_collect)
+
+    dl_utils.release_cuda_memory()
+
+    assert gc_calls["count"] >= 1
+
+
+def test_release_cuda_memory_cuda_varken_empty_cache_ve_ipc_collect_cagrir(monkeypatch):
+    """CUDA mevcut hayalinde empty_cache ve ipc_collect'in her ikisi de cagirilmali."""
+    from model.dl import utils as dl_utils
+
+    calls = {"empty_cache": 0, "ipc_collect": 0, "gc": 0}
+
+    monkeypatch.setattr(dl_utils.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(
+        dl_utils.torch.cuda,
+        "empty_cache",
+        lambda: calls.__setitem__("empty_cache", calls["empty_cache"] + 1),
+    )
+    monkeypatch.setattr(
+        dl_utils.torch.cuda,
+        "ipc_collect",
+        lambda: calls.__setitem__("ipc_collect", calls["ipc_collect"] + 1),
+    )
+    real_collect = dl_utils.gc.collect
+
+    def counting_collect(*args, **kwargs):
+        calls["gc"] += 1
+        return real_collect(*args, **kwargs)
+
+    monkeypatch.setattr(dl_utils.gc, "collect", counting_collect)
+
+    dl_utils.release_cuda_memory()
+
+    assert calls["empty_cache"] == 1
+    assert calls["ipc_collect"] == 1
+    assert calls["gc"] >= 1
+
+
+def test_release_cuda_memory_empty_cache_hatasi_akisi_bloklamaz(monkeypatch):
+    """empty_cache exception atsa bile ipc_collect cagirilmali, fonksiyon sessiz gecmeli."""
+    from model.dl import utils as dl_utils
+
+    calls = {"ipc_collect": 0}
+
+    monkeypatch.setattr(dl_utils.torch.cuda, "is_available", lambda: True)
+
+    def boom():
+        raise RuntimeError("driver hiccup")
+
+    monkeypatch.setattr(dl_utils.torch.cuda, "empty_cache", boom)
+    monkeypatch.setattr(
+        dl_utils.torch.cuda,
+        "ipc_collect",
+        lambda: calls.__setitem__("ipc_collect", calls["ipc_collect"] + 1),
+    )
+
+    # Exception gizlenmeli
+    dl_utils.release_cuda_memory()
+
+    assert calls["ipc_collect"] == 1
+
+
+def test_clone_state_dict_to_cpu_tensorlari_cpuya_tasir():
+    from model.dl.utils import clone_state_dict_to_cpu
+
+    model = torch.nn.Linear(4, 3)
+    src = model.state_dict()
+
+    cloned = clone_state_dict_to_cpu(src)
+
+    assert set(cloned.keys()) == set(src.keys())
+    for key, tensor in cloned.items():
+        assert isinstance(tensor, torch.Tensor)
+        assert tensor.device.type == "cpu"
+        # Ayni degerleri tasimali (allclose, deterministik karsilastirma)
+        assert torch.allclose(tensor, src[key].detach().cpu())
+
+
+def test_clone_state_dict_to_cpu_orijinali_etkilemez():
+    from model.dl.utils import clone_state_dict_to_cpu
+
+    model = torch.nn.Linear(4, 3)
+    src = model.state_dict()
+    cloned = clone_state_dict_to_cpu(src)
+
+    # Klonu yerinde degistirmek orijinal storage'i etkilememeli
+    first_key = next(iter(cloned))
+    cloned[first_key].add_(1.0)
+
+    assert not torch.allclose(cloned[first_key], src[first_key].detach().cpu())
+
+
+def test_clone_state_dict_to_cpu_tensor_olmayan_degerleri_korur():
+    from model.dl.utils import clone_state_dict_to_cpu
+
+    src = {
+        "weight": torch.randn(2, 3),
+        "meta_int": 7,
+        "meta_str": "abc",
+    }
+
+    cloned = clone_state_dict_to_cpu(src)
+
+    assert cloned["meta_int"] == 7
+    assert cloned["meta_str"] == "abc"
+    assert cloned["weight"].device.type == "cpu"
+
+
+def test_run_training_best_state_dict_cpu_uzerinde_tutulur(monkeypatch):
+    """run_training trial-ici VRAM'i sismememesi icin best state_dict'i CPU'ya
+    klonlamali."""
+    captured = {}
+
+    def fake_clone(state_dict):
+        captured["clone_called"] = captured.get("clone_called", 0) + 1
+        captured["device_types"] = sorted({v.device.type for v in state_dict.values()})
+        return {k: v.detach().to("cpu", copy=True) for k, v in state_dict.items()}
+
+    monkeypatch.setattr(training_runner, "clone_state_dict_to_cpu", fake_clone)
+    monkeypatch.setattr(training_runner, "set_seed", lambda seed: None)
+    monkeypatch.setattr(training_runner, "configure_torch_runtime", lambda **kwargs: None)
+    monkeypatch.setattr(training_runner, "get_device", lambda verbose=True: torch.device("cpu"))
+
+    def fake_create_dataloaders(**_kwargs):
+        info = {
+            "num_classes": 4,
+            "train_size": 4,
+            "val_size": 2,
+            "test_size": 0,
+            "train_groups": 2,
+            "val_groups": 1,
+            "split_strategy": "group_stratified",
+            "split_warnings": [],
+            "train_labels": [0, 1, 2, 3],
+            "trainval_grouping": {"grouping_reliable": True},
+            "test_grouping": None,
+            "test_labels": [],
+        }
+        return object(), object(), None, info
+
+    monkeypatch.setattr(training_runner, "create_dataloaders", fake_create_dataloaders)
+    monkeypatch.setattr(training_runner, "build_model", lambda *a, **k: torch.nn.Linear(4, 4))
+    monkeypatch.setattr(
+        training_runner,
+        "compute_class_weights",
+        lambda labels, num_classes: torch.ones(num_classes, dtype=torch.float32),
+    )
+    monkeypatch.setattr(
+        training_runner,
+        "train_one_epoch",
+        lambda *a, **k: {"loss": 0.5, "accuracy": 0.5, "precision": 0.5, "recall": 0.5, "f1": 0.5},
+    )
+    monkeypatch.setattr(
+        training_runner,
+        "evaluate",
+        lambda *a, **k: {"loss": 0.4, "accuracy": 0.6, "precision": 0.6, "recall": 0.6, "f1": 0.6},
+    )
+
+    trainval_dir = Path("tmp_test_artifacts") / f"clone_state_{uuid4().hex}"
+    trainval_dir.mkdir(parents=True, exist_ok=True)
+
+    training_runner.run_training(
+        training_runner.TrainingConfig(
+            model="resnet", epochs=1, batch_size=2,
+            trainval_dir=trainval_dir, test_dir=None, test_ratio=0.0,
+        ),
+        save_artifacts=False,
+        evaluate_test_set=False,
+        verbose=False,
+    )
+
+    assert captured.get("clone_called", 0) >= 1
+    # Klonlanan tensor'lar CPU'da uretilen modelden gelmis olmali
+    assert captured["device_types"] == ["cpu"]
+
+
+def test_run_cv_training_fold_basina_release_cuda_memory_cagirir(monkeypatch, tmp_path):
+    """Her fold tamamlandiktan sonra release_cuda_memory tetiklenmeli."""
+    release_calls = {"count": 0}
+
+    monkeypatch.setattr(
+        training_runner,
+        "release_cuda_memory",
+        lambda: release_calls.__setitem__("count", release_calls["count"] + 1),
+    )
+
+    def fake_iter_kfold(**kwargs):
+        for fold_idx in range(kwargs["n_folds"]):
+            yield fold_idx, "train_loader", "val_loader", "test_loader", {
+                "fold_index": fold_idx,
+                "n_folds": kwargs["n_folds"],
+            }
+
+    def fake_run_training(config, **kwargs):
+        return {
+            "best_epoch": 1,
+            "best_val_metrics": {
+                "loss": 0.4, "accuracy": 0.7, "precision": 0.7, "recall": 0.7, "f1": 0.7,
+            },
+            "best_selection_value": 0.7,
+            "test_metrics": None,
+            "report_path": None,
+            "checkpoint_path": None,
+        }
+
+    monkeypatch.setattr(training_runner, "iter_kfold_dataloaders", fake_iter_kfold)
+    monkeypatch.setattr(training_runner, "validate_training_config", lambda *a, **k: None)
+    monkeypatch.setattr(
+        training_runner,
+        "resolve_data_dirs",
+        lambda config: (tmp_path / "trainval", tmp_path / "test"),
+    )
+    monkeypatch.setattr(training_runner, "run_training", fake_run_training)
+
+    config = training_runner.TrainingConfig(model="resnet", epochs=1, batch_size=2)
+
+    training_runner.run_cv_training(
+        config,
+        n_folds=3,
+        output_root=tmp_path / "cv_release",
+        artifact_tag="cv_release",
+        save_artifacts=False,
+        evaluate_test_set=False,
+        verbose=False,
+        selection_metric="f1",
+    )
+
+    assert release_calls["count"] == 3
+
+
+def _build_fake_trial():
+    class FakeTrial:
+        def __init__(self, number=0):
+            self.number = number
+            self.user_attrs: dict = {}
+
+        def set_user_attr(self, key, value):
+            self.user_attrs[key] = value
+
+        def report(self, *_args, **_kwargs):
+            pass
+
+        def should_prune(self):
+            return False
+
+    return FakeTrial()
+
+
+def _hpo_args_for_dl():
+    return hpo.parse_args(
+        [
+            "--model", "resnet",
+            "--trials", "1",
+            "--epochs", "1",
+            "--batch-size-choices", "2",
+            "--image-size-choices", "32",
+            "--skip-final-train",
+        ]
+    )
+
+
+def test_hpo_dl_objective_basari_yolunda_release_cuda_memory_cagrir(monkeypatch, tmp_path):
+    """Trial basariyla bitse de cleanup tetiklenmeli (try/finally finally bloku)."""
+    release_calls = {"count": 0}
+
+    monkeypatch.setattr(
+        hpo,
+        "release_cuda_memory",
+        lambda: release_calls.__setitem__("count", release_calls["count"] + 1),
+    )
+
+    fake_results = {
+        "best_epoch": 2,
+        "best_val_loss": 0.30,
+        "lowest_val_loss": 0.25,
+        "best_val_metrics": {
+            "loss": 0.30, "accuracy": 0.80, "precision": 0.80, "recall": 0.80, "f1": 0.85,
+        },
+        "config": {"model": "resnet"},
+    }
+    monkeypatch.setattr(hpo, "run_training", lambda *a, **k: fake_results)
+
+    def fake_sample(_trial, _args):
+        return {
+            "batch_size": 2,
+            "image_size": 32,
+            "lr": 1e-3,
+            "weight_decay": 1e-4,
+            "scheduler_factor": 0.5,
+            "scheduler_patience": 3,
+            "loss": "ce",
+            "focal_gamma": 2.0,
+            "label_smoothing": 0.0,
+            "dropout": 0.5,
+            "hflip_p": 0.0,
+            "rotation_degrees": 5,
+            "color_jitter": 0.1,
+            "pretrained": False,
+        }
+
+    monkeypatch.setattr(hpo, "_sample_params", fake_sample)
+
+    args = _hpo_args_for_dl()
+    objective = hpo._objective_factory(args, tmp_path)
+    trial = _build_fake_trial()
+
+    value = objective(trial)
+
+    assert value == pytest.approx(0.85)  # default metric "f1"
+    assert release_calls["count"] == 1
+    summary = json.loads(
+        (tmp_path / "trials" / "trial_000" / "trial_summary.json").read_text(encoding="utf-8")
+    )
+    assert summary["state"] == "COMPLETE"
+
+
+def test_hpo_dl_objective_basarisiz_trialde_de_release_cuda_memory_cagrir(monkeypatch, tmp_path):
+    """Trial hata ile bitse bile finally bloku cleanup'i garanti etmeli."""
+    release_calls = {"count": 0}
+
+    monkeypatch.setattr(
+        hpo,
+        "release_cuda_memory",
+        lambda: release_calls.__setitem__("count", release_calls["count"] + 1),
+    )
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("CUDA out of memory simulasyonu")
+
+    monkeypatch.setattr(hpo, "run_training", boom)
+
+    def fake_sample(_trial, _args):
+        return {
+            "batch_size": 2,
+            "image_size": 32,
+            "lr": 1e-3,
+            "weight_decay": 1e-4,
+            "scheduler_factor": 0.5,
+            "scheduler_patience": 3,
+            "loss": "ce",
+            "focal_gamma": 2.0,
+            "label_smoothing": 0.0,
+            "dropout": 0.5,
+            "hflip_p": 0.0,
+            "rotation_degrees": 5,
+            "color_jitter": 0.1,
+            "pretrained": False,
+        }
+
+    monkeypatch.setattr(hpo, "_sample_params", fake_sample)
+
+    args = _hpo_args_for_dl()
+    objective = hpo._objective_factory(args, tmp_path)
+    trial = _build_fake_trial()
+
+    with pytest.raises(RuntimeError, match="CUDA out of memory"):
+        objective(trial)
+
+    assert release_calls["count"] == 1
+    summary = json.loads(
+        (tmp_path / "trials" / "trial_000" / "trial_summary.json").read_text(encoding="utf-8")
+    )
+    assert summary["state"] == "FAILED"
+
+
+def test_hpo_dl_objective_cv_basari_yolunda_release_cuda_memory_cagrir(monkeypatch, tmp_path):
+    """CV modunda da finally bloku cleanup'i garanti etmeli."""
+    release_calls = {"count": 0}
+
+    monkeypatch.setattr(
+        hpo,
+        "release_cuda_memory",
+        lambda: release_calls.__setitem__("count", release_calls["count"] + 1),
+    )
+
+    fake_cv = {
+        "aggregate": {
+            "val": {
+                "f1": {"mean": 0.78, "std": 0.02, "values": [0.76, 0.80]},
+                "loss": {"mean": 0.40, "std": 0.05, "values": [0.45, 0.35]},
+            },
+            "test": None,
+            "selection": {
+                "metric": "f1", "mean": 0.78, "std": 0.02, "values": [0.76, 0.80],
+            },
+            "completed_folds": 2,
+        },
+        "fold_results": [{"best_epoch": 3}, {"best_epoch": 4}],
+        "config": {"model": "resnet"},
+    }
+    monkeypatch.setattr(hpo, "run_cv_training", lambda *a, **k: fake_cv)
+
+    def fake_sample(_trial, _args):
+        return {
+            "batch_size": 2,
+            "image_size": 32,
+            "lr": 1e-3,
+            "weight_decay": 1e-4,
+            "scheduler_factor": 0.5,
+            "scheduler_patience": 3,
+            "loss": "ce",
+            "focal_gamma": 2.0,
+            "label_smoothing": 0.0,
+            "dropout": 0.5,
+            "hflip_p": 0.0,
+            "rotation_degrees": 5,
+            "color_jitter": 0.1,
+            "pretrained": False,
+        }
+
+    monkeypatch.setattr(hpo, "_sample_params", fake_sample)
+
+    args = hpo.parse_args(
+        [
+            "--model", "resnet",
+            "--trials", "1",
+            "--epochs", "1",
+            "--hpo-folds", "2",
+            "--batch-size-choices", "2",
+            "--image-size-choices", "32",
+            "--skip-final-train",
+        ]
+    )
+    objective = hpo._objective_factory(args, tmp_path)
+    trial = _build_fake_trial()
+
+    value = objective(trial)
+
+    assert value == pytest.approx(0.78)
+    assert release_calls["count"] == 1
+    assert trial.user_attrs["best_epoch"] == 4  # round((3+4)/2)
+
+
+def test_hpo_dl_objective_pruned_trialde_de_release_cuda_memory_cagrir(monkeypatch, tmp_path):
+    """Optuna TrialPruned akisinda da finally bloku cleanup'i tetiklemeli."""
+    if hpo.optuna is None:
+        pytest.skip("Optuna kurulu degil; pruned-path testi atlandi.")
+
+    release_calls = {"count": 0}
+
+    monkeypatch.setattr(
+        hpo,
+        "release_cuda_memory",
+        lambda: release_calls.__setitem__("count", release_calls["count"] + 1),
+    )
+
+    def pruned(*_args, **_kwargs):
+        raise hpo.optuna.TrialPruned("erken pruning")
+
+    monkeypatch.setattr(hpo, "run_training", pruned)
+
+    def fake_sample(_trial, _args):
+        return {
+            "batch_size": 2,
+            "image_size": 32,
+            "lr": 1e-3,
+            "weight_decay": 1e-4,
+            "scheduler_factor": 0.5,
+            "scheduler_patience": 3,
+            "loss": "ce",
+            "focal_gamma": 2.0,
+            "label_smoothing": 0.0,
+            "dropout": 0.5,
+            "hflip_p": 0.0,
+            "rotation_degrees": 5,
+            "color_jitter": 0.1,
+            "pretrained": False,
+        }
+
+    monkeypatch.setattr(hpo, "_sample_params", fake_sample)
+
+    args = _hpo_args_for_dl()
+    objective = hpo._objective_factory(args, tmp_path)
+    trial = _build_fake_trial()
+
+    with pytest.raises(hpo.optuna.TrialPruned):
+        objective(trial)
+
+    assert release_calls["count"] == 1
+    summary = json.loads(
+        (tmp_path / "trials" / "trial_000" / "trial_summary.json").read_text(encoding="utf-8")
+    )
+    assert summary["state"] == "PRUNED"
