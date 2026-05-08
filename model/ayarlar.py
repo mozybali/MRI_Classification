@@ -30,6 +30,9 @@ HPO_KLASORU = CIKTI_KLASORU / "hiperparametre_arama"
 # SL ozellik cache
 SL_FEATURE_CACHE_KLASORU = CIKTI_KLASORU / "sl_ozellikler"
 
+# Dataset-bazli normalize istatistikleri cache (DL trial'larinda yeniden hesabi onler)
+NORM_STATS_CACHE_KLASORU = CIKTI_KLASORU / "_normalize_istatistikleri"
+
 # ==================== GENEL ====================
 RASTGELE_TOHUM = 42
 

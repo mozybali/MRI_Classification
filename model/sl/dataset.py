@@ -12,6 +12,8 @@ reuse ederek leak-free grup bilgisini korur.
 
 from __future__ import annotations
 
+import os
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -59,40 +61,43 @@ def build_feature_matrix(
     if cache_path is not None:
         cache_path = Path(cache_path)
         if cache_path.exists():
-            data = np.load(cache_path, allow_pickle=True)
-            # Metadata dogrulama: cache dosyasi farkli image_size ile
-            # veya veri diziniyle olusturulmussa stale cache kullanilmasini onle
-            if "image_size" not in data:
-                raise ValueError(
-                    "Cache dosyasi image_size metadata'si icermiyor. "
-                    f"Stale cache riskini onlemek icin dosyayi silin veya farkli cache yolu kullanin: {cache_path}"
-                )
-            cached_image_size = int(data["image_size"])
-            if cached_image_size != image_size:
-                raise ValueError(
-                    f"Cache dosyasi farkli image_size ile olusturulmus: "
-                    f"cache={cached_image_size}, istenen={image_size}. "
-                    f"Cache dosyasini silin veya farkli cache yolu kullanin: {cache_path}"
-                )
-            cached_data_dir = str(data["data_dir"].item()) if "data_dir" in data else None
-            current_data_dir = str(data_dir.resolve())
-            if cached_data_dir is None:
-                raise ValueError(
-                    "Cache dosyasi veri dizini metadata'si icermiyor. "
-                    f"Stale cache riskini onlemek icin dosyayi silin veya farkli cache yolu kullanin: {cache_path}"
-                )
-            if cached_data_dir != current_data_dir:
-                raise ValueError(
-                    "Cache dosyasi farkli veri dizini ile olusturulmus: "
-                    f"cache={cached_data_dir}, istenen={current_data_dir}. "
-                    f"Cache dosyasini silin veya farkli cache yolu kullanin: {cache_path}"
-                )
-            return (
-                data["X"],
-                data["y"],
-                data["groups"].tolist(),
-                data["paths"].tolist(),
-            )
+            # Context manager ile NpzFile'i kapatiyoruz; paralel HPO'da yazici
+            # `os.replace` cagirdiginda Windows dahil tum platformlarda dosya
+            # handle'i sicakta kalmasin diye tum okumalari with bloku icinde
+            # yapiyoruz.
+            with np.load(cache_path, allow_pickle=True) as data:
+                # Metadata dogrulama: cache dosyasi farkli image_size ile
+                # veya veri diziniyle olusturulmussa stale cache kullanilmasini onle
+                if "image_size" not in data:
+                    raise ValueError(
+                        "Cache dosyasi image_size metadata'si icermiyor. "
+                        f"Stale cache riskini onlemek icin dosyayi silin veya farkli cache yolu kullanin: {cache_path}"
+                    )
+                cached_image_size = int(data["image_size"])
+                if cached_image_size != image_size:
+                    raise ValueError(
+                        f"Cache dosyasi farkli image_size ile olusturulmus: "
+                        f"cache={cached_image_size}, istenen={image_size}. "
+                        f"Cache dosyasini silin veya farkli cache yolu kullanin: {cache_path}"
+                    )
+                cached_data_dir = str(data["data_dir"].item()) if "data_dir" in data else None
+                current_data_dir = str(data_dir.resolve())
+                if cached_data_dir is None:
+                    raise ValueError(
+                        "Cache dosyasi veri dizini metadata'si icermiyor. "
+                        f"Stale cache riskini onlemek icin dosyayi silin veya farkli cache yolu kullanin: {cache_path}"
+                    )
+                if cached_data_dir != current_data_dir:
+                    raise ValueError(
+                        "Cache dosyasi farkli veri dizini ile olusturulmus: "
+                        f"cache={cached_data_dir}, istenen={current_data_dir}. "
+                        f"Cache dosyasini silin veya farkli cache yolu kullanin: {cache_path}"
+                    )
+                X_cached = np.array(data["X"])
+                y_cached = np.array(data["y"])
+                groups_cached = data["groups"].tolist()
+                paths_cached = data["paths"].tolist()
+            return X_cached, y_cached, groups_cached, paths_cached
 
     image_paths: list[Path] = []
     labels: list[int] = []
@@ -125,14 +130,38 @@ def build_feature_matrix(
     if cache_path is not None:
         cache_path = Path(cache_path)
         cache_path.parent.mkdir(parents=True, exist_ok=True)
-        np.savez_compressed(
-            cache_path,
-            X=X,
-            y=y,
-            groups=np.array(groups, dtype=object),
-            paths=np.array(paths_str, dtype=object),
-            image_size=np.array(image_size),
-            data_dir=np.array(str(data_dir.resolve())),
+        # Atomik yazim: paralel HPO trial'lari (n_jobs > 1) ayni cache_path'e
+        # ayni anda yazabilir. np.savez_compressed dogrudan target dosyaya
+        # yazarsa baska bir worker yarim/bozuk .npz okuyabilir. Once ayni
+        # dizinde benzersiz bir gecici dosyaya yazip os.replace ile atomik
+        # olarak yerlestiriyoruz; son yazan kazanir ama her okuma daima
+        # tutarli bir .npz gorur. File-object kullaniyoruz cunku savez
+        # path argumanina otomatik ".npz" uzantisi ekliyor.
+        tmp_fd, tmp_name = tempfile.mkstemp(
+            prefix=cache_path.name + ".",
+            suffix=".tmp",
+            dir=str(cache_path.parent),
         )
+        tmp_path = Path(tmp_name)
+        try:
+            with os.fdopen(tmp_fd, "wb") as tmp_fh:
+                np.savez_compressed(
+                    tmp_fh,
+                    X=X,
+                    y=y,
+                    groups=np.array(groups, dtype=object),
+                    paths=np.array(paths_str, dtype=object),
+                    image_size=np.array(image_size),
+                    data_dir=np.array(str(data_dir.resolve())),
+                )
+                tmp_fh.flush()
+                os.fsync(tmp_fh.fileno())
+            os.replace(tmp_path, cache_path)
+        except Exception:
+            try:
+                tmp_path.unlink()
+            except FileNotFoundError:
+                pass
+            raise
 
     return X, y, groups, paths_str

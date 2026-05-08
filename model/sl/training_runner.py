@@ -150,6 +150,8 @@ class SLTrainingConfig:
     test_ratio: float = 0.15
     seed: int = RASTGELE_TOHUM
     feature_cache: Path | str | None = None
+    device: str = "auto"  # "auto" | "cpu" | "cuda"
+    n_jobs: int | None = None
 
 
 def sl_config_to_dict(config: SLTrainingConfig) -> dict[str, Any]:
@@ -221,6 +223,12 @@ def validate_sl_config(
         raise ValueError("--xgb-min-child-weight negatif olamaz.")
     if config.image_size < 32:
         raise ValueError("--image-size en az 32 olmali.")
+    if config.device not in {"auto", "cpu", "cuda"}:
+        raise ValueError(
+            f"--xgb-device 'auto', 'cpu' veya 'cuda' olmali (alindi: {config.device!r})."
+        )
+    if config.n_jobs is not None and config.n_jobs <= 0:
+        raise ValueError("--xgb-n-jobs pozitif tamsayi olmali.")
     if not full_trainval and not 0.0 < config.val_ratio < 1.0:
         raise ValueError("--val-ratio 0 ile 1 arasinda olmali.")
     if config.test_ratio < 0.0 or config.test_ratio >= 1.0:
@@ -763,7 +771,13 @@ def run_sl_training(
         "random_state": config.seed,
     }
     eval_metric, xgb_early_stopping_metric = _xgb_eval_metric_for_selection(selection_metric)
-    model = build_xgb_classifier(num_classes, xgb_params, eval_metric=eval_metric)
+    model = build_xgb_classifier(
+        num_classes,
+        xgb_params,
+        eval_metric=eval_metric,
+        device=config.device,
+        n_jobs=config.n_jobs,
+    )
 
     # Fit
     fit_params: dict[str, Any] = {"verbose": verbose}

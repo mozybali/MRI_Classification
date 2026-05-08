@@ -247,18 +247,22 @@ MAX_BLACK_RATIO = 0.80        # Maksimum siyah piksel oranı (boş görüntü ko
 # test performansina gore degistirilmez. Reddedilen goruntuler ham veriden
 # silinmez, cikti klasorunde ayri bir aday klasorune kopya olarak yazilir.
 #
+# Politika: yalnizca egim *kontrolu* yapilir, otomatik egim *duzeltmesi*
+# uygulanmaz (bkz. EGIM_DUZELTME_AKTIF = False). Bu nedenle 15 derece ve
+# uzeri guvenilir egimler kalite adayi olarak ayrilir; daha kucuk egimler
+# normal ciktiya birakilir (duzeltilmez).
+#
 # EGIM_KALITE_GUVENILIRLIK_ZORUNLU False ise guvenilirlik filtresinden
 # gecmeyen ama aci esigini asan goruntuler de kalite adayi olarak ayrilir.
-# Bu agresif mod daha cok goruntu ayirabilir. Bu projede red esigi 5 derece
-# olarak kullanilir; daha kucuk guvenilir egimler duzeltme adimina birakilir.
+# Bu agresif mod daha cok goruntu ayirabilir.
 EGIM_KALITE_KONTROL_AKTIF = True
 EGIM_KALITE_RED_ESIGI = 15.0
 EGIM_KALITE_GUVENILIRLIK_ZORUNLU = True
 # Ana maske izotropik gorunse bile PCA ve minAreaRect acilari cok iyi
-# uyusuyorsa, 5 derece ve ustu egimler normal ciktiya kacmasin.
+# uyusuyorsa, red esigi ve ustundeki egimler normal ciktiya kacmasin.
 EGIM_KALITE_GUVENILMEZ_UYUMLU_RMSE_ESIGI = 1.0
 # Ana egim tahmini guvenilmez olsa bile cok buyuk acilar normal ciktiya
-# kacmasin. Bu esik 5 derecelik ana red esiginden kasitli olarak yuksektir;
+# kacmasin. Bu esik 15 derecelik ana red esiginden kasitli olarak yuksektir;
 # maske_isotropik/kontur_ambiguous gibi belirsiz ama bariz yatmis adaylari
 # ayirirken kucuk guvenilmez acilarda fazla red uretmez.
 EGIM_KALITE_GUVENILMEZ_BUYUK_ACI_RED_ESIGI = 25.0
@@ -273,7 +277,7 @@ EGIM_PARLAK_DOKU_KALITE_KONTROL_AKTIF = True
 EGIM_PARLAK_DOKU_PERCENTILE = 85.0
 EGIM_PARLAK_DOKU_FOREGROUND_ESIGI = 10
 EGIM_PARLAK_DOKU_MIN_PIXEL_ORANI = 0.03
-EGIM_PARLAK_DOKU_MAKS_EKSEN_ORANI = 0.82
+EGIM_PARLAK_DOKU_MAKS_EKSEN_ORANI = 0.95
 
 # Anatomik/gorsel kalite kontrolu. Büyük merkezi karanlik bosluk/ventrikul
 # gorunumu olan dilimler normal train/test ciktilarina alinmaz; denetim icin
@@ -355,8 +359,9 @@ KENAR_ARTEFAKT_RAPORLA = True
 
 # ==================== EGIM DUZELTME AYARLARI ====================
 # Hafif sola/saga yatmis 2D MRI dilimleri icin konservatif egim duzeltme.
-# Varsayilan politika: 1-5 derece arasi guvenilir egimleri otomatik duzelt;
-# 5 derece ve uzeri guvenilir egimleri kalite adayi olarak ayir.
+# Mevcut politika: egim *kontrolu* yapilir (bkz. EGIM_KALITE_KONTROL_AKTIF)
+# ancak otomatik egim *duzeltmesi* yapilmaz. Asagidaki esikler yalnizca
+# duzeltme yeniden devreye alinirsa (EGIM_DUZELTME_AKTIF = True) etkindir.
 EGIM_DUZELTME_AKTIF = False
 EGIM_DUZELTME_RAPORLA = False
 EGIM_ONIZLEME_URET = False

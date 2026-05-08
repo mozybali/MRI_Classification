@@ -23,7 +23,12 @@ if __package__ in {None, ""}:
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(PROJECT_ROOT))
 
-    from model.ayarlar import HPO_KLASORU, RASTGELE_TOHUM, VARSAYILAN_EARLY_STOPPING_SABIR
+    from model.ayarlar import (
+        HPO_KLASORU,
+        RASTGELE_TOHUM,
+        SL_FEATURE_CACHE_KLASORU,
+        VARSAYILAN_EARLY_STOPPING_SABIR,
+    )
     from model.training_runner import (
         SUPPORTED_SELECTION_METRICS,
         TrainingConfig,
@@ -39,7 +44,12 @@ if __package__ in {None, ""}:
         validate_sl_config,
     )
 else:
-    from .ayarlar import HPO_KLASORU, RASTGELE_TOHUM, VARSAYILAN_EARLY_STOPPING_SABIR
+    from .ayarlar import (
+        HPO_KLASORU,
+        RASTGELE_TOHUM,
+        SL_FEATURE_CACHE_KLASORU,
+        VARSAYILAN_EARLY_STOPPING_SABIR,
+    )
     from .training_runner import (
         SUPPORTED_SELECTION_METRICS,
         TrainingConfig,
@@ -203,8 +213,46 @@ Ornekler:
     parser.add_argument(
         "--feature-cache",
         type=str,
+        default=str(SL_FEATURE_CACHE_KLASORU),
+        help=(
+            "XGBoost ozellik cache dizini (disk .npz). Bos vermek icin "
+            "--no-feature-cache kullanin."
+        ),
+    )
+    parser.add_argument(
+        "--no-feature-cache",
+        action="store_true",
+        help="XGBoost icin disk ozellik cache'ini devre disi birak.",
+    )
+    parser.add_argument(
+        "--xgb-device",
+        choices=["auto", "cpu", "cuda"],
+        default="auto",
+        help=(
+            "XGBoost device modu (sadece --model xgboost icin). "
+            "'auto' torch.cuda mevcutsa GPU, aksi halde CPU secer."
+        ),
+    )
+    parser.add_argument(
+        "--xgb-n-jobs",
+        type=int,
         default=None,
-        help="XGBoost ozellik cache dizini (disk .npz)",
+        help="XGBoost icin worker thread sayisi. None ise os.cpu_count().",
+    )
+    parser.add_argument(
+        "--n-jobs",
+        type=int,
+        default=1,
+        help=(
+            "Optuna study.optimize icin paralel trial sayisi. >1 yalnizca "
+            "GPU/CPU baski yapmayan modlarda (orn. XGBoost CPU) anlamli; "
+            "tek-GPU DL trial'lari icin 1 birakilmali."
+        ),
+    )
+    parser.add_argument(
+        "--no-hpo-plots",
+        action="store_true",
+        help="Optuna gorsellestirmelerini ve final dashboard'unu olusturma.",
     )
     parser.add_argument(
         "--hpo-folds",
@@ -322,6 +370,13 @@ def _build_config_from_args(
     )
 
 
+def _resolve_feature_cache(args: argparse.Namespace) -> str | None:
+    if getattr(args, "no_feature_cache", False):
+        return None
+    cache = getattr(args, "feature_cache", None)
+    return cache if cache else None
+
+
 def validate_search_args(args: argparse.Namespace) -> None:
     if optuna is None:
         raise ModuleNotFoundError(
@@ -343,6 +398,13 @@ def validate_search_args(args: argparse.Namespace) -> None:
         raise ValueError("--pruner-warmup-epochs negatif olamaz.")
     if args.hpo_folds < 1:
         raise ValueError("--hpo-folds en az 1 olmali.")
+    if getattr(args, "n_jobs", 1) < 1:
+        raise ValueError("--n-jobs en az 1 olmali.")
+    if (
+        getattr(args, "xgb_n_jobs", None) is not None
+        and int(args.xgb_n_jobs) < 1
+    ):
+        raise ValueError("--xgb-n-jobs pozitif tamsayi olmali.")
 
     if args.model == "xgboost":
         base_sl_config = SLTrainingConfig(
@@ -551,6 +613,7 @@ def _objective_factory(args: argparse.Namespace, study_dir: Path):
                     evaluate_test_set=False,
                     verbose=args.verbose_trials,
                     selection_metric=args.metric,
+                    deterministic=False,
                 )
             else:
                 results = run_training(
@@ -565,6 +628,7 @@ def _objective_factory(args: argparse.Namespace, study_dir: Path):
                         epoch,
                         val,
                     ),
+                    deterministic=False,
                 )
         except Exception as exc:
             if optuna is not None and isinstance(exc, optuna.TrialPruned):
@@ -713,7 +777,9 @@ def _xgb_objective_factory(args: argparse.Namespace, study_dir: Path):
             val_ratio=args.val_ratio,
             test_ratio=args.test_ratio,
             seed=args.seed,
-            feature_cache=getattr(args, "feature_cache", None),
+            feature_cache=_resolve_feature_cache(args),
+            device=getattr(args, "xgb_device", "auto"),
+            n_jobs=getattr(args, "xgb_n_jobs", None),
         )
 
         try:
@@ -867,7 +933,9 @@ def _run_final_xgb_training(
         val_ratio=args.val_ratio,
         test_ratio=args.test_ratio,
         seed=args.seed,
-        feature_cache=getattr(args, "feature_cache", None),
+        feature_cache=_resolve_feature_cache(args),
+        device=getattr(args, "xgb_device", "auto"),
+        n_jobs=getattr(args, "xgb_n_jobs", None),
     )
     final_dir = study_dir / "best_run"
     return run_sl_training(
@@ -1024,7 +1092,10 @@ def _save_study_artifacts(
 ) -> None:
     trials_df = study.trials_dataframe()
     trials_df.to_csv(study_dir / "trial_history.csv", index=False)
-    hpo_visualizations = _save_hpo_visualizations(study, study_dir)
+    if getattr(args, "no_hpo_plots", False):
+        hpo_visualizations: dict[str, str] = {}
+    else:
+        hpo_visualizations = _save_hpo_visualizations(study, study_dir)
 
     state_counts = Counter(str(trial.state) for trial in study.trials)
     best_trial = study.best_trial
@@ -1122,6 +1193,7 @@ def main(argv: list[str] | None = None) -> int:
             timeout=args.timeout,
             catch=(RuntimeError, ValueError, FileNotFoundError),
             gc_after_trial=True,
+            n_jobs=int(getattr(args, "n_jobs", 1)),
         )
     else:
         print("[INFO] Mevcut study zaten istenen toplam trial sayisina ulasmis; yeni trial calistirilmadi.")

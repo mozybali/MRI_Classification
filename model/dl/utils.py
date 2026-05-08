@@ -32,14 +32,65 @@ from sklearn.preprocessing import label_binarize
 
 
 def set_seed(seed: int = 42):
-    """Tekrarlanabilirlik icin tum random seed'leri ayarla."""
+    """Tekrarlanabilirlik icin tum random seed'leri ayarla.
+
+    Varsayilan davranis tam deterministiktir (cudnn.benchmark kapali, tf32
+    kapali). HPO trial'lari gibi hiz oncelikli akislarda bu fonksiyonun
+    hemen ardindan ``configure_torch_runtime(deterministic=False, allow_tf32=True)``
+    cagirilarak cudnn benchmark ve TF32 acilabilir.
+
+    NOT: TF32 process-genelinde global bir state'tir. Bir onceki
+    ``configure_torch_runtime(allow_tf32=True)`` cagrisinin ardindan sadece
+    ``set_seed()`` cagiran kullanicinin TF32 acik kalmamasi icin burada
+    da TF32'yi acikca kapatiyoruz; bu sayede docstring'in "tam
+    deterministik" sozu garantilenir.
+    """
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+    if hasattr(torch, "set_float32_matmul_precision"):
+        try:
+            torch.set_float32_matmul_precision("highest")
+        except (RuntimeError, ValueError):
+            pass
+    matmul_backend = getattr(torch.backends.cuda, "matmul", None)
+    if matmul_backend is not None and hasattr(matmul_backend, "allow_tf32"):
+        matmul_backend.allow_tf32 = False
+    if hasattr(torch.backends.cudnn, "allow_tf32"):
+        torch.backends.cudnn.allow_tf32 = False
     os.environ["PYTHONHASHSEED"] = str(seed)
+
+
+def configure_torch_runtime(
+    *,
+    deterministic: bool = True,
+    allow_tf32: bool = True,
+) -> None:
+    """cuDNN benchmark/deterministic ve TF32 matmul precision ayarlari.
+
+    ``set_seed`` cagrildiktan sonra hiz/determinizm modunu netlestirmek icin
+    cagrilir. HPO trial'larinda ``deterministic=False, allow_tf32=True`` ile
+    cuDNN otomatik kernel secimi ve Ampere+ uzerinde TF32 acilir; final
+    egitim ve testlerde varsayilan deterministik mod korunur.
+    """
+    torch.backends.cudnn.deterministic = bool(deterministic)
+    torch.backends.cudnn.benchmark = not bool(deterministic)
+
+    matmul_precision = "high" if allow_tf32 else "highest"
+    if hasattr(torch, "set_float32_matmul_precision"):
+        try:
+            torch.set_float32_matmul_precision(matmul_precision)
+        except (RuntimeError, ValueError):
+            pass
+
+    matmul_backend = getattr(torch.backends.cuda, "matmul", None)
+    if matmul_backend is not None and hasattr(matmul_backend, "allow_tf32"):
+        matmul_backend.allow_tf32 = bool(allow_tf32)
+    if hasattr(torch.backends.cudnn, "allow_tf32"):
+        torch.backends.cudnn.allow_tf32 = bool(allow_tf32)
 
 
 def get_device(verbose: bool = True) -> torch.device:

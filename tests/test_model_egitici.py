@@ -26,16 +26,20 @@ from model.dl.dataset import (
     kaynak_id_belirle,
     _group_stratified_train_val_split,
     _split_group_keys_kfold,
+    compute_dataset_stats,
 )
+from model.dl.engine import evaluate, train_one_epoch
 from model.dl.losses import FocalLoss, compute_class_weights
 from model.dl.models.resnet_classifier import ResNetClassifier
 from model.dl.utils import (
+    configure_torch_runtime,
     load_checkpoint,
     plot_classification_summary,
     plot_confusion_matrix,
     plot_multiclass_roc_pr_curves,
     plot_prediction_confidence,
     plot_training_curves,
+    set_seed,
 )
 from model import hpo, training_runner
 from model.train import build_model, parse_args as parse_train_args
@@ -841,7 +845,7 @@ def test_run_training_hedef_metrige_gore_best_epoch_secer(monkeypatch):
         }
         return object(), object(), None, info
 
-    def fake_evaluate(_model, _loader, _criterion, _device):
+    def fake_evaluate(_model, _loader, _criterion, _device, **_kwargs):
         return dict(next(eval_metrics))
 
     class NeverStop:
@@ -1486,3 +1490,369 @@ def test_train_main_folds_full_trainval_birlikte_reddeder():
 
     assert result.returncode == 1
     assert "--folds > 1 ile --full-trainval birlikte kullanilamaz" in result.stdout
+
+
+# ============================================================================
+# AMP / cuDNN runtime ayarlari (configure_torch_runtime, set_seed etkilesimi)
+# ============================================================================
+
+
+def test_configure_torch_runtime_deterministik_modu_etkinlestirir():
+    configure_torch_runtime(deterministic=True, allow_tf32=False)
+
+    assert torch.backends.cudnn.deterministic is True
+    assert torch.backends.cudnn.benchmark is False
+    if hasattr(torch.backends.cudnn, "allow_tf32"):
+        assert torch.backends.cudnn.allow_tf32 is False
+    matmul_backend = getattr(torch.backends.cuda, "matmul", None)
+    if matmul_backend is not None and hasattr(matmul_backend, "allow_tf32"):
+        assert matmul_backend.allow_tf32 is False
+
+
+def test_configure_torch_runtime_hpo_modunda_tf32_acik():
+    try:
+        configure_torch_runtime(deterministic=False, allow_tf32=True)
+
+        assert torch.backends.cudnn.deterministic is False
+        assert torch.backends.cudnn.benchmark is True
+        if hasattr(torch.backends.cudnn, "allow_tf32"):
+            assert torch.backends.cudnn.allow_tf32 is True
+        matmul_backend = getattr(torch.backends.cuda, "matmul", None)
+        if matmul_backend is not None and hasattr(matmul_backend, "allow_tf32"):
+            assert matmul_backend.allow_tf32 is True
+    finally:
+        # Diger testleri etkilememesi icin tam deterministik moda donus
+        set_seed(42)
+
+
+def test_set_seed_oncesi_acilan_tf32yi_kapatir():
+    configure_torch_runtime(deterministic=False, allow_tf32=True)
+    if hasattr(torch.backends.cudnn, "allow_tf32"):
+        assert torch.backends.cudnn.allow_tf32 is True
+
+    set_seed(42)
+
+    assert torch.backends.cudnn.deterministic is True
+    assert torch.backends.cudnn.benchmark is False
+    if hasattr(torch.backends.cudnn, "allow_tf32"):
+        assert torch.backends.cudnn.allow_tf32 is False
+
+
+# ============================================================================
+# compute_dataset_stats disk cache davranisi
+# ============================================================================
+
+
+def _create_dummy_image(path: Path, *, color: tuple[int, int, int] = (128, 64, 32)) -> None:
+    from PIL import Image
+
+    Image.new("RGB", (32, 32), color=color).save(path)
+
+
+def test_compute_dataset_stats_cache_dir_none_iken_disk_kullanmaz(tmp_path):
+    img_path = tmp_path / "im.png"
+    _create_dummy_image(img_path)
+
+    mean, std = compute_dataset_stats(
+        [img_path], image_size=32, max_samples=None, cache_dir=None
+    )
+
+    assert len(mean) == 3 and len(std) == 3
+    assert all(s > 0 for s in std)
+
+
+def test_compute_dataset_stats_cache_diskten_okur(tmp_path):
+    img_path = tmp_path / "im.png"
+    _create_dummy_image(img_path)
+    cache_dir = tmp_path / "stats_cache"
+
+    mean1, std1 = compute_dataset_stats(
+        [img_path], image_size=32, max_samples=None, cache_dir=cache_dir
+    )
+
+    cache_files = list(cache_dir.glob("*.json"))
+    assert len(cache_files) == 1
+
+    # Bayrak: image_size + path listesi degismedi -> ikinci cagri cache hit.
+    mean2, std2 = compute_dataset_stats(
+        [img_path], image_size=32, max_samples=None, cache_dir=cache_dir
+    )
+
+    assert mean1 == mean2
+    assert std1 == std2
+
+
+def test_compute_dataset_stats_image_size_degisince_yeni_cache_olusur(tmp_path):
+    img_path = tmp_path / "im.png"
+    _create_dummy_image(img_path)
+    cache_dir = tmp_path / "stats_cache"
+
+    compute_dataset_stats(
+        [img_path], image_size=32, max_samples=None, cache_dir=cache_dir
+    )
+    compute_dataset_stats(
+        [img_path], image_size=64, max_samples=None, cache_dir=cache_dir
+    )
+
+    cache_files = list(cache_dir.glob("*.json"))
+    # Ayri image_size icin ayri cache anahtari uretilir
+    assert len(cache_files) == 2
+
+
+# ============================================================================
+# Engine: bos veri yukleyici hata mesajlari
+# ============================================================================
+
+
+def test_train_one_epoch_bos_loaderda_aciklayici_hata_verir():
+    model = torch.nn.Linear(4, 2)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+    criterion = torch.nn.CrossEntropyLoss()
+
+    with pytest.raises(RuntimeError, match="bos veri yukleyici"):
+        train_one_epoch(model, [], criterion, optimizer, torch.device("cpu"))
+
+
+def test_evaluate_bos_loaderda_aciklayici_hata_verir():
+    model = torch.nn.Linear(4, 2)
+    criterion = torch.nn.CrossEntropyLoss()
+
+    with pytest.raises(RuntimeError, match="bos veri yukleyici"):
+        evaluate(model, [], criterion, torch.device("cpu"))
+
+
+def test_evaluate_cpu_loaderda_metrik_ve_prob_dondurur():
+    model = torch.nn.Linear(4, 3)
+    criterion = torch.nn.CrossEntropyLoss()
+    inputs = torch.randn(6, 4)
+    targets = torch.tensor([0, 1, 2, 0, 1, 2], dtype=torch.long)
+    loader = [(inputs[:3], targets[:3]), (inputs[3:], targets[3:])]
+
+    result = evaluate(model, loader, criterion, torch.device("cpu"), use_amp=False)
+
+    assert set(result.keys()) >= {"loss", "accuracy", "preds", "labels", "probs", "confidences"}
+    assert result["probs"].shape == (6, 3)
+    assert result["preds"].shape == (6,)
+    assert result["labels"].shape == (6,)
+    # CPU yolunda use_amp=True bile autocast'i no-op'a indiriyor; ek olarak
+    # use_amp=True ile cagrildiginda da hata vermemeli.
+    result_amp = evaluate(model, loader, criterion, torch.device("cpu"), use_amp=True)
+    assert result_amp["probs"].shape == (6, 3)
+
+
+# ============================================================================
+# run_training: deterministic / use_amp parametre yolu
+# ============================================================================
+
+
+def test_run_training_deterministic_false_iken_configure_torch_runtimei_etkinlestirir(monkeypatch):
+    captured = {}
+
+    def fake_configure(*, deterministic, allow_tf32):
+        captured["deterministic"] = deterministic
+        captured["allow_tf32"] = allow_tf32
+
+    monkeypatch.setattr(training_runner, "configure_torch_runtime", fake_configure)
+    monkeypatch.setattr(training_runner, "set_seed", lambda seed: None)
+    monkeypatch.setattr(training_runner, "get_device", lambda verbose=True: torch.device("cpu"))
+    monkeypatch.setattr(
+        training_runner,
+        "create_dataloaders",
+        lambda **kwargs: (
+            object(), object(), None,
+            {
+                "num_classes": 4, "train_size": 4, "val_size": 2, "test_size": 0,
+                "train_groups": 2, "val_groups": 1,
+                "split_strategy": "group_stratified", "split_warnings": [],
+                "train_labels": [0, 1, 2, 3],
+                "trainval_grouping": {"grouping_reliable": True},
+                "test_grouping": None, "test_labels": [],
+            },
+        ),
+    )
+    monkeypatch.setattr(training_runner, "build_model", lambda *a, **k: torch.nn.Linear(1, 1))
+    monkeypatch.setattr(
+        training_runner,
+        "compute_class_weights",
+        lambda labels, num_classes: torch.ones(num_classes, dtype=torch.float32),
+    )
+    monkeypatch.setattr(
+        training_runner,
+        "train_one_epoch",
+        lambda *a, **k: {"loss": 0.5, "accuracy": 0.5, "precision": 0.5, "recall": 0.5, "f1": 0.5},
+    )
+    monkeypatch.setattr(
+        training_runner,
+        "evaluate",
+        lambda *a, **k: {"loss": 0.4, "accuracy": 0.6, "precision": 0.6, "recall": 0.6, "f1": 0.6},
+    )
+
+    trainval_dir = Path("tmp_test_artifacts") / f"deterministic_{uuid4().hex}"
+    trainval_dir.mkdir(parents=True, exist_ok=True)
+
+    training_runner.run_training(
+        training_runner.TrainingConfig(
+            model="resnet", epochs=1, batch_size=2,
+            trainval_dir=trainval_dir, test_dir=None, test_ratio=0.0,
+        ),
+        save_artifacts=False,
+        evaluate_test_set=False,
+        verbose=False,
+        deterministic=False,
+    )
+
+    assert captured["deterministic"] is False
+    assert captured["allow_tf32"] is True
+
+
+# ============================================================================
+# train.py: yeni XGB device/n-jobs flagleri
+# ============================================================================
+
+
+def test_train_parse_args_xgb_device_ve_n_jobs_flaglerini_cozer():
+    args = parse_train_args(
+        ["--xgb-device", "cpu", "--xgb-n-jobs", "4"]
+    )
+
+    assert args.xgb_device == "cpu"
+    assert args.xgb_n_jobs == 4
+
+
+def test_train_parse_args_xgb_device_varsayilan_auto():
+    args = parse_train_args([])
+
+    assert args.xgb_device == "auto"
+    assert args.xgb_n_jobs is None
+
+
+# ============================================================================
+# HPO: yeni paralel/cache/plot bayraklari
+# ============================================================================
+
+
+def test_hpo_parse_args_paralel_ve_cache_flaglerini_cozer():
+    args = hpo.parse_args(
+        [
+            "--trials", "1",
+            "--n-jobs", "4",
+            "--no-feature-cache",
+            "--xgb-device", "cpu",
+            "--xgb-n-jobs", "2",
+            "--no-hpo-plots",
+        ]
+    )
+
+    assert args.n_jobs == 4
+    assert args.no_feature_cache is True
+    assert args.xgb_device == "cpu"
+    assert args.xgb_n_jobs == 2
+    assert args.no_hpo_plots is True
+
+
+def test_hpo_resolve_feature_cache_no_feature_cache_iken_none_doner():
+    args = hpo.parse_args(["--trials", "1", "--no-feature-cache"])
+    assert hpo._resolve_feature_cache(args) is None
+
+
+def test_hpo_resolve_feature_cache_acik_dizini_kullanir():
+    args = hpo.parse_args(
+        ["--trials", "1", "--feature-cache", "custom/cache_dir"]
+    )
+    assert hpo._resolve_feature_cache(args) == "custom/cache_dir"
+
+
+def test_hpo_validate_search_args_n_jobs_negatif_reddeder(monkeypatch):
+    monkeypatch.setattr(hpo, "optuna", object())
+    monkeypatch.setattr(hpo, "validate_training_config", lambda *a, **k: None)
+
+    args = hpo.parse_args(["--trials", "1", "--n-jobs", "0", "--skip-final-train"])
+    with pytest.raises(ValueError, match="--n-jobs en az 1"):
+        hpo.validate_search_args(args)
+
+
+def test_hpo_validate_search_args_xgb_n_jobs_negatif_reddeder(monkeypatch):
+    monkeypatch.setattr(hpo, "optuna", object())
+    monkeypatch.setattr(hpo, "validate_sl_config", lambda *a, **k: None)
+
+    args = hpo.parse_args(
+        [
+            "--model", "xgboost",
+            "--trials", "1",
+            "--xgb-n-jobs", "0",
+            "--skip-final-train",
+        ]
+    )
+    with pytest.raises(ValueError, match="--xgb-n-jobs"):
+        hpo.validate_search_args(args)
+
+
+def test_hpo_save_study_artifacts_no_hpo_plots_iken_gorseli_atlar(monkeypatch, tmp_path):
+    plot_calls = {"count": 0}
+
+    def fake_save_visualizations(*_args, **_kwargs):
+        plot_calls["count"] += 1
+        return {"history": "history.png"}
+
+    monkeypatch.setattr(hpo, "_save_hpo_visualizations", fake_save_visualizations)
+
+    class FakeTrialState:
+        name = "COMPLETE"
+
+    class FakeTrial:
+        def __init__(self):
+            self.number = 0
+            self.value = 0.5
+            self.params = {"x": 1}
+            self.user_attrs = {}
+            self.state = FakeTrialState()
+            self.datetime_start = None
+            self.datetime_complete = None
+
+    class FakeStudy:
+        def __init__(self):
+            self.trials = [FakeTrial()]
+            self.best_trial = self.trials[0]
+            self.best_value = self.best_trial.value
+            self.study_name = "demo"
+
+        def trials_dataframe(self):
+            import pandas as pd
+
+            return pd.DataFrame({"number": [0], "value": [0.5]})
+
+    args = hpo.parse_args(["--trials", "1", "--no-hpo-plots", "--skip-final-train"])
+
+    hpo._save_study_artifacts(
+        study=FakeStudy(),
+        args=args,
+        study_dir=tmp_path,
+        study_name="demo",
+        final_run=None,
+        existing_trial_count=0,
+        trials_executed_this_run=1,
+    )
+
+    assert plot_calls["count"] == 0
+    assert (tmp_path / "trial_history.csv").exists()
+
+
+# ============================================================================
+# SL config dogrulama: device ve n_jobs
+# ============================================================================
+
+
+def test_validate_sl_config_gecersiz_device_reddeder():
+    from model.sl.training_runner import SLTrainingConfig, validate_sl_config
+
+    cfg = SLTrainingConfig(device="gpu")
+    with pytest.raises(ValueError, match="--xgb-device"):
+        validate_sl_config(cfg, require_test_dir=False)
+
+
+def test_validate_sl_config_gecersiz_n_jobs_reddeder():
+    from model.sl.training_runner import SLTrainingConfig, validate_sl_config
+
+    cfg = SLTrainingConfig(n_jobs=0)
+    with pytest.raises(ValueError, match="--xgb-n-jobs"):
+        validate_sl_config(cfg, require_test_dir=False)

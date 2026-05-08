@@ -7,13 +7,14 @@ engine.py
 Egitim ve degerlendirme donguleri, early stopping mekanizmasi.
 """
 
+import contextlib
 import math
 from typing import Dict
 
 import numpy as np
 import torch
 import torch.nn as nn
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
 from ..ayarlar import VARSAYILAN_EARLY_STOPPING_SABIR
 
@@ -32,86 +33,150 @@ def _batch_loss_sum(loss: torch.Tensor, criterion: nn.Module, batch_size: int) -
     return float(detached.item()) * batch_size
 
 
+def _scalar_metrics_from_arrays(
+    labels: np.ndarray,
+    preds: np.ndarray,
+    *,
+    loss: float,
+) -> Dict[str, float]:
+    """Tek precision_recall_fscore_support cagrisi ile skaler metrikleri uret."""
+    precision, recall, f1, _ = precision_recall_fscore_support(
+        labels,
+        preds,
+        average="macro",
+        zero_division=0,
+    )
+    return {
+        "loss": loss,
+        "accuracy": float(accuracy_score(labels, preds)),
+        "precision": float(precision),
+        "recall": float(recall),
+        "f1": float(f1),
+    }
+
+
+def _autocast_context(device: torch.device, use_amp: bool):
+    """AMP autocast context'i; CUDA'da fp16, MPS/CPU'da no-op."""
+    if not use_amp:
+        return contextlib.nullcontext()
+    device_type = device.type if isinstance(device, torch.device) else str(device)
+    if device_type != "cuda":
+        return contextlib.nullcontext()
+    dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    return torch.autocast(device_type="cuda", dtype=dtype, enabled=True)
+
+
 def train_one_epoch(
     model: nn.Module,
     loader,
     criterion: nn.Module,
     optimizer: torch.optim.Optimizer,
     device: torch.device,
+    *,
+    use_amp: bool = False,
+    scaler: "torch.cuda.amp.GradScaler | None" = None,
 ) -> Dict[str, float]:
-    """Tek epoch egitim dongusu."""
+    """Tek epoch egitim dongusu.
+
+    ``use_amp=True`` ve CUDA mevcutsa forward/backward autocast altinda calisir;
+    fp16 iken ``scaler`` ile gradient scaling uygulanir. ``scaler`` her epoch
+    icin yeniden olusturulmamali, training_runner'da bir kez yaratilip burada
+    paylasilmali (PyTorch best practice).
+    """
     model.train()
     running_loss = 0.0
-    all_preds, all_labels = [], []
+    pred_chunks: list[np.ndarray] = []
+    label_chunks: list[np.ndarray] = []
+
+    use_scaler = bool(use_amp and scaler is not None and device.type == "cuda")
 
     for images, labels in loader:
-        images, labels = images.to(device), labels.to(device)
+        images = images.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
 
-        optimizer.zero_grad()
-        outputs = model(images)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
+        with _autocast_context(device, use_amp):
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+
+        if use_scaler:
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss.backward()
+            optimizer.step()
 
         running_loss += _batch_loss_sum(loss, criterion, images.size(0))
-        preds = outputs.argmax(dim=1).cpu().numpy()
-        all_preds.extend(preds)
-        all_labels.extend(labels.cpu().numpy())
+        pred_chunks.append(outputs.detach().argmax(dim=1).cpu().numpy())
+        label_chunks.append(labels.detach().cpu().numpy())
 
-    n = len(all_labels)
-    if n == 0:
+    if not label_chunks:
         raise RuntimeError("train_one_epoch: bos veri yukleyici alindi, egitim adimi atilamiyor.")
-    return {
-        "loss": running_loss / n,
-        "accuracy": accuracy_score(all_labels, all_preds),
-        "precision": precision_score(all_labels, all_preds, average="macro", zero_division=0),
-        "recall": recall_score(all_labels, all_preds, average="macro", zero_division=0),
-        "f1": f1_score(all_labels, all_preds, average="macro", zero_division=0),
-    }
+
+    all_labels = np.concatenate(label_chunks)
+    all_preds = np.concatenate(pred_chunks)
+    n = int(all_labels.shape[0])
+    return _scalar_metrics_from_arrays(all_labels, all_preds, loss=running_loss / n)
 
 
-@torch.no_grad()
+@torch.inference_mode()
 def evaluate(
     model: nn.Module,
     loader,
     criterion: nn.Module,
     device: torch.device,
+    *,
+    use_amp: bool = False,
 ) -> Dict[str, object]:
-    """Degerlendirme dongusu. Metrikler ve tahmin/prob dizi bilgisi dondurur."""
+    """Degerlendirme dongusu. Metrikler ve tahmin/prob dizi bilgisi dondurur.
+
+    ``inference_mode`` no_grad'den biraz daha hizli (autograd metadata'sini da
+    devre disi birakir). ``use_amp=True`` iken CUDA'da autocast altinda forward
+    yapilir; logits softmax oncesi float32'ye cevrilir, prob/array'lerin tipi
+    deterministik kalir.
+    """
     model.eval()
     running_loss = 0.0
-    all_preds, all_labels = [], []
-    all_probs = []
+    pred_chunks: list[torch.Tensor] = []
+    label_chunks: list[torch.Tensor] = []
+    prob_chunks: list[torch.Tensor] = []
 
     for images, labels in loader:
-        images, labels = images.to(device), labels.to(device)
+        images = images.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
 
-        outputs = model(images)
-        loss = criterion(outputs, labels)
-        probs = torch.softmax(outputs, dim=1)
+        with _autocast_context(device, use_amp):
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+
+        # Softmax ve metrikler her zaman float32 uzerinden hesaplansin.
+        probs = torch.softmax(outputs.float(), dim=1)
 
         running_loss += _batch_loss_sum(loss, criterion, images.size(0))
-        preds = probs.argmax(dim=1).cpu().numpy()
-        all_preds.extend(preds)
-        all_labels.extend(labels.cpu().numpy())
-        all_probs.extend(probs.cpu().numpy())
+        pred_chunks.append(probs.argmax(dim=1).detach().cpu())
+        label_chunks.append(labels.detach().cpu())
+        prob_chunks.append(probs.detach().cpu())
 
-    n = len(all_labels)
-    if n == 0:
+    if not label_chunks:
         raise RuntimeError("evaluate: bos veri yukleyici alindi, metrik hesaplanamiyor.")
-    probs_arr = np.array(all_probs, dtype=np.float32)
+
+    all_labels = torch.cat(label_chunks).numpy()
+    all_preds = torch.cat(pred_chunks).numpy()
+    probs_arr = torch.cat(prob_chunks).numpy().astype(np.float32, copy=False)
+
+    n = int(all_labels.shape[0])
+    metrics = _scalar_metrics_from_arrays(all_labels, all_preds, loss=running_loss / n)
     confidences = probs_arr.max(axis=1) if probs_arr.size else np.array([], dtype=np.float32)
-    return {
-        "loss": running_loss / n,
-        "accuracy": accuracy_score(all_labels, all_preds),
-        "precision": precision_score(all_labels, all_preds, average="macro", zero_division=0),
-        "recall": recall_score(all_labels, all_preds, average="macro", zero_division=0),
-        "f1": f1_score(all_labels, all_preds, average="macro", zero_division=0),
-        "preds": np.array(all_preds),
-        "labels": np.array(all_labels),
-        "probs": probs_arr,
-        "confidences": confidences,
-    }
+    metrics.update(
+        {
+            "preds": all_preds,
+            "labels": all_labels,
+            "probs": probs_arr,
+            "confidences": confidences,
+        }
+    )
+    return metrics
 
 
 class EarlyStopping:

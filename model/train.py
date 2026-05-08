@@ -191,6 +191,23 @@ Ornekler:
     xgb_group.add_argument("--xgb-reg-lambda", type=float, default=1.0, help="L2 regularizasyon")
     xgb_group.add_argument("--xgb-min-child-weight", type=int, default=1, help="Min child weight")
     xgb_group.add_argument("--feature-cache", type=str, default=None, help="Ozellik cache dizini (.npz)")
+    xgb_group.add_argument(
+        "--xgb-device",
+        choices=["auto", "cpu", "cuda"],
+        default="auto",
+        help=(
+            "XGBoost device modu (sadece --model xgboost icin). 'auto' hem "
+            "torch CUDA hem XGBoost CUDA build'i mevcutsa GPU, aksi halde "
+            "CPU secer. 'cuda' acik istek; CPU-only XGBoost build'inde "
+            "uyari verilir ve fit asamasinda XGBoost hata atar."
+        ),
+    )
+    xgb_group.add_argument(
+        "--xgb-n-jobs",
+        type=int,
+        default=None,
+        help="XGBoost icin worker thread sayisi. None ise os.cpu_count().",
+    )
 
     return parser
 
@@ -256,6 +273,8 @@ def main(argv: list[str] | None = None) -> int:
             test_ratio=args.test_ratio,
             seed=args.seed,
             feature_cache=args.feature_cache,
+            device=args.xgb_device,
+            n_jobs=args.xgb_n_jobs,
         )
         try:
             if args.folds > 1:
@@ -280,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
     sl_arg_names = (
         "xgb_n_estimators", "xgb_max_depth", "xgb_learning_rate",
         "xgb_subsample", "xgb_colsample_bytree", "xgb_reg_lambda",
-        "xgb_min_child_weight", "feature_cache",
+        "xgb_min_child_weight", "feature_cache", "xgb_device", "xgb_n_jobs",
     )
     used_sl_args = [
         name for name in sl_arg_names

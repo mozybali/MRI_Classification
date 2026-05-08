@@ -12,6 +12,8 @@ aksi halde uyari ile stratified fallback kullanir.
 
 from pathlib import Path
 from typing import Iterator, Tuple, List, Dict, Any, Sequence
+import hashlib
+import json
 import re
 import random
 from collections import Counter, defaultdict
@@ -23,12 +25,45 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from torchvision.transforms import InterpolationMode
 
+from ..ayarlar import NORM_STATS_CACHE_KLASORU
+
 SINIF_ISIMLERI = ["NonDemented", "VeryMildDemented", "MildDemented", "ModerateDemented"]
 SINIF_ETIKETI = {name: idx for idx, name in enumerate(SINIF_ISIMLERI)}
 GORUNTU_UZANTILARI = {".jpg", ".jpeg", ".png"}
 
 IMAGENET_MEAN: Tuple[float, float, float] = (0.485, 0.456, 0.406)
 IMAGENET_STD: Tuple[float, float, float] = (0.229, 0.224, 0.225)
+
+def _make_dataloader(
+    dataset: Dataset,
+    *,
+    batch_size: int,
+    shuffle: bool,
+    num_workers: int,
+    pin_memory: bool,
+    generator: torch.Generator,
+    drop_last: bool = False,
+) -> DataLoader:
+    """DataLoader olustururken persistent_workers/prefetch_factor'u guvenli ayarla.
+
+    ``persistent_workers`` ve ``prefetch_factor`` yalnizca ``num_workers > 0``
+    iken anlamlidir. ``num_workers=0`` iken bu argumanlari vermek PyTorch'tan
+    hata aliriz; bu helper, koullara gore otomatik karar verir.
+    """
+    kwargs: dict[str, Any] = dict(
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        worker_init_fn=_seed_worker,
+        generator=generator,
+        drop_last=drop_last,
+    )
+    if num_workers > 0:
+        kwargs["persistent_workers"] = True
+        kwargs["prefetch_factor"] = 4
+    return DataLoader(dataset, **kwargs)
+
 
 def _seed_worker(worker_id: int) -> None:
     """DataLoader worker'larinda tekrar uretilebilir RNG durumu kur."""
@@ -40,35 +75,125 @@ def _seed_worker(worker_id: int) -> None:
     torch.manual_seed(worker_seed)
 
 
+_STATS_CACHE_VERSION = 1
+
+
+def _stats_cache_key(
+    paths: Sequence[Path],
+    image_size: int,
+    max_samples: int | None,
+    seed: int,
+) -> str:
+    """Stats cache anahtarini, path listesinin icerigine bagli olarak hashle.
+
+    Path listesinin sirasi ve dosya adlari hash'e dahildir; ayni split + ayni
+    image_size + ayni seed/max_samples icin cache hit garanti olur. Disk
+    icerigi degisirse hash degismez; bu durumda cache'i bilerek invalide
+    etmek icin cache klasorunu silmek yeterlidir.
+    """
+    hasher = hashlib.sha1()
+    hasher.update(str(_STATS_CACHE_VERSION).encode("utf-8"))
+    hasher.update(str(int(image_size)).encode("utf-8"))
+    hasher.update(str(int(seed)).encode("utf-8"))
+    hasher.update(str(max_samples if max_samples is not None else -1).encode("utf-8"))
+    hasher.update(str(len(paths)).encode("utf-8"))
+    for path in paths:
+        hasher.update(str(path).encode("utf-8"))
+        hasher.update(b"\x00")
+    return hasher.hexdigest()
+
+
+def _load_stats_cache(cache_path: Path) -> tuple[
+    Tuple[float, float, float], Tuple[float, float, float]
+] | None:
+    if not cache_path.exists():
+        return None
+    try:
+        with open(cache_path, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return None
+    mean = payload.get("mean")
+    std = payload.get("std")
+    if (
+        not isinstance(mean, list) or len(mean) != 3
+        or not isinstance(std, list) or len(std) != 3
+    ):
+        return None
+    try:
+        return (
+            (float(mean[0]), float(mean[1]), float(mean[2])),
+            (float(std[0]), float(std[1]), float(std[2])),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def _save_stats_cache(
+    cache_path: Path,
+    mean: Tuple[float, float, float],
+    std: Tuple[float, float, float],
+    *,
+    image_size: int,
+    sample_count: int,
+) -> None:
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "version": _STATS_CACHE_VERSION,
+        "image_size": int(image_size),
+        "sample_count": int(sample_count),
+        "mean": list(mean),
+        "std": list(std),
+    }
+    try:
+        with open(cache_path, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh)
+    except OSError:
+        pass
+
+
 def compute_dataset_stats(
     image_paths: Sequence[Path],
     image_size: int,
     *,
     max_samples: int | None = 1024,
     seed: int = 42,
+    cache_dir: Path | None = NORM_STATS_CACHE_KLASORU,
 ) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
     """RGB-replicated egitim goruntulerinden kanal bazli mean/std hesapla.
 
     Sonuclari ``[0, 1]`` araligindaki tensor degerleri uzerinden, yani
-    ``transforms.ToTensor`` ciktisina uygun olcekte dondurur. Tipik bir
-    egitim/HPO trial'i icinde bu fonksiyon yalnizca bir kez cagrilir; bu yuzden
-    process-genelinde cache tutmak yerine her cagrida yeniden hesaplanir.
+    ``transforms.ToTensor`` ciktisina uygun olcekte dondurur. ``cache_dir``
+    verilirse path listesi + image_size + max_samples + seed kombinasyonu
+    icin disk cache kullanilir; bu sayede HPO trial'lari arasi yeniden disk
+    okuma elenir. Cache'i devre disi birakmak icin ``cache_dir=None``.
     """
     if not image_paths:
         raise ValueError("Stats hesaplamak icin gorseller bos olamaz.")
 
     paths = list(image_paths)
-    if max_samples is not None and len(paths) > max_samples:
+
+    cache_path: Path | None = None
+    if cache_dir is not None:
+        cache_dir = Path(cache_dir)
+        cache_key = _stats_cache_key(paths, image_size, max_samples, seed)
+        cache_path = cache_dir / f"{cache_key}.json"
+        cached = _load_stats_cache(cache_path)
+        if cached is not None:
+            return cached
+
+    sampled_paths = paths
+    if max_samples is not None and len(sampled_paths) > max_samples:
         rng = np.random.default_rng(seed)
-        idxs = rng.choice(len(paths), size=max_samples, replace=False)
-        paths = [paths[i] for i in sorted(idxs.tolist())]
+        idxs = rng.choice(len(sampled_paths), size=max_samples, replace=False)
+        sampled_paths = [sampled_paths[i] for i in sorted(idxs.tolist())]
 
     deterministic_ops = _resize_and_crop(image_size)
 
     sum_ = np.zeros(3, dtype=np.float64)
     sum_sq = np.zeros(3, dtype=np.float64)
     pixel_count = 0
-    for path in paths:
+    for path in sampled_paths:
         with Image.open(path) as raw:
             img = raw.convert("RGB")
             for op in deterministic_ops:
@@ -85,13 +210,21 @@ def compute_dataset_stats(
     mean = sum_ / pixel_count
     var = np.maximum(sum_sq / pixel_count - mean ** 2, 0.0)
     std = np.sqrt(var)
-    # Numerik gurultuye karsi std taban degeri
     std = np.maximum(std, 1e-6)
 
-    return (
-        (float(mean[0]), float(mean[1]), float(mean[2])),
-        (float(std[0]), float(std[1]), float(std[2])),
-    )
+    mean_tuple = (float(mean[0]), float(mean[1]), float(mean[2]))
+    std_tuple = (float(std[0]), float(std[1]), float(std[2]))
+
+    if cache_path is not None:
+        _save_stats_cache(
+            cache_path,
+            mean_tuple,
+            std_tuple,
+            image_size=image_size,
+            sample_count=len(sampled_paths),
+        )
+
+    return mean_tuple, std_tuple
 
 
 def _resize_and_crop(image_size: int) -> List[transforms.Compose]:
@@ -863,23 +996,29 @@ def create_dataloaders(
     val_generator = torch.Generator().manual_seed(seed + 1)
     test_generator = torch.Generator().manual_seed(seed + 2)
 
-    train_loader = DataLoader(
-        train_ds, batch_size=batch_size, shuffle=True,
-        num_workers=num_workers, pin_memory=pin_memory,
-        worker_init_fn=_seed_worker,
+    train_loader = _make_dataloader(
+        train_ds,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
         generator=train_generator,
     )
-    val_loader = DataLoader(
-        val_ds, batch_size=batch_size, shuffle=False,
-        num_workers=num_workers, pin_memory=pin_memory,
-        worker_init_fn=_seed_worker,
+    val_loader = _make_dataloader(
+        val_ds,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
         generator=val_generator,
     )
     test_loader = (
-        DataLoader(
-            test_ds, batch_size=batch_size, shuffle=False,
-            num_workers=num_workers, pin_memory=pin_memory,
-            worker_init_fn=_seed_worker,
+        _make_dataloader(
+            test_ds,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
             generator=test_generator,
         )
         if test_ds is not None
@@ -1090,23 +1229,29 @@ def iter_kfold_dataloaders(
         )
 
         fold_seed = seed + fold_index
-        train_loader = DataLoader(
-            train_ds, batch_size=batch_size, shuffle=True,
-            num_workers=num_workers, pin_memory=pin_memory,
-            worker_init_fn=_seed_worker,
+        train_loader = _make_dataloader(
+            train_ds,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
             generator=torch.Generator().manual_seed(fold_seed),
         )
-        val_loader = DataLoader(
-            val_ds, batch_size=batch_size, shuffle=False,
-            num_workers=num_workers, pin_memory=pin_memory,
-            worker_init_fn=_seed_worker,
+        val_loader = _make_dataloader(
+            val_ds,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
             generator=torch.Generator().manual_seed(fold_seed + 1),
         )
         test_loader = (
-            DataLoader(
-                test_ds, batch_size=batch_size, shuffle=False,
-                num_workers=num_workers, pin_memory=pin_memory,
-                worker_init_fn=_seed_worker,
+            _make_dataloader(
+                test_ds,
+                batch_size=batch_size,
+                shuffle=False,
+                num_workers=num_workers,
+                pin_memory=pin_memory,
                 generator=torch.Generator().manual_seed(fold_seed + 2),
             )
             if test_ds is not None
@@ -1237,22 +1382,20 @@ def create_full_train_test_loaders(
     train_generator = torch.Generator().manual_seed(seed)
     test_generator = torch.Generator().manual_seed(seed + 2)
 
-    train_loader = DataLoader(
+    train_loader = _make_dataloader(
         train_ds,
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
         pin_memory=pin_memory,
-        worker_init_fn=_seed_worker,
         generator=train_generator,
     )
-    test_loader = DataLoader(
+    test_loader = _make_dataloader(
         test_ds,
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
         pin_memory=pin_memory,
-        worker_init_fn=_seed_worker,
         generator=test_generator,
     )
 

@@ -39,6 +39,7 @@ from .dl.engine import EarlyStopping, evaluate, train_one_epoch
 from .dl.losses import FocalLoss, compute_class_weights
 from .dl.models.resnet_classifier import ResNetClassifier
 from .dl.utils import (
+    configure_torch_runtime,
     get_device,
     plot_classification_summary,
     plot_confusion_matrix,
@@ -335,6 +336,8 @@ def run_training(
     on_epoch_end: Callable[[int, dict[str, float], dict[str, float]], None] | None = None,
     extra_report: dict[str, Any] | None = None,
     preloaded_loaders: tuple[Any, Any, Any, dict[str, Any]] | None = None,
+    deterministic: bool = True,
+    use_amp: bool | None = None,
 ) -> dict[str, Any]:
     """Run a single training experiment and optionally persist artifacts.
 
@@ -358,7 +361,9 @@ def run_training(
     )
 
     set_seed(config.seed)
+    configure_torch_runtime(deterministic=deterministic, allow_tf32=True)
     device = get_device(verbose=verbose)
+    resolved_use_amp = bool(use_amp) if use_amp is not None else (device.type == "cuda")
     trainval_dir, test_dir = resolve_data_dirs(config)
     if not evaluate_test_set:
         test_dir = None
@@ -482,6 +487,19 @@ def run_training(
     )
     early_stopping = EarlyStopping(patience=config.patience)
 
+    # GradScaler bf16'da gereksiz; fp16 secimi runtime'da yapildigi icin
+    # CUDA fp16 yolu icin scaler'i burada olusturup epoch dongusu boyunca paylas.
+    # Yeni torch.amp API'si onerilen; eski torch.cuda.amp surumunde fallback.
+    scaler = None
+    if resolved_use_amp and device.type == "cuda" and not torch.cuda.is_bf16_supported():
+        try:
+            scaler = torch.amp.GradScaler("cuda", enabled=True)
+        except (AttributeError, TypeError):
+            scaler = torch.cuda.amp.GradScaler(enabled=True)
+    if verbose and resolved_use_amp and device.type == "cuda":
+        precision_label = "bf16" if torch.cuda.is_bf16_supported() else "fp16"
+        print(f"  AMP aktif: autocast dtype={precision_label}")
+
     artifact_stem = artifact_tag or config.model
     output_dirs = None
     if save_artifacts:
@@ -520,7 +538,15 @@ def run_training(
 
     epoch = 0
     for epoch in range(1, config.epochs + 1):
-        train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, device)
+        train_metrics = train_one_epoch(
+            model,
+            train_loader,
+            criterion,
+            optimizer,
+            device,
+            use_amp=resolved_use_amp,
+            scaler=scaler,
+        )
         train_scalars = _scalar_metrics(train_metrics)
 
         train_losses.append(train_scalars["loss"])
@@ -545,7 +571,9 @@ def run_training(
             selected_epoch_train_loss = train_scalars["loss"]
             continue
 
-        val_metrics = evaluate(model, val_loader, criterion, device)
+        val_metrics = evaluate(
+            model, val_loader, criterion, device, use_amp=resolved_use_amp
+        )
         val_scalars = _scalar_metrics(val_metrics)
         val_losses.append(val_scalars["loss"])
         val_accs.append(val_scalars["accuracy"])
@@ -664,7 +692,9 @@ def run_training(
             print("TEST DEGERLENDIRMESI")
             print(f"{'=' * 70}\n")
 
-        test_eval = evaluate(model, test_loader, criterion, device)
+        test_eval = evaluate(
+            model, test_loader, criterion, device, use_amp=resolved_use_amp
+        )
         test_metrics = _scalar_metrics(test_eval)
         if {"labels", "preds"}.issubset(test_eval):
             test_detailed_metrics = _build_detailed_eval_report(
@@ -978,6 +1008,8 @@ def run_cv_training(
     selection_metric: str = "loss",
     on_fold_end: Callable[[int, dict[str, Any]], None] | None = None,
     extra_report: dict[str, Any] | None = None,
+    deterministic: bool = True,
+    use_amp: bool | None = None,
 ) -> dict[str, Any]:
     """K-fold cross-validation training (DL/ResNet).
 
@@ -1056,6 +1088,8 @@ def run_cv_training(
             selection_metric=selection_metric,
             extra_report=fold_extra,
             preloaded_loaders=(train_loader, val_loader, test_loader, fold_info),
+            deterministic=deterministic,
+            use_amp=use_amp,
         )
         fold_result_summary = {
             "fold_index": fold_index,
