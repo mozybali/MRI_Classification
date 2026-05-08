@@ -189,6 +189,13 @@ Ornekler:
     xgb_group.add_argument("--xgb-subsample", type=float, default=0.8, help="Satir ornekleme orani")
     xgb_group.add_argument("--xgb-colsample-bytree", type=float, default=0.8, help="Sutun ornekleme orani")
     xgb_group.add_argument("--xgb-reg-lambda", type=float, default=1.0, help="L2 regularizasyon")
+    xgb_group.add_argument("--xgb-reg-alpha", type=float, default=0.0, help="L1 regularizasyon")
+    xgb_group.add_argument(
+        "--xgb-gamma",
+        type=float,
+        default=0.0,
+        help="Bir yapragin daha fazla bolunmesi icin gereken minimum loss azalmasi (min_split_loss).",
+    )
     xgb_group.add_argument("--xgb-min-child-weight", type=int, default=1, help="Min child weight")
     xgb_group.add_argument("--feature-cache", type=str, default=None, help="Ozellik cache dizini (.npz)")
     xgb_group.add_argument(
@@ -235,6 +242,9 @@ def main(argv: list[str] | None = None) -> int:
             "focal_gamma", "num_workers", "dropout", "label_smoothing",
             "hflip_p", "rotation_degrees", "color_jitter",
         )
+        # Not: focal_gamma (DL) ile xgb_gamma (XGBoost min_split_loss) farkli
+        # hiperparametrelerdir; ayni isim cakismasi olmasin diye XGBoost
+        # gamma'si --xgb-gamma flag'i ile expose edilmistir.
         used_dl_args = [
             name for name in dl_arg_names
             if getattr(args, name) != parser.get_default(name)
@@ -265,6 +275,8 @@ def main(argv: list[str] | None = None) -> int:
             subsample=args.xgb_subsample,
             colsample_bytree=args.xgb_colsample_bytree,
             reg_lambda=args.xgb_reg_lambda,
+            reg_alpha=args.xgb_reg_alpha,
+            gamma=args.xgb_gamma,
             min_child_weight=args.xgb_min_child_weight,
             image_size=args.image_size,
             trainval_dir=args.trainval_dir,
@@ -299,6 +311,7 @@ def main(argv: list[str] | None = None) -> int:
     sl_arg_names = (
         "xgb_n_estimators", "xgb_max_depth", "xgb_learning_rate",
         "xgb_subsample", "xgb_colsample_bytree", "xgb_reg_lambda",
+        "xgb_reg_alpha", "xgb_gamma",
         "xgb_min_child_weight", "feature_cache", "xgb_device", "xgb_n_jobs",
     )
     used_sl_args = [

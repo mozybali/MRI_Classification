@@ -142,6 +142,8 @@ class SLTrainingConfig:
     subsample: float = 0.8
     colsample_bytree: float = 0.8
     reg_lambda: float = 1.0
+    reg_alpha: float = 0.0
+    gamma: float = 0.0
     min_child_weight: int = 1
     image_size: int = 224
     trainval_dir: Path | str | None = None
@@ -219,6 +221,10 @@ def validate_sl_config(
         raise ValueError("--xgb-colsample-bytree 0 ile 1 arasinda olmali (0 haric, 1 dahil).")
     if config.reg_lambda < 0:
         raise ValueError("--xgb-reg-lambda negatif olamaz.")
+    if config.reg_alpha < 0:
+        raise ValueError("--xgb-reg-alpha negatif olamaz.")
+    if config.gamma < 0:
+        raise ValueError("--xgb-gamma negatif olamaz.")
     if config.min_child_weight < 0:
         raise ValueError("--xgb-min-child-weight negatif olamaz.")
     if config.image_size < 32:
@@ -767,6 +773,8 @@ def run_sl_training(
         "subsample": config.subsample,
         "colsample_bytree": config.colsample_bytree,
         "reg_lambda": config.reg_lambda,
+        "reg_alpha": config.reg_alpha,
+        "gamma": config.gamma,
         "min_child_weight": config.min_child_weight,
         "random_state": config.seed,
     }

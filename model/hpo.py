@@ -319,6 +319,8 @@ def _search_space_summary_xgb(args: argparse.Namespace) -> dict[str, Any]:
         "subsample_range": [0.5, 1.0],
         "colsample_bytree_range": [0.5, 1.0],
         "reg_lambda_range": [1e-3, 10.0],
+        "reg_alpha_range": [1e-4, 10.0],
+        "gamma_range": [1e-4, 5.0],
         "min_child_weight_range": [1, 10],
     }
 
@@ -744,6 +746,8 @@ def _sample_xgb_params(trial, args: argparse.Namespace) -> dict[str, Any]:
         "subsample": trial.suggest_float("subsample", 0.5, 1.0),
         "colsample_bytree": trial.suggest_float("colsample_bytree", 0.5, 1.0),
         "reg_lambda": trial.suggest_float("reg_lambda", 1e-3, 10.0, log=True),
+        "reg_alpha": trial.suggest_float("reg_alpha", 1e-4, 10.0, log=True),
+        "gamma": trial.suggest_float("gamma", 1e-4, 5.0, log=True),
         "min_child_weight": trial.suggest_int("min_child_weight", 1, 10),
         "image_size": trial.suggest_categorical(
             "image_size",
@@ -770,6 +774,8 @@ def _xgb_objective_factory(args: argparse.Namespace, study_dir: Path):
             subsample=params["subsample"],
             colsample_bytree=params["colsample_bytree"],
             reg_lambda=params["reg_lambda"],
+            reg_alpha=params["reg_alpha"],
+            gamma=params["gamma"],
             min_child_weight=params["min_child_weight"],
             image_size=params["image_size"],
             trainval_dir=args.trainval_dir,
@@ -926,6 +932,8 @@ def _run_final_xgb_training(
         subsample=float(best_params["subsample"]),
         colsample_bytree=float(best_params["colsample_bytree"]),
         reg_lambda=float(best_params["reg_lambda"]),
+        reg_alpha=float(best_params.get("reg_alpha", 0.0)),
+        gamma=float(best_params.get("gamma", 0.0)),
         min_child_weight=int(best_params["min_child_weight"]),
         image_size=int(best_params["image_size"]),
         trainval_dir=args.trainval_dir,
