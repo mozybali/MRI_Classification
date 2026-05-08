@@ -484,6 +484,14 @@ class TestGorselIsleyici:
 
     def test_giris_klasoru_bos_oldugundan_default_kullanilir(self, tmp_path, monkeypatch):
         """giris_klasoru=None ise varsayilan original veri yolu kullanilmali."""
+        # Bu test sadece giris_klasoru=None fallback davranisini dogrular;
+        # sentetik gurultu goruntusunun kalite/egim filtrelerine takilmamasi
+        # icin ilgili kontroller kapatilir.
+        monkeypatch.setattr(gi, "EGIM_KALITE_KONTROL_AKTIF", False)
+        monkeypatch.setattr(gi, "EGIM_PARLAK_DOKU_KALITE_KONTROL_AKTIF", False)
+        monkeypatch.setattr(gi, "ANATOMIK_KALITE_KONTROL_AKTIF", False)
+        monkeypatch.setattr(gi, "KALITE_KONTROL_AKTIF", False)
+
         isleyici = GorselIsleyici()
         varsayilan_dataset = tmp_path / "varsayilan_dataset" / "OriginalDataset"
         sinif = "NonDemented"
@@ -1433,6 +1441,10 @@ class TestKenarArtefaktTespitVeTemizleme:
         monkeypatch.setattr(gi, "KENAR_ARTEFAKT_TEMIZLEME_AKTIF", True)
         monkeypatch.setattr(gi, "KENAR_ANATOMI_KORUMA_ORANI", 0.5)
         monkeypatch.setattr(gi, "KENAR_SERIT_ORANI", 0.12)
+        # Test, KENAR_ANATOMI_KORUMA_ORANI'nin bilesen alani uzerindeki
+        # gating davranisini olcer; bu nedenle serit pay esigini deterministik
+        # bir degere sabitleriz, ayarlar.py'deki default tweaklerinden bagimsiz olsun.
+        monkeypatch.setattr(gi, "KENAR_BILESEN_SERIT_PAY_ESIGI", 0.6)
         isleyici = GorselIsleyici()
 
         kucuk = np.full((100, 100), 25, dtype=np.uint8)
@@ -1453,6 +1465,10 @@ class TestKenarArtefaktTespitVeTemizleme:
         'tamamen seritte' kosulu bu durumu kacirip artefakti birakiyordu.
         """
         monkeypatch.setattr(gi, "KENAR_ARTEFAKT_TEMIZLEME_AKTIF", True)
+        # Senaryo deterministik olsun diye serit kalinligi ve serit pay
+        # esigini test'e sabitle; ayarlar.py default tweaklerinden bagimsiz.
+        monkeypatch.setattr(gi, "KENAR_SERIT_ORANI", 0.12)
+        monkeypatch.setattr(gi, "KENAR_BILESEN_SERIT_PAY_ESIGI", 0.6)
         isleyici = GorselIsleyici()
         img = self._temiz_mri_benzeri_goruntu(seed=11)
         # 128x128 icin serit kalinligi ~15. Band rows 2..21 = 20 rows;
@@ -2079,6 +2095,19 @@ class TestBackgroundInvariant:
 
         isleyici = GorselIsleyici()
         isleyici.n_jobs = 1
+
+        # Sentetik beyin goruntusu parlak_doku PCA fallback'inde tesadufi
+        # buyuk aci uretebildiginden, pre-pipeline egim QC reddini
+        # eliminize etmek icin egim analizi temiz/uyumlu olarak mocklanir.
+        # Test'in odaklandigi nokta: pipeline_sonu_red sayaci ile egim_kalite_red
+        # sayacinin birbirine karismamasi.
+        temiz_egim = isleyici._egim_sonucu(
+            aci=0.0, rmse=0.5, x_span=80.0, satir_sayisi=80,
+            guvenilir=True, sebep="ok",
+        )
+        monkeypatch.setattr(
+            isleyici, "egim_acisi_hesapla", lambda _img: dict(temiz_egim)
+        )
 
         # Kaynak goruntuyu yaz
         kaynak_dir = tmp_path / "kaynak" / "NonDemented"
