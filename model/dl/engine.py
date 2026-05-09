@@ -161,8 +161,8 @@ def evaluate(
     if not label_chunks:
         raise RuntimeError("evaluate: bos veri yukleyici alindi, metrik hesaplanamiyor.")
 
-    all_labels = torch.cat(label_chunks).numpy()
-    all_preds = torch.cat(pred_chunks).numpy()
+    all_labels = torch.cat(label_chunks).contiguous().numpy()
+    all_preds = torch.cat(pred_chunks).contiguous().numpy()
     probs_arr = torch.cat(prob_chunks).numpy().astype(np.float32, copy=False)
 
     n = int(all_labels.shape[0])
