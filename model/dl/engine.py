@@ -108,8 +108,8 @@ def train_one_epoch(
             optimizer.step()
 
         running_loss += _batch_loss_sum(loss, criterion, images.size(0))
-        pred_chunks.append(outputs.detach().argmax(dim=1).cpu().numpy())
-        label_chunks.append(labels.detach().cpu().numpy())
+        pred_chunks.append(outputs.detach().argmax(dim=1).cpu().to(torch.int64).numpy())
+        label_chunks.append(labels.detach().cpu().to(torch.int64).numpy())
 
     if not label_chunks:
         raise RuntimeError("train_one_epoch: bos veri yukleyici alindi, egitim adimi atilamiyor.")
@@ -154,8 +154,8 @@ def evaluate(
         probs = torch.softmax(outputs.float(), dim=1)
 
         running_loss += _batch_loss_sum(loss, criterion, images.size(0))
-        pred_chunks.append(probs.argmax(dim=1).detach().cpu())
-        label_chunks.append(labels.detach().cpu())
+        pred_chunks.append(probs.argmax(dim=1).detach().cpu().to(torch.int64))
+        label_chunks.append(labels.detach().cpu().to(torch.int64))
         prob_chunks.append(probs.detach().cpu())
 
     if not label_chunks:
