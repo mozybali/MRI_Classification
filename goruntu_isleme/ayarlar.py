@@ -38,7 +38,7 @@ __all__ = [
     "TEST_ORANI", "RASTGELE_TOHUM",
     # Kalite kontrol
     "KALITE_KONTROL_AKTIF", "MIN_MEAN_INTENSITY", "MAX_MEAN_INTENSITY",
-    "MIN_STD_INTENSITY", "MAX_BLACK_RATIO",
+    "MIN_STD_INTENSITY", "MAX_BLACK_RATIO", "SIYAH_PIKSEL_ESIGI",
     "EGIM_KALITE_KONTROL_AKTIF", "EGIM_KALITE_RED_ESIGI",
     "EGIM_KALITE_GUVENILIRLIK_ZORUNLU",
     "EGIM_KALITE_GUVENILMEZ_UYUMLU_RMSE_ESIGI",
@@ -56,6 +56,7 @@ __all__ = [
     # Kenar artefakt kontrol
     "KENAR_ARTEFAKT_KONTROL_AKTIF", "KENAR_ARTEFAKT_TEMIZLEME_AKTIF",
     "KENAR_SERIT_ORANI", "KENAR_PARLAKLIK_ESIGI", "KENAR_COK_PARLAKLIK_ESIGI",
+    "KENAR_SERIT_PERCENTILE_P95", "KENAR_SERIT_PERCENTILE_P99",
     "KENAR_PARLAK_PIXEL_ORANI_ESIGI", "KENAR_BILESEN_ORANI_ESIGI",
     "KENAR_BILESEN_SERIT_PAY_ESIGI",
     "KENAR_KISMI_TEMIZLEME_MIN_PIXEL_ORANI", "KENAR_KISMI_TEMIZLEME_MIN_PIXEL",
@@ -65,6 +66,12 @@ __all__ = [
     "PADDING_OTOMATIK_ARKAPLAN",
     # Egim duzeltme guvenilirlik
     "EGIM_MIN_EKSEN_ORANI",
+    # Goruntu minimum boyut
+    "GORUNTU_MIN_BOYUT",
+    # Parlak doku minimum piksel tabanı
+    "PARLAK_DOKU_MIN_PIKSEL_TABAN",
+    # Egim tahmini bileşen minimum alan oranı
+    "EGIM_MIN_BILESEN_ALANI_ORANI",
     # Eğim düzeltme
     "EGIM_DUZELTME_AKTIF", "EGIM_DUZELTME_RAPORLA",
     "EGIM_ONIZLEME_URET", "EGIM_MIN_ACI", "EGIM_MAKS_ACI",
@@ -249,6 +256,7 @@ MIN_MEAN_INTENSITY = 5       # Minimum ortalama yoğunluk (çok karanlık kontro
 MAX_MEAN_INTENSITY = 200     # Maksimum ortalama yoğunluk (çok aydınlık kontrol)
 MIN_STD_INTENSITY = 15        # Minimum standart sapma (düz görüntü kontrol)
 MAX_BLACK_RATIO = 0.80        # Maksimum siyah piksel oranı (boş görüntü kontrol)
+SIYAH_PIKSEL_ESIGI = 10      # Siyah piksel sayımında kullanılan yoğunluk eşiği (bu değerin altı siyah sayılır)
 
 # Guvenilir egim tahmini kalite kontrolu. Esik trainval ve test icin aynidir;
 # test performansina gore degistirilmez. Reddedilen goruntuler ham veriden
@@ -263,6 +271,9 @@ MAX_BLACK_RATIO = 0.80        # Maksimum siyah piksel oranı (boş görüntü ko
 # gecmeyen ama aci esigini asan goruntuler de kalite adayi olarak ayrilir.
 # Bu agresif mod daha cok goruntu ayirabilir.
 EGIM_KALITE_KONTROL_AKTIF = True
+# 200 goruntu ornegi: ~%8 goruntu guvenilir bicimde >=15 derece egimli bulundu.
+# Bu oran kabul edilebilir; daha dusuk deger (orn. 10) false positive uretebilir
+# cunku PCA/minAreaRect aci hesabi kucuk acilarda gurultulu olabilir.
 EGIM_KALITE_RED_ESIGI = 15.0
 EGIM_KALITE_GUVENILIRLIK_ZORUNLU = True
 # Ana maske izotropik gorunse bile PCA ve minAreaRect acilari cok iyi
@@ -284,6 +295,9 @@ EGIM_PARLAK_DOKU_KALITE_KONTROL_AKTIF = True
 EGIM_PARLAK_DOKU_PERCENTILE = 85.0
 EGIM_PARLAK_DOKU_FOREGROUND_ESIGI = 10
 EGIM_PARLAK_DOKU_MIN_PIXEL_ORANI = 0.03
+# 200 goruntu ornegi: 8 goruntu eksen_orani >= 0.95 ile guvenilmez isaretlendi.
+# Bu goruntuler neredeyse dairesel beyinlerdi (eksen orani 0.95-0.97 araliginda).
+# Esigi dusurursek (orn. 0.90) 31 goruntu guvenilmez sayilir — asiri agresif.
 EGIM_PARLAK_DOKU_MAKS_EKSEN_ORANI = 0.95
 
 # Anatomik/gorsel kalite kontrolu. Büyük merkezi karanlik bosluk/ventrikul
@@ -293,6 +307,9 @@ ANATOMIK_KALITE_KONTROL_AKTIF = True
 ANATOMIK_ADAYLARI_KAYDET = True
 ANATOMIK_ADAYLARI_KLASOR_ADI = "anatomik_kontrol_adaylari"
 ANATOMIK_MANIFEST_DOSYA_ADI = "anatomik_kontrol_manifest.csv"
+# 200 goruntu ornegi: hicbir goruntu bu esigi asmadi (maks skor ~0.011).
+# Veri seti goruntulerinde buyuk merkezi bosluk yok; esik gevşek ama sorunsuz.
+# Daha sıkı (orn. 0.15) yapmak bu veri setinde gereksiz red uretir.
 ANATOMIK_MERKEZ_BOSLUK_RED_ESIGI = 0.35
 ANATOMIK_MERKEZ_ROI_ORANI = 0.60
 ANATOMIK_KARANLIK_ESIGI = 15
@@ -327,6 +344,11 @@ KENAR_PARLAKLIK_ESIGI = 225
 # "Cok parlak" piksel esigi (uint8). p99 bu esigin ustundeyse kenar
 # suspicious kabul edilir ve temizleme cagrildiginda hedef olur.
 KENAR_COK_PARLAKLIK_ESIGI = 245
+
+# Kenar serit istatistiklerinde hesaplanan percentile degerleri.
+# p95 genel parlaklik seviyesini, p99 saturasyon artefaktlarini yakalar.
+KENAR_SERIT_PERCENTILE_P95 = 95
+KENAR_SERIT_PERCENTILE_P99 = 99
 
 # Bir kenar seridinde parlak piksel orani >= bu deger ise kenar
 # suspicious sayilir (varsayilan: %1).
@@ -411,4 +433,23 @@ EGIM_ROTASYON_PADDING_ORANI = 0.18
 # izotropik isaretleyerek yatmis adaylari kalite akisina dusurur ve hala
 # konservatif kalir. Daha agresif ayrim icin 0.92 / 0.95 esikleri veri
 # setinden orneklerle dogrulanarak yukseltilebilir.
+# Ana egim tahmini (egim_acisi_hesapla) icin izotropik maske esigi.
+# 0.88 = minor/major eksen orani; bu esigi asan maskeler "maske_isotropik"
+# olarak guvenilmez isaretlenir. parlak_doku icin ayri EGIM_PARLAK_DOKU_MAKS_EKSEN_ORANI kullanilir.
 EGIM_MIN_EKSEN_ORANI = 0.88
+
+# ==================== GENEL GORUNTU ISLEM SINIRLARI ====================
+# Egim ve anatomik analiz metodlarinin kabul ettigi minimum goruntu boyutu
+# (piksel). Bu boyutun altindaki goruntuler icin PCA / flood-fill sonuclari
+# anlamsiz olacagindan erken donus yapilir.
+GORUNTU_MIN_BOYUT = 8
+
+# parlak_doku_egim_acisi_hesapla icinde foreground veya parlak piksel sayisi
+# bu degerin altina dustugunde tahmin yapilmaz. Kucuk goruntuler icin mutlak
+# bir zemin saglar; gercek sinir EGIM_PARLAK_DOKU_MIN_PIXEL_ORANI ile dinamik
+# olarak hesaplanir ve bu degerle max() alinir.
+PARLAK_DOKU_MIN_PIKSEL_TABAN = 20
+
+# egim_acisi_hesapla'da baglantili bilesen filtrelemesi icin minimum alan orani.
+# Goruntu alaninin bu oraninin altindaki bilesen adaylari egim tahminine dahil edilmez.
+EGIM_MIN_BILESEN_ALANI_ORANI = 0.005

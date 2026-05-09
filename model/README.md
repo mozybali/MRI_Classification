@@ -261,6 +261,39 @@ mri-train --model xgboost --trainval-dir goruntu_isleme/cikti/trainval --test-di
 mri-train --model xgboost --xgb-n-estimators 500 --xgb-max-depth 8 --xgb-learning-rate 0.05 --xgb-subsample 0.7 --xgb-colsample-bytree 0.8
 ```
 
+### XGBoost GPU Desteği
+
+`--xgb-device` parametresiyle XGBoost'un hangi cihazda çalışacağı seçilir:
+
+| Değer | Davranış |
+| --- | --- |
+| `auto` | Hem XGBoost CUDA build'i hem de PyTorch CUDA mevcutsa GPU kullanır; aksi hâlde CPU'ya düşer. Varsayılan. |
+| `cuda` | GPU'yu zorla açar. CUDA'lı XGBoost build'i yoksa uyarı verilir ve CPU'ya düşülür. |
+| `cpu` | Her zaman CPU kullanır. |
+
+```bash
+mri-train --model xgboost --xgb-device cuda --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test
+mri-tune --model xgboost --xgb-device auto --trials 30 --metric f1
+```
+
+Her HPO trial'ı bittikten sonra `gc.collect()` ve `torch.cuda.empty_cache()` çağrısıyla Python referansları ve CUDA önbelleği temizlenir. Bu sayede uzun HPO çalışmalarında VRAM/RAM baskısı birikimi engellenir.
+
+### Augmented Veri Seti ile Eğitim
+
+`mri-preprocess` çıktısında hem orijinal hem de augmented kopyalar aynı `trainval/` klasör yapısında bulunabilir. XGBoost hattı augmented kopyaları dosya adından (`_aug1`, `_aug2` vb.) otomatik tanır.
+
+Veri sızıntısını önlemek için:
+
+- Validation seti yalnızca **orijinal** görüntülerden kurulur; augmented kopyalar train tarafında kalır.
+- Group-aware split mevcutsa aynı kaynağın türevleri aynı gruba atanır; aksi hâlde sızıntı riski konusunda uyarı verilir.
+
+```bash
+mri-train --model xgboost \
+  --trainval-dir goruntu_isleme/cikti/trainval \
+  --test-dir goruntu_isleme/cikti/test \
+  --feature-cache model/ciktilar/sl_ozellikler
+```
+
 K-fold cross-validation:
 
 ```bash
@@ -390,6 +423,7 @@ Batch ve tek görüntü inference çıktıları terminale yazılır; komutlar va
 | `--xgb-colsample-bytree` | Sütun örnekleme oranı. |
 | `--xgb-reg-lambda` | L2 regularizasyon değeri. |
 | `--xgb-min-child-weight` | Minimum child weight. |
+| `--xgb-device` | XGBoost cihaz modu: `auto`, `cpu`, `cuda`. Varsayılan `auto`. |
 | `--feature-cache` | Özellik matrislerini `.npz` olarak saklayacak dizin. |
 
 ### HPO Parametreleri

@@ -239,21 +239,35 @@ Temel ayarlar `ayarlar.py` içinde tutulur:
 | Augmentation çarpanı | `0` |
 | Sınıf bazlı augmentation | Kapalı |
 | Kalite kontrol | Aktif |
-| Minimum ortalama yoğunluk | `10` |
-| Maksimum ortalama yoğunluk | `180` |
+| Minimum ortalama yoğunluk | `5` |
+| Maksimum ortalama yoğunluk | `200` |
 | Minimum standart sapma | `15` |
-| Maksimum siyah piksel oranı | `0.75` |
+| Maksimum siyah piksel oranı | `0.80` |
+| Siyah piksel eşiği | `10` |
 | Kenar artefakt kontrol | Aktif |
 | Kenar artefakt temizleme | Aktif |
-| Kenar şerit oranı | `0.12` |
-| Kenar parlaklık eşiği | `220` |
+| Kenar şerit oranı | `0.10` |
+| Kenar parlaklık eşiği | `225` |
+| Kenar çok parlak eşiği | `245` |
+| Kenar parlak piksel oran eşiği | `0.01` |
+| Kenar bileşen oran eşiği | `0.003` |
 | Kenar anatomi koruma oranı | `0.5` |
 | Eğim düzeltme | Kapalı |
 | Eğim minimum açı | `1.0` |
-| Eğim maksimum açı | `6.0` |
+| Eğim maksimum açı | `5.0` |
+| Eğim RMSE toleransı | `2.5` |
+| Eğim minimum eksen oranı | `0.88` |
 | Eğim kalite kontrol | Aktif |
-| Eğim kalite red eşiği | `6.0` |
+| Eğim kalite red eşiği | `15.0` |
+| Eğim kalite güvenilmez büyük açı eşiği | `25.0` |
 | Eğim kalite aday klasörü | `kalite_kontrol_adaylari` |
+| Anatomik kalite kontrol | Aktif |
+| Anatomik merkez boşluk red eşiği | `0.35` |
+| Anatomik merkez ROI oranı | `0.60` |
+| Anatomik aday klasörü | `anatomik_kontrol_adaylari` |
+| Parlak doku kalite kontrol | Aktif |
+| Parlak doku percentile | `85.0` |
+| Parlak doku maks eksen oranı | `0.95` |
 
 Kalite kontrol varsayılan olarak çok karanlık, çok aydınlık, düşük kontrastlı veya siyah piksel oranı çok yüksek görüntüleri eler. Kenar artefakt temizliği strict kalite kontrolünden önce çalışır; böylece parlak kenar bantları yüzünden reddedilecek ama temizlenebilir görüntüler kurtarılabilir. Açıkça boş/bozuk görüntüler yine erken elenir.
 
@@ -312,7 +326,7 @@ Başlangıç için önerilen eşikler (özellik manuel olarak açıldığında):
 | Ayar | Önerilen başlangıç |
 | --- | --- |
 | `EGIM_MIN_ACI` | `1.0` |
-| `EGIM_MAKS_ACI` | `6.0` |
+| `EGIM_MAKS_ACI` | `5.0` |
 
 `EGIM_MIN_ACI` altındaki açılar otomatik düzeltilmez. Güvenilir olmayan tahminler de değiştirilmeden bırakılır. `EGIM_MAKS_ACI` üstündeki güvenilir açılar otomatik döndürülmez; `egim_gorsel_kontrol_adayi` sayacına eklenir ve manuel/görsel inceleme adayı olarak ele alınmalıdır. Küçük ve güvenilir eğimler konservatif biçimde düzeltilebilir; aşırı güvenilir eğimler ayrıca kalite kontrol kuralıyla normal çıktılardan ayrılır.
 
@@ -323,13 +337,13 @@ Başlangıç için önerilen eşikler (özellik manuel olarak açıldığında):
 | `EGIM_DUZELTME_AKTIF` | `False` | Eğim düzeltmeyi aç/kapat (varsayılan kapalı; opt-in). |
 | `EGIM_DUZELTME_RAPORLA` | `False` | Özellik aktifken toplu işlem özetinde eğim sayaçlarını yazdır. |
 | `EGIM_ONIZLEME_URET` | `False` | Varsayılan akışta dosya yazmaz; preview üretilirse bu bayrakla yönetilir. |
-| `EGIM_MIN_ACI` | `2.0` | Bu açı altındaki tahminleri otomatik düzeltme. |
-| `EGIM_MAKS_ACI` | `20.0` | Bu açı üstündeki güvenilir tahminleri manuel kontrol adayı say. |
+| `EGIM_MIN_ACI` | `1.0` | Bu açı altındaki tahminleri otomatik düzeltme. |
+| `EGIM_MAKS_ACI` | `5.0` | Bu açı üstündeki güvenilir tahminleri manuel kontrol adayı say. |
 | `EGIM_RMSE_MAKS` | `2.5` | PCA ve minAreaRect açıları arasındaki maksimum fark (derece). Açı-duyarlı tolerans `max(EGIM_RMSE_MAKS, abs(pca_aci))` olarak uygulanır; küçük açılarda minAreaRect kuantizasyonu yüzünden statik eşik aşılırsa bile sonuç güvenilir sayılabilir. |
 | `EGIM_MIN_SATIR_SAYISI` | `45` | Ana maskenin gereken minimum dikey bbox yüksekliği. |
 | `EGIM_MIN_X_SPAN` | `8.0` | PCA major eksen uzanımı için minimum piksel eşiği. |
 | `EGIM_MIN_FOREGROUND_ORANI` | `0.04` | Ana foreground bileşeninin minimum görüntü alanı oranı. |
-| `EGIM_MIN_EKSEN_ORANI` | `0.95` | Minor/major eksen oranı bu değerin üstündeyse maske belirsiz sayılır. OASIS/Kaggle 2D dilimleri nispeten izotropik olduğu için yüksek eğimli adayları yakalamak amacıyla konservatif ama kullanılabilir başlangıç eşiğidir. |
+| `EGIM_MIN_EKSEN_ORANI` | `0.88` | Minor/major eksen oranı bu değerin üstündeyse maske belirsiz sayılır (`egim_acisi_hesapla` içindir; `parlak_doku` metodu `EGIM_PARLAK_DOKU_MAKS_EKSEN_ORANI = 0.95` kullanır). |
 | `EGIM_DOLDURMA_DEGERI` | `0` | Rotasyonda oluşan boş alanların doldurma değeri. |
 | `EGIM_ROTASYON_PADDING_ORANI` | `0.12` | Rotasyondan önce kırpmayı azaltmak için eklenen geçici padding oranı. |
 
@@ -337,7 +351,7 @@ Toplu işlemde `egim_tespit`, `egim_duzeltildi`, `egim_gorsel_kontrol_adayi` ve 
 
 ## Eğim Kalite Kontrolü
 
-`EGIM_KALITE_KONTROL_AKTIF = True` iken kalite açısı `abs(angle) >= EGIM_KALITE_RED_ESIGI` olan görüntüler normal `trainval` veya `test` çıktılarına yazılmaz. Varsayılan eşik `3.0` derecedir ve aynı sabit eşik hem `trainval` hem de `test` için kullanılır; test performansına göre eşik seçilmez veya ayarlanmaz.
+`EGIM_KALITE_KONTROL_AKTIF = True` iken kalite açısı `abs(angle) >= EGIM_KALITE_RED_ESIGI` olan görüntüler normal `trainval` veya `test` çıktılarına yazılmaz. Varsayılan eşik `15.0` derecedir ve aynı sabit eşik hem `trainval` hem de `test` için kullanılır; test performansına göre eşik seçilmez veya ayarlanmaz.
 
 Ana dış kontur belirsizse parlak iç doku ölçümü (`EGIM_PARLAK_DOKU_KALITE_KONTROL_AKTIF`) kalite kararı için fallback olarak kullanılır. `EGIM_KALITE_GUVENILIRLIK_ZORUNLU = False` olduğunda güvenilirlik filtresine takılan ama eşik üstü kalan şüpheli dilimler de normal çıktılardan ayrılır.
 

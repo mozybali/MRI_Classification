@@ -298,7 +298,7 @@ class GorselOnIslemeMixin:
             return self._egim_sonucu(sebep="parlak_doku_gecersiz_boyut")
 
         h, w = arr.shape[:2]
-        if h < 8 or w < 8:
+        if h < GORUNTU_MIN_BOYUT or w < GORUNTU_MIN_BOYUT:
             return self._egim_sonucu(sebep="parlak_doku_goruntu_cok_kucuk")
 
         foreground_esigi = self._egim_float_ayar(
@@ -315,7 +315,7 @@ class GorselOnIslemeMixin:
             0.0,
             0.5,
         )
-        min_piksel = max(20, int(round(arr.size * min_piksel_orani)))
+        min_piksel = max(int(PARLAK_DOKU_MIN_PIKSEL_TABAN), int(round(arr.size * min_piksel_orani)))
 
         foreground_mask = arr > foreground_esigi
         foreground_degerleri = arr[foreground_mask]
@@ -525,15 +525,15 @@ class GorselOnIslemeMixin:
         dis_arka_plan[flood == 2] = True
         beyin_zarfi = ~dis_arka_plan
 
-        ys, xs = np.nonzero(beyin_zarfi)
-        if xs.size == 0:
+        zarf_coords = cv2.findNonZero(beyin_zarfi.astype(np.uint8))
+        if zarf_coords is None:
             sonuc["sebep"] = "anatomik_zarf_bos"
             return sonuc
 
-        y0, y1 = int(ys.min()), int(ys.max()) + 1
-        x0, x1 = int(xs.min()), int(xs.max()) + 1
-        bbox_h = max(1, y1 - y0)
-        bbox_w = max(1, x1 - x0)
+        x0, y0, bbox_w, bbox_h = cv2.boundingRect(zarf_coords)
+        bbox_h = max(1, bbox_h)
+        bbox_w = max(1, bbox_w)
+        y1, x1 = y0 + bbox_h, x0 + bbox_w
         roi_h = max(1, int(round(bbox_h * merkez_roi_orani)))
         roi_w = max(1, int(round(bbox_w * merkez_roi_orani)))
         cy0 = y0 + (bbox_h - roi_h) // 2
@@ -637,7 +637,7 @@ class GorselOnIslemeMixin:
             return self._egim_sonucu(sebep="gecersiz_boyut")
 
         h, w = arr.shape[:2]
-        if h < 8 or w < 8:
+        if h < GORUNTU_MIN_BOYUT or w < GORUNTU_MIN_BOYUT:
             return self._egim_sonucu(sebep="goruntu_cok_kucuk")
 
         try:
@@ -683,7 +683,7 @@ class GorselOnIslemeMixin:
             return self._egim_sonucu(sebep="bilesen_yok")
 
         toplam_alan = float(h * w)
-        min_alan = max(20, int(0.005 * toplam_alan))
+        min_alan = max(int(PARLAK_DOKU_MIN_PIKSEL_TABAN), int(EGIM_MIN_BILESEN_ALANI_ORANI * toplam_alan))
         en_iyi_label = None
         en_iyi_alan = 0
         for label_idx in range(1, num_labels):
@@ -1096,10 +1096,7 @@ class GorselOnIslemeMixin:
         if ust_deger - alt_deger < 1e-6:
             return np.zeros_like(goruntu_kirp, dtype=np.uint8)
         
-        # 0-1 aralığına normalize et
-        norm = (goruntu_kirp - alt_deger) / (ust_deger - alt_deger)
-        # 0-255 aralığına ölçeklendir ve uint8'e çevir
-        sonuc = np.clip(norm * 255.0, 0, 255).astype(np.uint8)
+        sonuc = cv2.normalize(goruntu_kirp, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
         if arka_plan_maskesi is not None and arka_plan_maskesi.shape == sonuc.shape:
             sonuc[arka_plan_maskesi] = 0
         return sonuc
@@ -1161,7 +1158,7 @@ class GorselOnIslemeMixin:
         # Adaptif CLAHE: Görüntünün kontrast seviyesine göre clip limit ayarla
         clip_limit = CLAHE_CLIP_LIMIT
         if adaptive:
-            contrast = np.std(arr)
+            contrast = float(cv2.meanStdDev(arr)[1][0][0])
             # Düşük kontrastlı görüntülerde daha agresif CLAHE
             if contrast < 30:
                 clip_limit = 3.0
@@ -1498,7 +1495,7 @@ class GorselOnIslemeMixin:
         if not maske.any():
             maske = arr > 0
 
-        if min(arr.shape[:2]) >= 8 and maske.any():
+        if min(arr.shape[:2]) >= GORUNTU_MIN_BOYUT and maske.any():
             maske = self._maskeyi_duzenle(maske, closing_scale=2)
             maske = self._kucuk_bilesenleri_temizle(maske, min_size=min_piksel)
             if maske.any():

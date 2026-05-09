@@ -41,13 +41,13 @@ class GorselKaliteIOMixin:
         parlak_esigi = int(KENAR_PARLAKLIK_ESIGI)
         cok_parlak_esigi = int(KENAR_COK_PARLAKLIK_ESIGI)
 
-        ortalama = float(serit_u8.mean())
-        p95 = float(np.percentile(serit_u8, 95))
-        p99 = float(np.percentile(serit_u8, 99))
+        ortalama = float(cv2.mean(serit_u8)[0])
+        p95 = float(np.percentile(serit_u8, KENAR_SERIT_PERCENTILE_P95))
+        p99 = float(np.percentile(serit_u8, KENAR_SERIT_PERCENTILE_P99))
         parlak_u8 = _cv_yardimci.parlak_maske(serit_u8, parlak_esigi)
         cok_parlak_u8 = _cv_yardimci.parlak_maske(serit_u8, cok_parlak_esigi)
-        parlak_say = int(np.count_nonzero(parlak_u8))
-        cok_parlak_say = int(np.count_nonzero(cok_parlak_u8))
+        parlak_say = cv2.countNonZero(parlak_u8)
+        cok_parlak_say = cv2.countNonZero(cok_parlak_u8)
         parlak_oran = float(parlak_say) / float(toplam)
         cok_parlak_oran = float(cok_parlak_say) / float(toplam)
 
@@ -151,8 +151,9 @@ class GorselKaliteIOMixin:
             return False, "Boş görüntü"
         
         # Temel istatistikler
-        mean_intensity = np.mean(goruntu)
-        std_intensity = np.std(goruntu)
+        mean_arr, std_arr = cv2.meanStdDev(goruntu)
+        mean_intensity = float(mean_arr[0][0])
+        std_intensity = float(std_arr[0][0])
         
         # 1. Çok karanlık kontrol
         if mean_intensity < MIN_MEAN_INTENSITY:
@@ -167,7 +168,7 @@ class GorselKaliteIOMixin:
             return False, f"Düşük kontrast (std={std_intensity:.1f})"
         
         # 4. Siyah piksel oranı kontrol (boş görüntü)
-        black_pixels = np.sum(goruntu < 10)
+        black_pixels = np.sum(goruntu < SIYAH_PIKSEL_ESIGI)
         black_ratio = black_pixels / goruntu.size
         if black_ratio > MAX_BLACK_RATIO:
             return False, f"Çok fazla siyah piksel ({black_ratio*100:.1f}%)"
