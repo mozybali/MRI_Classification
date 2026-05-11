@@ -2362,3 +2362,131 @@ def test_hpo_dl_objective_pruned_trialde_de_release_cuda_memory_cagrir(monkeypat
         (tmp_path / "trials" / "trial_000" / "trial_summary.json").read_text(encoding="utf-8")
     )
     assert summary["state"] == "PRUNED"
+
+
+# ---------------------------------------------------------------------------
+# NaN guard ve checkpoint bug fix testleri
+# ---------------------------------------------------------------------------
+
+def test_is_improved_nan_false_doner():
+    """NaN/Inf candidate asla improvement sayilmamali."""
+    assert training_runner._is_improved(float("nan"), None, "minimize") is False
+    assert training_runner._is_improved(float("inf"), None, "minimize") is False
+    assert training_runner._is_improved(float("nan"), 0.5, "minimize") is False
+    assert training_runner._is_improved(float("inf"), 0.5, "maximize") is False
+
+
+def test_is_improved_gecerli_degerler_dogru_calisir():
+    """Finite degerler icin normal karsilastirma dogru calisir."""
+    assert training_runner._is_improved(0.3, None, "minimize") is True
+    assert training_runner._is_improved(0.3, 0.5, "minimize") is True   # 0.3 < 0.5 → iyilesme
+    assert training_runner._is_improved(0.6, 0.5, "maximize") is True   # 0.6 > 0.5 → iyilesme
+    assert training_runner._is_improved(0.6, 0.5, "minimize") is False  # 0.6 > 0.5 → kotulasma
+    assert training_runner._is_improved(0.4, 0.5, "maximize") is False  # 0.4 < 0.5 → kotulasma
+
+
+def test_is_improved_best_value_nan_iken_finite_candidate_true():
+    """best_value NaN iken gecerli candidate improvement sayilmali."""
+    assert training_runner._is_improved(0.5, float("nan"), "minimize") is True
+    assert training_runner._is_improved(0.5, float("inf"), "minimize") is True
+
+
+def test_nan_loss_checkpoint_kaydedilmez(monkeypatch, tmp_path):
+    """NaN loss uretildiginde best checkpoint kaydedilmemeli."""
+    import math
+
+    saved_files = []
+
+    def fake_save(obj, path):
+        saved_files.append(path)
+
+    monkeypatch.setattr(torch, "save", fake_save)
+
+    call_count = [0]
+
+    def fake_train_one_epoch(*args, **kwargs):
+        call_count[0] += 1
+        return {"loss": float("nan"), "accuracy": 0.25, "precision": 0.0, "recall": 0.0, "f1": 0.0}
+
+    def fake_evaluate(*args, **kwargs):
+        return {"loss": float("nan"), "accuracy": 0.25, "precision": 0.0, "recall": 0.0, "f1": 0.0,
+                "preds": np.array([0]), "labels": np.array([0]), "probs": np.zeros((1, 4)),
+                "confidences": np.array([0.25])}
+
+    monkeypatch.setattr(training_runner, "train_one_epoch", fake_train_one_epoch)
+    monkeypatch.setattr(training_runner, "evaluate", fake_evaluate)
+
+    dummy_loader = [(torch.zeros(2, 3, 8, 8), torch.zeros(2, dtype=torch.long))]
+
+    def fake_create_dataloaders(**kwargs):
+        info = {
+            "num_classes": 4, "train_size": 2, "val_size": 2, "test_size": 2,
+            "train_groups": 2, "val_groups": 2, "split_strategy": "test",
+            "split_warnings": [], "train_labels": np.array([0, 1]),
+            "trainval_grouping": None, "test_grouping": None,
+            "normalize_mean": [0.5, 0.5, 0.5], "normalize_std": [0.5, 0.5, 0.5],
+        }
+        return dummy_loader, dummy_loader, dummy_loader, info
+
+    monkeypatch.setattr(training_runner, "create_dataloaders", fake_create_dataloaders)
+    monkeypatch.setattr(training_runner, "validate_training_config", lambda *a, **k: None)
+    monkeypatch.setattr(training_runner, "resolve_data_dirs", lambda c: (tmp_path, tmp_path))
+    monkeypatch.setattr(training_runner, "get_device", lambda verbose=True: torch.device("cpu"))
+
+    import model.dl.utils as _utils
+    monkeypatch.setattr(_utils, "configure_torch_runtime", lambda **kw: None)
+
+    config = training_runner.TrainingConfig(epochs=2, batch_size=2, lr=1e-4, patience=10)
+    result = training_runner.run_training(
+        config,
+        output_root=tmp_path,
+        save_artifacts=True,
+        evaluate_test_set=True,
+        verbose=False,
+    )
+
+    # NaN loss ile hicbir checkpoint kaydedilmemeli
+    best_ckpt = result["checkpoint_path"]
+    assert best_ckpt not in saved_files, (
+        f"NaN loss ile checkpoint kaydedildi: {best_ckpt}"
+    )
+
+
+def test_train_one_epoch_nan_loss_runtime_error_firlatir():
+    """train_one_epoch NaN loss urettiginde RuntimeError firlatmali."""
+    import torch.nn as nn
+
+    model = nn.Linear(4, 4)
+    model.train()
+
+    # NaN weight ile criterion NaN loss uretir
+    nan_weight = torch.tensor([float("nan"), 1.0, 1.0, 1.0])
+    criterion = nn.CrossEntropyLoss(weight=nan_weight)
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+
+    class NaNLoader:
+        def __iter__(self):
+            yield torch.randn(2, 4), torch.tensor([0, 1])
+
+    from model.dl.engine import train_one_epoch
+
+    with pytest.raises(RuntimeError, match="NaN/Inf loss"):
+        train_one_epoch(model, NaNLoader(), criterion, optimizer, torch.device("cpu"))
+
+
+def test_evaluate_nan_loss_runtime_error_firlatir():
+    """evaluate NaN loss urettiginde RuntimeError firlatmali."""
+    import torch.nn as nn
+
+    model = nn.Linear(4, 4)
+    nan_weight = torch.tensor([float("nan"), 1.0, 1.0, 1.0])
+    criterion = nn.CrossEntropyLoss(weight=nan_weight)
+
+    class NaNLoader:
+        def __iter__(self):
+            yield torch.randn(2, 4), torch.tensor([0, 1])
+
+    from model.dl.engine import evaluate
+
+    with pytest.raises(RuntimeError, match="NaN/Inf loss"):
+        evaluate(model, NaNLoader(), criterion, torch.device("cpu"))

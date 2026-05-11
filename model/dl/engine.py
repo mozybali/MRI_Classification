@@ -8,6 +8,7 @@ Egitim ve degerlendirme donguleri, early stopping mekanizmasi.
 """
 
 import contextlib
+import logging
 import math
 from typing import Dict
 
@@ -15,6 +16,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+
+_log = logging.getLogger(__name__)
 
 from ..ayarlar import VARSAYILAN_EARLY_STOPPING_SABIR
 
@@ -89,8 +92,9 @@ def train_one_epoch(
     label_chunks: list[np.ndarray] = []
 
     use_scaler = bool(use_amp and scaler is not None and device.type == "cuda")
+    _first_batch = True
 
-    for images, labels in loader:
+    for batch_idx, (images, labels) in enumerate(loader):
         images = images.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
 
@@ -98,6 +102,41 @@ def train_one_epoch(
         with _autocast_context(device, use_amp):
             outputs = model(images)
             loss = criterion(outputs, labels)
+
+        if _first_batch:
+            _first_batch = False
+            _out_d0 = outputs.detach()
+            _log.debug(
+                "[NaN-guard] batch=0 device=%s | images finite=%s min=%.4f max=%.4f | "
+                "outputs finite=%s min=%.4f max=%.4f | loss finite=%s val=%s | "
+                "labels unique=%s",
+                device,
+                bool(torch.isfinite(images).all()),
+                float(images.min()),
+                float(images.max()),
+                bool(torch.isfinite(_out_d0).all()),
+                float(_out_d0.min()),
+                float(_out_d0.max()),
+                bool(torch.isfinite(loss.detach())),
+                loss.detach().item(),
+                labels.unique().tolist(),
+            )
+
+        loss_val = loss.detach()
+        if not torch.isfinite(loss_val).all():
+            out_d = outputs.detach()
+            raise RuntimeError(
+                f"[train_one_epoch] batch={batch_idx} sonrasi NaN/Inf loss tespit edildi.\n"
+                f"  device        : {device}\n"
+                f"  loss          : {loss_val.item()}\n"
+                f"  images finite : {bool(torch.isfinite(images).all())}\n"
+                f"  images range  : [{float(images.min()):.4f}, {float(images.max()):.4f}]\n"
+                f"  outputs finite: {bool(torch.isfinite(out_d).all())}\n"
+                f"  outputs range : [{float(out_d.min()):.4f}, {float(out_d.max()):.4f}]\n"
+                f"  labels unique : {labels.unique().tolist()}\n"
+                "Olasi nedenler: class weights ustasinda cok buyuk degerler, "
+                "MPS + CrossEntropyLoss uyumsuzlugu, veya normalize edilmemis girdi."
+            )
 
         if use_scaler:
             scaler.scale(loss).backward()
@@ -142,13 +181,27 @@ def evaluate(
     label_chunks: list[torch.Tensor] = []
     prob_chunks: list[torch.Tensor] = []
 
-    for images, labels in loader:
+    for batch_idx, (images, labels) in enumerate(loader):
         images = images.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
 
         with _autocast_context(device, use_amp):
             outputs = model(images)
             loss = criterion(outputs, labels)
+
+        loss_val = loss.detach()
+        if not torch.isfinite(loss_val).all():
+            out_d = outputs.detach()
+            raise RuntimeError(
+                f"[evaluate] batch={batch_idx} sonrasi NaN/Inf loss tespit edildi.\n"
+                f"  device        : {device}\n"
+                f"  loss          : {loss_val.item()}\n"
+                f"  images finite : {bool(torch.isfinite(images).all())}\n"
+                f"  images range  : [{float(images.min()):.4f}, {float(images.max()):.4f}]\n"
+                f"  outputs finite: {bool(torch.isfinite(out_d).all())}\n"
+                f"  outputs range : [{float(out_d.min()):.4f}, {float(out_d.max()):.4f}]\n"
+                f"  labels unique : {labels.unique().tolist()}"
+            )
 
         # Softmax ve metrikler her zaman float32 uzerinden hesaplansin.
         probs = torch.softmax(outputs.float(), dim=1)

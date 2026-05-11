@@ -259,7 +259,10 @@ def _is_improved(
     best_value: float | None,
     mode: Literal["minimize", "maximize"],
 ) -> bool:
-    if best_value is None:
+    import math
+    if not math.isfinite(candidate_value):
+        return False
+    if best_value is None or not math.isfinite(best_value):
         return True
     if mode == "minimize":
         return candidate_value < best_value
@@ -457,7 +460,16 @@ def run_training(
             )
     else:
         class_weight_labels = info["train_labels"]
-    class_weights = compute_class_weights(class_weight_labels, num_classes).to(device)
+    class_weights_cpu = compute_class_weights(class_weight_labels, num_classes)
+    # MPS backend'inde CrossEntropyLoss(weight=...) float32 gerektiriyor;
+    # bfloat16/float64 ya da device uyumsuzlugu NaN loss uretiyor.
+    # Criterion her zaman CPU float32 weight ile kurulup sonra device'a tasiniyor.
+    class_weights_cpu = class_weights_cpu.to(dtype=torch.float32)
+    class_weights = class_weights_cpu.to(device)
+    if verbose:
+        import math as _math
+        weights_ok = all(_math.isfinite(w) for w in class_weights_cpu.tolist())
+        print(f"  Class weights  : {[round(w, 4) for w in class_weights_cpu.tolist()]} finite={weights_ok}")
     if config.loss == "focal":
         criterion = FocalLoss(alpha=class_weights, gamma=config.focal_gamma)
     else:
