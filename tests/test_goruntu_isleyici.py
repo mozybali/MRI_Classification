@@ -1602,7 +1602,7 @@ class TestKenarArtefaktTespitVeTemizleme:
         sonuc = isleyici.goruntu_isle(str(path))
 
         assert sonuc is not None
-        assert sonuc.shape == (256, 256)
+        assert sonuc.shape == (gi.HEDEF_YUKSEKLIK, gi.HEDEF_GENISLIK)
         assert sonuc.dtype == np.uint8
 
     def test_goruntu_isle_temizleme_kapaliyken_uyumluluk_korunur(self, monkeypatch, tmp_path):
@@ -1617,7 +1617,7 @@ class TestKenarArtefaktTespitVeTemizleme:
         sonuc = isleyici.goruntu_isle(str(path))
 
         assert sonuc is not None
-        assert sonuc.shape == (256, 256)
+        assert sonuc.shape == (gi.HEDEF_YUKSEKLIK, gi.HEDEF_GENISLIK)
         assert sonuc.dtype == np.uint8
         # Yeni sayaclar varsa bile sifir kalmali
         assert isleyici.kalite_istatistikleri.get("kenar_artefakt_tespit", 0) == 0
