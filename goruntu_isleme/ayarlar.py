@@ -119,8 +119,8 @@ SINIF_ETIKETI = {
 
 # ==================== GÖRÜNTÜ İŞLEME AYARLARI ====================
 # Hedef boyut - Tüm görüntüler bu boyuta getirilir (standartlaştırma)
-HEDEF_GENISLIK = 256   # Piksel cinsinden genişlik
-HEDEF_YUKSEKLIK = 256  # Piksel cinsinden yükseklik
+HEDEF_GENISLIK = 224   # Piksel cinsinden genişlik
+HEDEF_YUKSEKLIK = 224  # Piksel cinsinden yükseklik
 
 # İzin verilen görüntü dosya uzantıları
 GORUNTU_UZANTILARI = [".jpg", ".jpeg", ".png"]
@@ -274,7 +274,7 @@ EGIM_KALITE_KONTROL_AKTIF = True
 # 200 goruntu ornegi: ~%8 goruntu guvenilir bicimde >=15 derece egimli bulundu.
 # Bu oran kabul edilebilir; daha dusuk deger (orn. 10) false positive uretebilir
 # cunku PCA/minAreaRect aci hesabi kucuk acilarda gurultulu olabilir.
-EGIM_KALITE_RED_ESIGI = 15.0
+EGIM_KALITE_RED_ESIGI = 12.5
 EGIM_KALITE_GUVENILIRLIK_ZORUNLU = True
 # Ana maske izotropik gorunse bile PCA ve minAreaRect acilari cok iyi
 # uyusuyorsa, red esigi ve ustundeki egimler normal ciktiya kacmasin.

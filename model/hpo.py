@@ -1148,6 +1148,43 @@ def _save_study_artifacts(
     _write_json(study_dir / "study_summary.json", summary)
 
 
+def _prepare_storage_url(storage: str | None, study_dir: Path) -> str | None:
+    """SQLite storage URL'sindeki dosya icin ust klasoru olusturup yolu normalize eder.
+
+    sqlite3 eksik dizinleri kendisi yaratmaz; klasor yoksa
+    'unable to open database file' hatasi verir. Burada hem mutlak/goreli
+    yollari ayristirir, hem Windows ters egik cizgilerini duzeltir, hem de
+    parent klasoru garanti altina aliriz.
+    """
+    if not storage:
+        return storage
+    if not storage.startswith("sqlite:"):
+        return storage
+
+    raw = storage[len("sqlite:"):]
+    # SQLAlchemy formati: "sqlite:///relative.db" veya "sqlite:////abs/path.db"
+    # Windows mutlak: "sqlite:///C:/path/file.db" (uc slash + surucu harfi)
+    leading_slashes = len(raw) - len(raw.lstrip("/"))
+    path_part = raw.lstrip("/")
+    if not path_part:
+        return storage  # bos / bellek-ici DB; dokunma
+
+    # Windows'ta gelen ters slash'lari forward slash'a cevir
+    path_part_norm = path_part.replace("\\", "/")
+    db_path = Path(path_part_norm)
+    if not db_path.is_absolute():
+        # Goreli yollari study_dir altina cek; calisma dizinine bagimliligi azaltir
+        db_path = (study_dir / db_path).resolve()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    abs_str = str(db_path).replace("\\", "/")
+    # Mutlak yol icin SQLAlchemy 'sqlite:///' + 'C:/...' bekler (toplam 3 slash)
+    if leading_slashes >= 3 or db_path.is_absolute():
+        return f"sqlite:///{abs_str}"
+    # Goreli senaryo (yukarida absolute'a cevirdik ama yine de guvenli olarak)
+    return f"sqlite:///{abs_str}"
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     try:
@@ -1159,6 +1196,11 @@ def main(argv: list[str] | None = None) -> int:
     study_name = args.study_name or _default_study_name(args)
     study_dir = _resolve_study_dir(args, study_name)
     study_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        args.storage = _prepare_storage_url(args.storage, study_dir)
+    except OSError as exc:
+        print(f"[HATA] Storage yolu hazirlanirken hata: {exc}")
+        return 1
 
     sampler = optuna.samplers.TPESampler(
         seed=args.seed,
