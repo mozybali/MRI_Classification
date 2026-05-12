@@ -35,29 +35,44 @@ def model_reports(request):
     """
     model/ciktilar/raporlar altındaki en güncel raporları listele.
     """
-    reports_dir = Path(settings.BASE_DIR).parent / "model" / "ciktilar" / "raporlar"
-    
-    reports = []
-    if reports_dir.exists():
-        for file in sorted(reports_dir.glob("rapor_*.json"), reverse=True):
-            with open(file, 'r') as f:
-                data = json.load(f)
-                reports.append({
-                    "filename": file.name,
-                    "model": data.get("model", "Unknown"),
-                    "timestamp": data.get("timestamp"),
-                    "accuracy": data.get("test_metrics", {}).get("accuracy", 0),
-                    "f1": data.get("test_metrics", {}).get("f1_macro", 0),
-                })
-    
+    # Eski kod sadece tek seviye "raporlar/" klasorunu kontrol ediyordu.
+    # Raporlar proje icinde alt dizinlerde (ör. hiperparametre_arama/.../best_run/raporlar)
+    # olusturulabilir; bu nedenle recursive arama yaparak tum rapor dosyalarini toplayalim.
+    root_dir = Path(settings.BASE_DIR).parent / "model" / "ciktilar"
+
+    reports: list[dict] = []
+    if root_dir.exists():
+        # tum rapor_*.json dosyalarini bul ve son degisiklik tarihine gore sirala (yeniden en once)
+        files = [p for p in root_dir.rglob("rapor_*.json") if p.is_file()]
+        files.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
+        for file in files:
+            try:
+                with open(file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            except Exception:
+                # Hata olursa bu dosyayi atla
+                continue
+            reports.append({
+                "filename": file.name,
+                "model": data.get("model", "Unknown"),
+                "timestamp": data.get("timestamp"),
+                "accuracy": data.get("test_metrics", {}).get("accuracy", 0),
+                "f1": data.get("test_metrics", {}).get("f1_macro", 0),
+                "path": str(file),
+            })
+
     return JsonResponse({"reports": reports})
 
 def get_report_detail(request, filename):
     """Belirli bir raporun detaylarını (karışıklık matrisi vb.) döndür."""
-    reports_dir = Path(settings.BASE_DIR).parent / "model" / "ciktilar" / "raporlar"
-    report_path = reports_dir / filename
-    
-    if report_path.exists():
-        with open(report_path, 'r') as f:
-            return JsonResponse(json.load(f))
+    root_dir = Path(settings.BASE_DIR).parent / "model" / "ciktilar"
+    # Dosya alt dizinlerde olabilir; isimle arama yap
+    if root_dir.exists():
+        matches = [p for p in root_dir.rglob("*.json") if p.is_file() and p.name == filename]
+        if matches:
+            try:
+                with open(matches[0], 'r', encoding='utf-8') as f:
+                    return JsonResponse(json.load(f))
+            except Exception:
+                return JsonResponse({"error": "Failed to read report"}, status=500)
     return JsonResponse({"error": "Report not found"}, status=404)
