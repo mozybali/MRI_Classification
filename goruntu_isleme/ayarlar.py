@@ -119,8 +119,8 @@ SINIF_ETIKETI = {
 
 # ==================== GÖRÜNTÜ İŞLEME AYARLARI ====================
 # Hedef boyut - Tüm görüntüler bu boyuta getirilir (standartlaştırma)
-HEDEF_GENISLIK = 224   # Piksel cinsinden genişlik
-HEDEF_YUKSEKLIK = 224  # Piksel cinsinden yükseklik
+HEDEF_GENISLIK = 192   # Piksel cinsinden genişlik
+HEDEF_YUKSEKLIK = 192  # Piksel cinsinden yükseklik
 
 # İzin verilen görüntü dosya uzantıları
 GORUNTU_UZANTILARI = [".jpg", ".jpeg", ".png"]

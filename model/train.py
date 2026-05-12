@@ -215,6 +215,17 @@ Ornekler:
         default=None,
         help="XGBoost icin worker thread sayisi. None ise os.cpu_count().",
     )
+    xgb_group.add_argument(
+        "--xgb-class-balance",
+        choices=["none", "balanced"],
+        default="none",
+        help=(
+            "Sinif dengesizligi telafisi. 'none' (varsayilan): mevcut davranis, "
+            "agirlik uygulanmaz. 'balanced': sklearn compute_sample_weight ile "
+            "her ornege class-frequency'ye ters orantili agirlik atanir; hem "
+            "XGBoost loss'una hem eval_set/erken durdurma metriklerine gecirilir."
+        ),
+    )
 
     return parser
 
@@ -287,6 +298,7 @@ def main(argv: list[str] | None = None) -> int:
             feature_cache=args.feature_cache,
             device=args.xgb_device,
             n_jobs=args.xgb_n_jobs,
+            class_balance=args.xgb_class_balance,
         )
         try:
             if args.folds > 1:
@@ -313,6 +325,7 @@ def main(argv: list[str] | None = None) -> int:
         "xgb_subsample", "xgb_colsample_bytree", "xgb_reg_lambda",
         "xgb_reg_alpha", "xgb_gamma",
         "xgb_min_child_weight", "feature_cache", "xgb_device", "xgb_n_jobs",
+        "xgb_class_balance",
     )
     used_sl_args = [
         name for name in sl_arg_names

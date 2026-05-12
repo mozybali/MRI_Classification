@@ -242,6 +242,18 @@ Ornekler:
         help="XGBoost icin worker thread sayisi. None ise os.cpu_count().",
     )
     parser.add_argument(
+        "--xgb-class-balance",
+        choices=["none", "balanced"],
+        default="none",
+        help=(
+            "XGBoost sinif dengesizligi telafisi (sadece --model xgboost icin). "
+            "'none' (varsayilan): mevcut davranis. 'balanced': sklearn "
+            "compute_sample_weight ile her ornege ters-frekans agirlik atanir; "
+            "hem trial fit'lerinde hem final egitimde train ve eval_set "
+            "agirliklandirilir."
+        ),
+    )
+    parser.add_argument(
         "--n-jobs",
         type=int,
         default=1,
@@ -799,6 +811,7 @@ def _xgb_objective_factory(args: argparse.Namespace, study_dir: Path):
             feature_cache=_resolve_feature_cache(args),
             device=getattr(args, "xgb_device", "auto"),
             n_jobs=getattr(args, "xgb_n_jobs", None),
+            class_balance=getattr(args, "xgb_class_balance", "none"),
         )
 
         try:
@@ -957,6 +970,7 @@ def _run_final_xgb_training(
         feature_cache=_resolve_feature_cache(args),
         device=getattr(args, "xgb_device", "auto"),
         n_jobs=getattr(args, "xgb_n_jobs", None),
+        class_balance=getattr(args, "xgb_class_balance", "none"),
     )
     final_dir = study_dir / "best_run"
     return run_sl_training(

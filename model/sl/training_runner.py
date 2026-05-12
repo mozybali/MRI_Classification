@@ -30,6 +30,7 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
 )
+from sklearn.utils.class_weight import compute_sample_weight
 
 from ..ayarlar import (
     CIKTI_KLASORU,
@@ -154,6 +155,11 @@ class SLTrainingConfig:
     feature_cache: Path | str | None = None
     device: str = "auto"  # "auto" | "cpu" | "cuda"
     n_jobs: int | None = None
+    # Sinif dengesizligi telafisi. "none": hicbir agirlik uygulanmaz (mevcut
+    # davranis). "balanced": her ornege sklearn'in compute_sample_weight
+    # ('balanced') formuluyle agirlik atanir; az ornekli siniflar XGBoost loss
+    # ve eval_set degerlendirmesinde daha agir tartilir.
+    class_balance: str = "none"  # "none" | "balanced"
 
 
 def sl_config_to_dict(config: SLTrainingConfig) -> dict[str, Any]:
@@ -235,6 +241,10 @@ def validate_sl_config(
         )
     if config.n_jobs is not None and config.n_jobs <= 0:
         raise ValueError("--xgb-n-jobs pozitif tamsayi olmali.")
+    if config.class_balance not in {"none", "balanced"}:
+        raise ValueError(
+            f"--xgb-class-balance 'none' veya 'balanced' olmali (alindi: {config.class_balance!r})."
+        )
     if not full_trainval and not 0.0 < config.val_ratio < 1.0:
         raise ValueError("--val-ratio 0 ile 1 arasinda olmali.")
     if config.test_ratio < 0.0 or config.test_ratio >= 1.0:
@@ -795,6 +805,33 @@ def run_sl_training(
         model.set_params(early_stopping_rounds=early_stopping_rounds)
     else:
         fit_params["eval_set"] = [(X_train, y_train)]
+
+    # Sinif dengesizligi telafisi: --xgb-class-balance balanced ise az ornekli
+    # sinifin ornek-bazli agirligi n_samples / (n_classes * n_class_samples)
+    # formuluyle artirilir. Eval_set'e de ayni agirliklar gecirilir; aksi halde
+    # XGBoost'un erken durdurmasi dengesiz mlogloss/macro-f1 uzerinden karar
+    # verir ve azinlik sinifindaki iyilesmeyi gormez.
+    train_sample_weight: np.ndarray | None = None
+    if config.class_balance == "balanced":
+        train_sample_weight = compute_sample_weight("balanced", y_train)
+        fit_params["sample_weight"] = train_sample_weight
+        eval_weights: list[np.ndarray] = [train_sample_weight]
+        if X_val is not None and y_val is not None:
+            eval_weights.append(compute_sample_weight("balanced", y_val))
+        fit_params["sample_weight_eval_set"] = eval_weights
+        if verbose:
+            unique_classes, counts = np.unique(y_train, return_counts=True)
+            weight_summary = {
+                int(cls): round(float(train_sample_weight[y_train == cls][0]), 4)
+                for cls in unique_classes
+            }
+            print(
+                f"  Class balance  : balanced (train ornek dagilimi="
+                f"{dict(zip(unique_classes.tolist(), counts.tolist()))}, "
+                f"per-class weight={weight_summary})"
+            )
+    elif verbose:
+        print("  Class balance  : none (sample_weight uygulanmadi)")
 
     model.fit(X_train, y_train, **fit_params)
 
