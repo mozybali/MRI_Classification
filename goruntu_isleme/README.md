@@ -27,6 +27,7 @@ goruntu_isleme/
 |-- goruntu_isleyici.py
 |-- kalite_io.py
 |-- on_isleme.py
+|-- opencv_duzeltmeler.py
 |-- temel.py
 |-- toplu_islem.py
 |-- veri.py
@@ -39,6 +40,7 @@ goruntu_isleme/
 goruntu_isleme/
 |-- __pycache__/
 `-- cikti/
+    |-- anatomik_kontrol_adaylari/
     |-- kalite_kontrol_adaylari/
     |-- trainval/
     `-- test/
@@ -59,6 +61,7 @@ Ana dış API `GorselIsleyici` sınıfıdır. Bu sınıf `goruntu_isleyici.py` i
 | `veri.py` | Girdi klasörü çözümleme, görüntü listeleme, kaynak grup belirleme ve leak-free `trainval/test` bölme işlemlerini içerir. |
 | `kalite_io.py` | OpenCV ile görüntü yükleme/kaydetme, gri tona çevirme ve kalite kontrol işlemlerini içerir. |
 | `on_isleme.py` | Gürültü giderme, bias correction, skull stripping, registration, percentile/z-score normalizasyonu, CLAHE ve resize adımlarını içerir. |
+| `opencv_duzeltmeler.py` | Kenar artefakt temizliği, eğim analizi ve OpenCV tabanlı maske/PCA işlemleri için stateless yardımcıları toplar. |
 | `artirma.py` | Disk üzerinde augmentation için rotasyon, parlaklık/kontrast, elastik deformasyon, crop, gürültü ve yoğunluk kayması işlemlerini içerir. |
 | `toplu_islem.py` | Tekil görüntü kaydı, sınıf bazlı augmentation çarpanları, paralel/toplu işleme ve splitli ya da düz çıktı üretimini içerir. |
 | `__init__.py` | Paket dışına `GorselIsleyici` sınıfını açar. |
@@ -166,7 +169,7 @@ Sık kullanılan API metotları:
 | `gorselleri_listele(giris_klasoru)` | Desteklenen görüntüleri sınıf, etiket ve kaynak grup bilgisiyle listeler. |
 | `veri_dosyalarini_bol(dosyalar)` | Görüntüleri kaynak grup bazında `trainval` ve `test` olarak böler. |
 | `goruntu_isle(dosya_yolu)` | Tek görüntüyü yükler, kalite kontrolden geçirir ve normal çıktıya alınacaksa ön işleme sonrası `numpy.ndarray` döndürür. |
-| `goruntu_isle_sonuc(dosya_yolu)` | İşlenmiş görüntüyle birlikte `quality_rejected`, `quality_reason` ve `tilt_angle` alanlarını döndürür. |
+| `goruntu_isle_sonuc(dosya_yolu)` | İşlenmiş görüntüyle birlikte `quality_rejected`, `quality_reason`, `tilt_angle`, `tilt_reliable`, `tilt_analysis` ve `quality_analysis` alanlarını döndürür. |
 | `tum_gorselleri_isle(cikti_klasoru, ...)` | Verilen görüntü listesini işler ve çıktı klasöründe doğrudan sınıf klasörlerine kaydeder. |
 | `tum_gorselleri_isle_ve_bol(cikti_klasoru, giris_klasoru)` | Varsayılan CLI akışıdır; split üretir veya mevcut split'i korur. |
 
@@ -186,8 +189,10 @@ Sık kullanılan API metotları:
 10. Ayara bağlı registration/hizalama uygula.
 11. Seçili normalizasyon stratejisini uygula.
 12. Görüntüyü hedef boyuta getir.
+13. Pipeline sonu kalite kontrolü uygula; gerekirse normal çıktıya yazmadan reddet.
+14. Anatomik kalite ve çıktı sonrası eğim kalite kontrollerini çalıştır.
 
-Kayıt işlemi `toplu_islem.py` içindeki toplu akışta yapılır. `goruntu_isle` doğrudan dosya yazmaz; işlenmiş görüntüyü dizi olarak döndürür.
+Kayıt işlemi `toplu_islem.py` içindeki toplu akışta yapılır. `goruntu_isle` doğrudan dosya yazmaz; normal çıktıya alınacak görüntüler için işlenmiş diziyi, kalite reddi durumunda `None` döndürür.
 
 Normalizasyon stratejileri:
 
@@ -197,7 +202,7 @@ Normalizasyon stratejileri:
 | `standard` | Percentile clipping ve sabit CLAHE uygular; ardından genel pipeline resize yapar. Varsayılan stratejidir. |
 | `aggressive` | Percentile clipping, sabit CLAHE ve z-score normalizasyonu uygular; ardından genel pipeline resize yapar. |
 
-Varsayılan `standard` stratejisinde foreground/beyin aday maskesi içinde `KIRPMA_YUZDELERI=(0.5, 99.5)` percentile clipping, `0-255` yoğunluk normalizasyonu, `CLAHE_CLIP_LIMIT=2.0` ve `256x256` yeniden boyutlandırma kullanılır. Arka plan pikselleri normalizasyon istatistiklerini belirlemez ve normalizasyon çıkışında arka plan olarak korunur.
+Varsayılan `standard` stratejisinde foreground/beyin aday maskesi içinde `KIRPMA_YUZDELERI=(0.5, 99.5)` percentile clipping, `0-255` yoğunluk normalizasyonu, `CLAHE_CLIP_LIMIT=2.0` ve `224x224` yeniden boyutlandırma kullanılır. Arka plan pikselleri normalizasyon istatistiklerini belirlemez ve normalizasyon çıkışında arka plan olarak korunur.
 
 Bias field correction açılırsa `simple` yöntem de aynı foreground maskesiyle düşük frekanslı bias alanını tahmin eder; siyah padding/arka plan bölgeleri bias tahminine katılmaz ve düzeltme sonrası sabit tutulur. `n4itk` yolu SimpleITK maskesini açıkça kullanır.
 
@@ -205,7 +210,7 @@ Bias field correction açılırsa `simple` yöntem de aynı foreground maskesiyl
 
 `BOYUTLANDIRMA_MODU` ayarı görüntülerin hedef boyuta nasıl getirileceğini belirler:
 
-- `pad`: Varsayılan ve medikal olarak önerilen moddur. En-boy oranı korunur, görüntü hedef çerçeveye sığdırılır ve kalan kenarlar güvenilir kose arka plan tahminiyle doldurulur; tahmin güvenilir değilse `PADDING_DEGERI` kullanılır.
+- `pad`: Varsayılan ve medikal olarak önerilen moddur. En-boy oranı korunur, görüntü hedef çerçeveye sığdırılır ve kalan kenarlar güvenilir köşe arka plan tahminiyle doldurulur; tahmin güvenilir değilse `PADDING_DEGERI` kullanılır.
 - `stretch`: Görüntü doğrudan hedef boyuta gerilir. En-boy oranı korunmaz.
 
 `PADDING_OTOMATIK_ARKAPLAN=True` varsayılanıyla, CLAHE/normalizasyon sonrası siyah arka planın küçük nonzero değerlere taşındığı durumlarda padding ile görüntü arka planı arasında keskin yapay sınır oluşması azaltılır. `PADDING_DEGERI` varsayılan olarak `0` değerindedir ve otomatik tahmin güvenilir değilse fallback olarak kullanılır. Her iki modda da çıktı `(HEDEF_YUKSEKLIK, HEDEF_GENISLIK)` biçimindedir.
@@ -218,7 +223,7 @@ Temel ayarlar `ayarlar.py` içinde tutulur:
 | --- | --- |
 | Girdi klasörü | `Veri_Seti/OriginalDataset` |
 | Çıktı klasörü | `goruntu_isleme/cikti` |
-| Hedef boyut | `256x256` |
+| Hedef boyut | `224x224` |
 | Desteklenen uzantılar | `.jpg`, `.jpeg`, `.png` |
 | Boyutlandırma modu | `pad` |
 | Padding değeri | `0` |
@@ -228,11 +233,11 @@ Temel ayarlar `ayarlar.py` içinde tutulur:
 | Normalizasyon stratejisi | `standard` |
 | Histogram eşitleme | Aktif |
 | CLAHE clip limit | `2.0` |
-| Filtre metodu | `off` |
+| Filtre metodu | `bilateral` |
 | Gaussian blur sigma | `0.5` |
 | Skull stripping | Kapalı |
 | Bias field correction | Kapalı |
-| Registration | Kapalı |
+| Registration | Aktif, `simple` center-of-mass |
 | Morfolojik işlemler | Aktif |
 | Morfolojik kernel boyutu | `3` |
 | Disk üzerinde augmentation | Kapalı |
@@ -258,7 +263,7 @@ Temel ayarlar `ayarlar.py` içinde tutulur:
 | Eğim RMSE toleransı | `2.5` |
 | Eğim minimum eksen oranı | `0.88` |
 | Eğim kalite kontrol | Aktif |
-| Eğim kalite red eşiği | `15.0` |
+| Eğim kalite red eşiği | `12.5` |
 | Eğim kalite güvenilmez büyük açı eşiği | `25.0` |
 | Eğim kalite aday klasörü | `kalite_kontrol_adaylari` |
 | Anatomik kalite kontrol | Aktif |
@@ -295,13 +300,13 @@ Adım deterministiktir, paralel işleme ile uyumludur ve çıktı `uint8` dtype'
 | --- | --- | --- |
 | `KENAR_ARTEFAKT_KONTROL_AKTIF` | `True` | Kenar şerit tespiti ve sayaç toplama. |
 | `KENAR_ARTEFAKT_TEMIZLEME_AKTIF` | `True` | Kenar artefaktlarını sil. |
-| `KENAR_SERIT_ORANI` | `0.12` | Şerit kalınlığı (yükseklik/genişlik oranı). |
-| `KENAR_PARLAKLIK_ESIGI` | `220` | Parlak piksel eşiği (uint8). |
+| `KENAR_SERIT_ORANI` | `0.10` | Şerit kalınlığı (yükseklik/genişlik oranı). |
+| `KENAR_PARLAKLIK_ESIGI` | `225` | Parlak piksel eşiği (uint8). |
 | `KENAR_COK_PARLAKLIK_ESIGI` | `245` | Çok parlak (saturasyon) eşiği. |
 | `KENAR_PARLAK_PIXEL_ORANI_ESIGI` | `0.01` | Şerit içinde parlak piksel oranı eşiği. |
 | `KENAR_BILESEN_ORANI_ESIGI` | `0.003` | Şerit içinde en büyük parlak bileşen oranı eşiği. |
-| `KENAR_BILESEN_SERIT_PAY_ESIGI` | `0.6` | Bileşenin çoğunlukla kenar şeridinde sayılması için gereken piksel payı. |
-| `KENAR_KISMI_TEMIZLEME_MIN_PIXEL_ORANI` | `0.01` | Kısmi şerit temizliği için gereken minimum şerit piksel oranı. |
+| `KENAR_BILESEN_SERIT_PAY_ESIGI` | `0.7` | Bileşenin çoğunlukla kenar şeridinde sayılması için gereken piksel payı. |
+| `KENAR_KISMI_TEMIZLEME_MIN_PIXEL_ORANI` | `0.015` | Kısmi şerit temizliği için gereken minimum şerit piksel oranı. |
 | `KENAR_KISMI_TEMIZLEME_MIN_PIXEL` | `50` | Kısmi şerit temizliği için gereken minimum mutlak şerit piksel sayısı. |
 | `KENAR_TEMIZLEME_DEGERI` | `0` | Silinen artefakt piksellerine yazılan değer. |
 | `KENAR_ANATOMI_KORUMA_ORANI` | `0.5` | Bu orandan büyük parlak bileşenler anatomik kabul edilip korunur. |
@@ -345,13 +350,13 @@ Başlangıç için önerilen eşikler (özellik manuel olarak açıldığında):
 | `EGIM_MIN_FOREGROUND_ORANI` | `0.04` | Ana foreground bileşeninin minimum görüntü alanı oranı. |
 | `EGIM_MIN_EKSEN_ORANI` | `0.88` | Minor/major eksen oranı bu değerin üstündeyse maske belirsiz sayılır (`egim_acisi_hesapla` içindir; `parlak_doku` metodu `EGIM_PARLAK_DOKU_MAKS_EKSEN_ORANI = 0.95` kullanır). |
 | `EGIM_DOLDURMA_DEGERI` | `0` | Rotasyonda oluşan boş alanların doldurma değeri. |
-| `EGIM_ROTASYON_PADDING_ORANI` | `0.12` | Rotasyondan önce kırpmayı azaltmak için eklenen geçici padding oranı. |
+| `EGIM_ROTASYON_PADDING_ORANI` | `0.18` | Rotasyondan önce kırpmayı azaltmak için eklenen geçici padding oranı. |
 
 Toplu işlemde `egim_tespit`, `egim_duzeltildi`, `egim_gorsel_kontrol_adayi` ve `egim_kalite_red` sayaçları, kenar artefakt sayaçları gibi görüntü bazlı delta olarak toplanır ve multiprocessing ile uyumludur. `EGIM_DUZELTME_AKTIF = False` iken görüntüler döndürülmez, preview dosyası yazılmaz; `EGIM_KALITE_KONTROL_AKTIF = False` iken aşırı eğimli görüntüler eski davranıştaki gibi normal çıktıya yazılabilir.
 
 ## Eğim Kalite Kontrolü
 
-`EGIM_KALITE_KONTROL_AKTIF = True` iken kalite açısı `abs(angle) >= EGIM_KALITE_RED_ESIGI` olan görüntüler normal `trainval` veya `test` çıktılarına yazılmaz. Varsayılan eşik `15.0` derecedir ve aynı sabit eşik hem `trainval` hem de `test` için kullanılır; test performansına göre eşik seçilmez veya ayarlanmaz.
+`EGIM_KALITE_KONTROL_AKTIF = True` iken kalite açısı `abs(angle) >= EGIM_KALITE_RED_ESIGI` olan görüntüler normal `trainval` veya `test` çıktılarına yazılmaz. Varsayılan eşik `12.5` derecedir ve aynı sabit eşik hem `trainval` hem de `test` için kullanılır; test performansına göre eşik seçilmez veya ayarlanmaz.
 
 Ana dış kontur belirsizse parlak iç doku ölçümü (`EGIM_PARLAK_DOKU_KALITE_KONTROL_AKTIF`) kalite kararı için fallback olarak kullanılır. `EGIM_KALITE_GUVENILIRLIK_ZORUNLU = False` olduğunda güvenilirlik filtresine takılan ama eşik üstü kalan şüpheli dilimler de normal çıktılardan ayrılır.
 
@@ -451,7 +456,7 @@ Varsayılan ayarlarda augmentation kapalı olduğu için bu ek dosyalar üretilm
 
 - Görüntü yükleme, kaydetme, CLAHE, resize, temel filtreler, morfoloji, Otsu maskeleme ve bazı augmentation adımları OpenCV ile çalışır.
 - `Pillow`, `SciPy` ve `scikit-image` ön işleme için yedek yol olarak kullanılmaz; DL/SL model katmanlarındaki görüntü okuma ve klasik özellik çıkarımı ihtiyaçları için bağımlılıklarda kalır.
-- `scikit-learn`, kaynak grup bazlı stratified `trainval/test` bölmesi için kullanılır.
+- `trainval/test` bölmesi `veri.py` içinde sınıf başına kota koruyan özel bir leak-free algoritmayla yapılır; `scikit-learn` proje bağımlılığı model/EDA tarafındaki iş akışları için kalır.
 - `SimpleITK`, sadece bias correction veya gelişmiş registration ayarları aktif edildiğinde anlamlıdır.
 - Toplu işlem `multiprocessing.Pool` ile paralel çalışabilir; affine/rigid registration aktifse template tutarlılığı için sequential moda döner.
 

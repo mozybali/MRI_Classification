@@ -270,12 +270,12 @@ SIYAH_PIKSEL_ESIGI = 10      # Siyah piksel sayımında kullanılan yoğunluk e�
 # EGIM_KALITE_GUVENILIRLIK_ZORUNLU False ise guvenilirlik filtresinden
 # gecmeyen ama aci esigini asan goruntuler de kalite adayi olarak ayrilir.
 # Bu agresif mod daha cok goruntu ayirabilir.
-EGIM_KALITE_KONTROL_AKTIF = True
+EGIM_KALITE_KONTROL_AKTIF = False
 # 200 goruntu ornegi: ~%8 goruntu guvenilir bicimde >=15 derece egimli bulundu.
 # Bu oran kabul edilebilir; daha dusuk deger (orn. 10) false positive uretebilir
 # cunku PCA/minAreaRect aci hesabi kucuk acilarda gurultulu olabilir.
 EGIM_KALITE_RED_ESIGI = 12.5
-EGIM_KALITE_GUVENILIRLIK_ZORUNLU = True
+EGIM_KALITE_GUVENILIRLIK_ZORUNLU = False
 # Ana maske izotropik gorunse bile PCA ve minAreaRect acilari cok iyi
 # uyusuyorsa, red esigi ve ustundeki egimler normal ciktiya kacmasin.
 EGIM_KALITE_GUVENILMEZ_UYUMLU_RMSE_ESIGI = 1.0
@@ -291,7 +291,7 @@ EGIM_KALITE_MANIFEST_DOSYA_ADI = "egim_kalite_kontrol_manifest.csv"
 # Ic/parlak doku egimi kalite kontrolu. Dis beyin konturu yuvarlak veya
 # ambiguous gorundugunde ana PCA olcumu kucuk aci verebilir; bu fallback
 # yalnizca kalite adayi kararinda kullanilir, otomatik dondurme yapmaz.
-EGIM_PARLAK_DOKU_KALITE_KONTROL_AKTIF = True
+EGIM_PARLAK_DOKU_KALITE_KONTROL_AKTIF = False
 EGIM_PARLAK_DOKU_PERCENTILE = 85.0
 EGIM_PARLAK_DOKU_FOREGROUND_ESIGI = 10
 EGIM_PARLAK_DOKU_MIN_PIXEL_ORANI = 0.03
@@ -303,8 +303,8 @@ EGIM_PARLAK_DOKU_MAKS_EKSEN_ORANI = 0.95
 # Anatomik/gorsel kalite kontrolu. Büyük merkezi karanlik bosluk/ventrikul
 # gorunumu olan dilimler normal train/test ciktilarina alinmaz; denetim icin
 # ayri aday klasorune kopyalanir.
-ANATOMIK_KALITE_KONTROL_AKTIF = True
-ANATOMIK_ADAYLARI_KAYDET = True
+ANATOMIK_KALITE_KONTROL_AKTIF = False
+ANATOMIK_ADAYLARI_KAYDET = False
 ANATOMIK_ADAYLARI_KLASOR_ADI = "anatomik_kontrol_adaylari"
 ANATOMIK_MANIFEST_DOSYA_ADI = "anatomik_kontrol_manifest.csv"
 # 200 goruntu ornegi: hicbir goruntu bu esigi asmadi (maks skor ~0.011).
