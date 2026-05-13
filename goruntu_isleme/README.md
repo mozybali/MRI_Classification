@@ -1,16 +1,16 @@
 # Görüntü İşleme Modülü
 
-`goruntu_isleme`, ham 2D beyin MRI görüntülerini modelleme aşamasına hazırlayan ön işleme paketidir. Varsayılan akışta görüntüleri `Veri_Seti/OriginalDataset` altındaki sınıf klasörlerinden okur, kalite kontrol ve standartlaştırma uygular, leak-free `trainval/test` ayrımı yapar ve çıktıları `goruntu_isleme/cikti/` altında `.png` olarak kaydeder.
+`goruntu_isleme`, ham 2D beyin MRI görüntülerini model eğitimine hazır hale getiren ön işleme paketidir. Varsayılan akışta görüntüleri `Veri_Seti/OriginalDataset` altındaki sınıf klasörlerinden okur, kalite kontrol ve standartlaştırma uygular, kaynak grup bazlı `trainval/test` ayrımı yapar ve işlenmiş görüntüleri `goruntu_isleme/cikti/` altında `.png` olarak kaydeder.
 
-Bu klasör yalnızca görüntü ön işleme sorumluluğunu taşır. Özellik matrisi üretimi, XGBoost özellik cache'i, model eğitimi, hiperparametre araması ve inference işlemleri `model/` modülünde yürütülür.
+Bu klasör yalnızca görüntü ön işleme sorumluluğunu taşır. Özellik matrisi üretimi, XGBoost özellik cache'i, model eğitimi, hiperparametre araması ve inference işlemleri `model/` modülündedir.
 
 ## Projedeki Yeri
 
-Tipik proje akışı:
+Tipik akış:
 
 1. Ham MRI görüntüleri `Veri_Seti/OriginalDataset/<SinifAdi>/` altında tutulur.
-2. İsteğe bağlı EDA adımları `eda_analiz/` ile çalıştırılır.
-3. Bu modül `mri-preprocess` komutu ile ham görüntüleri işler ve leak-free `trainval/test` klasörlerini üretir.
+2. İsteğe bağlı EDA işlemleri `eda_analiz/` ile çalıştırılır.
+3. Bu modül `mri-preprocess` komutu ile ham görüntüleri işler ve `trainval/test` klasörlerini üretir.
 4. `model/` modülü, üretilen klasörleri kullanarak ResNet veya XGBoost eğitir.
 5. XGBoost için gerekli HOG, LBP, GLCM ve histogram özellikleri model tarafında çıkarılır.
 
@@ -40,30 +40,30 @@ goruntu_isleme/
 goruntu_isleme/
 |-- __pycache__/
 `-- cikti/
-    |-- anatomik_kontrol_adaylari/
-    |-- kalite_kontrol_adaylari/
     |-- trainval/
-    `-- test/
+    |-- test/
+    |-- kalite_kontrol_adaylari/      # opsiyonel
+    `-- anatomik_kontrol_adaylari/    # opsiyonel
 ```
 
 `__pycache__/` Python tarafından üretilir. `cikti/` ön işleme çıktısıdır; kaynak kodun parçası değildir.
 
 ## Modül Mimarisi
 
-Ana dış API `GorselIsleyici` sınıfıdır. Bu sınıf `goruntu_isleyici.py` içinde, işlevleri ayrı dosyalara bölünmüş mixin sınıflarını birleştirir.
+Ana dış API `GorselIsleyici` sınıfıdır. `goruntu_isleyici.py`, işlevleri ayrı dosyalara bölünmüş mixin sınıflarını birleştirir ve eski tek dosya kullanımına dönük uyumluluk katmanı sağlar.
 
 | Dosya | Görev |
 | --- | --- |
 | `ana_islem.py` | `mri-preprocess` komutunun ve interaktif menünün giriş noktasıdır. Geçerli CLI aksiyonları `menu` ve `preprocess` değerleridir. |
 | `ayarlar.py` | Proje kökü, veri yolları, sınıf adları, hedef boyut, normalizasyon, kalite kontrol, augmentation ve split ayarlarını merkezi olarak tanımlar. |
-| `goruntu_isleyici.py` | `GorselIsleyici` sınıfını dış API olarak sunar ve eski tek dosya kullanımına dönük uyumluluk katmanı sağlar. |
-| `temel.py` | `GorselIsleyici` durum yönetimi, rastgele tohumlama, çıktı dosya adı üretimi ve ortak yardımcıları içerir. |
+| `goruntu_isleyici.py` | `GorselIsleyici` sınıfını dış API olarak sunar; module-level monkeypatch uyumluluğunu mixin modüllerine yayar. |
+| `temel.py` | İşleyici durum yönetimi, rastgele tohumlama, çıktı dosya adı üretimi, kaynak grup belirleme ve ortak yardımcıları içerir. |
 | `veri.py` | Girdi klasörü çözümleme, görüntü listeleme, kaynak grup belirleme ve leak-free `trainval/test` bölme işlemlerini içerir. |
-| `kalite_io.py` | OpenCV ile görüntü yükleme/kaydetme, gri tona çevirme ve kalite kontrol işlemlerini içerir. |
-| `on_isleme.py` | Gürültü giderme, bias correction, skull stripping, registration, percentile/z-score normalizasyonu, CLAHE ve resize adımlarını içerir. |
-| `opencv_duzeltmeler.py` | Kenar artefakt temizliği, eğim analizi ve OpenCV tabanlı maske/PCA işlemleri için stateless yardımcıları toplar. |
-| `artirma.py` | Disk üzerinde augmentation için rotasyon, parlaklık/kontrast, elastik deformasyon, crop, gürültü ve yoğunluk kayması işlemlerini içerir. |
-| `toplu_islem.py` | Tekil görüntü kaydı, sınıf bazlı augmentation çarpanları, paralel/toplu işleme ve splitli ya da düz çıktı üretimini içerir. |
+| `kalite_io.py` | OpenCV ile görüntü yükleme/kaydetme, gri ton okuma, temel kalite kontrol ve kenar artefakt metriklerini içerir. |
+| `on_isleme.py` | Tekil görüntü pipeline'ını içerir: kenar temizliği, eğim analizi/düzeltme, gürültü giderme, bias correction, skull stripping, registration, normalizasyon, CLAHE ve resize. |
+| `opencv_duzeltmeler.py` | Kenar artefakt temizliği, eğim analizi, maske ve PCA işlemleri için stateless OpenCV yardımcılarını toplar. |
+| `artirma.py` | Disk üzerinde offline augmentation için ayna, rotasyon, parlaklık/kontrast, elastik deformasyon, crop, gürültü ve yoğunluk kayması işlemlerini içerir. |
+| `toplu_islem.py` | Tekil görüntü kaydı, sınıf bazlı augmentation çarpanları, paralel/toplu işleme, splitli/düz çıktı üretimi ve aday manifestlerini yönetir. |
 | `__init__.py` | Paket dışına `GorselIsleyici` sınıfını açar. |
 
 ## Beklenen Girdi Yapısı
@@ -79,7 +79,7 @@ Veri_Seti/
     `-- ModerateDemented/
 ```
 
-Desteklenen dosya uzantıları:
+Desteklenen görüntü uzantıları:
 
 - `.jpg`
 - `.jpeg`
@@ -102,7 +102,7 @@ Girdi zaten `trainval/test` yapısındaysa yeniden bölme yapılmaz; mevcut spli
 | `MildDemented` | `2` |
 | `ModerateDemented` | `3` |
 
-Sınıf klasörü adları kodda sabit kullanılır; büyük/küçük harf duyarlıdır.
+Sınıf klasörü adları kodda sabit kullanılır ve büyük/küçük harf duyarlıdır.
 
 ## Komut Satırından Çalıştırma
 
@@ -146,7 +146,7 @@ python3 -m goruntu_isleme.ana_islem --action preprocess --input-dir Veri_Seti/Or
 | `--input-dir` | Girdi klasörü. Verilmezse `Veri_Seti/OriginalDataset` kullanılır. |
 | `--output-dir` | Çıktı klasörü. Verilmezse `goruntu_isleme/cikti` kullanılır. |
 
-Bu modülde `all`, `extract`, `scale`, `report`, `clean-nan`, `split` veya `--mode 3d` aksiyonları bulunmaz. CSV, scaler, özellik cache'i ve model dosyası üretimi bu klasörün görev kapsamı dışındadır.
+Bu modülde `all`, `extract`, `scale`, `report`, `clean-nan`, `split` veya `--mode 3d` aksiyonları bulunmaz. CSV özellik matrisi, scaler, model dosyası ve feature cache üretimi `model/` kapsamındadır.
 
 ## Python API Kullanımı
 
@@ -166,54 +166,54 @@ Sık kullanılan API metotları:
 
 | Metot | Amaç |
 | --- | --- |
-| `gorselleri_listele(giris_klasoru)` | Desteklenen görüntüleri sınıf, etiket ve kaynak grup bilgisiyle listeler. |
+| `gorselleri_listele(giris_klasoru)` | Desteklenen görüntüleri sınıf, etiket, kaynak ID ve kaynak grup bilgisiyle listeler. |
 | `veri_dosyalarini_bol(dosyalar)` | Görüntüleri kaynak grup bazında `trainval` ve `test` olarak böler. |
-| `goruntu_isle(dosya_yolu)` | Tek görüntüyü yükler, kalite kontrolden geçirir ve normal çıktıya alınacaksa ön işleme sonrası `numpy.ndarray` döndürür. |
+| `goruntu_isle(dosya_yolu)` | Tek görüntüyü işler; normal çıktıya alınacaksa `numpy.ndarray`, reddedilecekse `None` döndürür. |
 | `goruntu_isle_sonuc(dosya_yolu)` | İşlenmiş görüntüyle birlikte `quality_rejected`, `quality_reason`, `tilt_angle`, `tilt_reliable`, `tilt_analysis` ve `quality_analysis` alanlarını döndürür. |
 | `tum_gorselleri_isle(cikti_klasoru, ...)` | Verilen görüntü listesini işler ve çıktı klasöründe doğrudan sınıf klasörlerine kaydeder. |
 | `tum_gorselleri_isle_ve_bol(cikti_klasoru, giris_klasoru)` | Varsayılan CLI akışıdır; split üretir veya mevcut split'i korur. |
 
 ## Ön İşleme Sırası
 
-`goruntu_isle` ile tek görüntü için uygulanan temel sıra:
+`goruntu_isle_sonuc` ile tek görüntü için uygulanan sıra:
 
-1. Görüntüyü OpenCV ile aç ve gri tona çevir.
-2. Temel boş/bozuk görüntü ön kontrolü uygula.
-3. Ayara bağlı kenar artefakt tespiti (raporlama).
-4. Ayara bağlı kenar artefakt temizliği (normalize/CLAHE'den önce).
-5. Strict kalite kontrol uygula.
-6. Ayara bağlı eğim analizi yap; aşırı güvenilir eğimleri kalite kontrol adayı olarak işaretle, izinli aralıktaki güvenilir eğimleri düzeltebilir.
-7. Ayara bağlı gürültü giderme uygula.
-8. Ayara bağlı bias field correction uygula.
-9. Ayara bağlı skull stripping uygula.
-10. Ayara bağlı registration/hizalama uygula.
-11. Seçili normalizasyon stratejisini uygula.
-12. Görüntüyü hedef boyuta getir.
-13. Pipeline sonu kalite kontrolü uygula; gerekirse normal çıktıya yazmadan reddet.
-14. Anatomik kalite ve çıktı sonrası eğim kalite kontrollerini çalıştır.
+1. Görüntüyü OpenCV ile gri ton olarak aç.
+2. Boş, siyah, geçersiz boyutlu veya geçersiz pikselli görüntüleri erken ele.
+3. Ayara bağlı kenar artefakt tespiti yap ve sayaçları güncelle.
+4. Ayara bağlı kenar artefakt temizliğini normalizasyon ve CLAHE'den önce uygula.
+5. Strict kalite kontrol uygula: ortalama yoğunluk, standart sapma ve siyah piksel oranı.
+6. Temizleme sonrası görüntünün boşa düşmediğini tekrar kontrol et.
+7. Eğim düzeltme veya eğim kalite kontrolü açıksa eğim analizi yap; kalite reddi veya otomatik düzeltme uygula.
+8. Gürültü giderme uygula.
+9. Açık ise bias field correction uygula.
+10. Açık ise skull stripping uygula.
+11. Açık ise registration/hizalama uygula.
+12. Seçili normalizasyon stratejisini uygula.
+13. Görüntüyü hedef boyuta getir.
+14. Pipeline sonu kalite kontrolüyle siyahlaşmış, foreground'u zayıf veya kontrastı düşmüş çıktıları ele.
+15. Açık ise anatomik kalite kontrolü uygula.
+16. Açık ise çıktı sonrası eğim kalite kontrolünü uygula.
 
-Kayıt işlemi `toplu_islem.py` içindeki toplu akışta yapılır. `goruntu_isle` doğrudan dosya yazmaz; normal çıktıya alınacak görüntüler için işlenmiş diziyi, kalite reddi durumunda `None` döndürür.
+Kayıt işlemi `toplu_islem.py` içindeki toplu akışta yapılır. `goruntu_isle_sonuc` doğrudan dosya yazmaz. `goruntu_isle`, geriye dönük API olarak kalite reddi durumunda `None` döndürür.
 
-Normalizasyon stratejileri:
+## Normalizasyon Stratejileri
 
 | Strateji | Davranış |
 | --- | --- |
-| `minimal` | Percentile clipping uygular; ardından genel pipeline resize yapar. |
+| `minimal` | Foreground maskesi üzerinden percentile clipping uygular; ardından genel pipeline resize yapar. |
 | `standard` | Percentile clipping ve sabit CLAHE uygular; ardından genel pipeline resize yapar. Varsayılan stratejidir. |
-| `aggressive` | Percentile clipping, sabit CLAHE ve z-score normalizasyonu uygular; ardından genel pipeline resize yapar. |
+| `aggressive` | Percentile clipping, sabit CLAHE ve foreground tabanlı z-score normalizasyonu uygular; ardından genel pipeline resize yapar. |
 
-Varsayılan `standard` stratejisinde foreground/beyin aday maskesi içinde `KIRPMA_YUZDELERI=(0.5, 99.5)` percentile clipping, `0-255` yoğunluk normalizasyonu, `CLAHE_CLIP_LIMIT=2.0` ve `224x224` yeniden boyutlandırma kullanılır. Arka plan pikselleri normalizasyon istatistiklerini belirlemez ve normalizasyon çıkışında arka plan olarak korunur.
-
-Bias field correction açılırsa `simple` yöntem de aynı foreground maskesiyle düşük frekanslı bias alanını tahmin eder; siyah padding/arka plan bölgeleri bias tahminine katılmaz ve düzeltme sonrası sabit tutulur. `n4itk` yolu SimpleITK maskesini açıkça kullanır.
+Varsayılan `standard` stratejisinde foreground/beyin aday maskesi içinde `KIRPMA_YUZDELERI=(0.5, 99.5)` percentile clipping, `0-255` yoğunluk normalizasyonu, `CLAHE_CLIP_LIMIT=2.0` ve `192x192` yeniden boyutlandırma kullanılır. Arka plan pikselleri normalizasyon istatistiklerini belirlemez ve normalizasyon çıkışında arka plan olarak korunur.
 
 ## Yeniden Boyutlandırma
 
 `BOYUTLANDIRMA_MODU` ayarı görüntülerin hedef boyuta nasıl getirileceğini belirler:
 
-- `pad`: Varsayılan ve medikal olarak önerilen moddur. En-boy oranı korunur, görüntü hedef çerçeveye sığdırılır ve kalan kenarlar güvenilir köşe arka plan tahminiyle doldurulur; tahmin güvenilir değilse `PADDING_DEGERI` kullanılır.
+- `pad`: Varsayılan moddur. En-boy oranı korunur, görüntü hedef çerçeveye sığdırılır ve kalan kenarlar otomatik arka plan tahminiyle doldurulur; tahmin güvenilir değilse `PADDING_DEGERI` kullanılır.
 - `stretch`: Görüntü doğrudan hedef boyuta gerilir. En-boy oranı korunmaz.
 
-`PADDING_OTOMATIK_ARKAPLAN=True` varsayılanıyla, CLAHE/normalizasyon sonrası siyah arka planın küçük nonzero değerlere taşındığı durumlarda padding ile görüntü arka planı arasında keskin yapay sınır oluşması azaltılır. `PADDING_DEGERI` varsayılan olarak `0` değerindedir ve otomatik tahmin güvenilir değilse fallback olarak kullanılır. Her iki modda da çıktı `(HEDEF_YUKSEKLIK, HEDEF_GENISLIK)` biçimindedir.
+`PADDING_OTOMATIK_ARKAPLAN=True` varsayılanıyla, CLAHE/normalizasyon sonrası siyah arka planın küçük nonzero değerlere taşındığı durumlarda padding ile görüntü arka planı arasında keskin yapay sınır oluşması azaltılır. Her iki modda da çıktı `(HEDEF_YUKSEKLIK, HEDEF_GENISLIK)` biçimindedir.
 
 ## Varsayılan Ayarlar
 
@@ -223,7 +223,7 @@ Temel ayarlar `ayarlar.py` içinde tutulur:
 | --- | --- |
 | Girdi klasörü | `Veri_Seti/OriginalDataset` |
 | Çıktı klasörü | `goruntu_isleme/cikti` |
-| Hedef boyut | `224x224` |
+| Hedef boyut | `192x192` |
 | Desteklenen uzantılar | `.jpg`, `.jpeg`, `.png` |
 | Boyutlandırma modu | `pad` |
 | Padding değeri | `0` |
@@ -258,162 +258,60 @@ Temel ayarlar `ayarlar.py` içinde tutulur:
 | Kenar bileşen oran eşiği | `0.003` |
 | Kenar anatomi koruma oranı | `0.5` |
 | Eğim düzeltme | Kapalı |
-| Eğim minimum açı | `1.0` |
-| Eğim maksimum açı | `5.0` |
-| Eğim RMSE toleransı | `2.5` |
-| Eğim minimum eksen oranı | `0.88` |
-| Eğim kalite kontrol | Aktif |
+| Eğim kalite kontrol | Kapalı |
 | Eğim kalite red eşiği | `12.5` |
-| Eğim kalite güvenilmez büyük açı eşiği | `25.0` |
-| Eğim kalite aday klasörü | `kalite_kontrol_adaylari` |
-| Anatomik kalite kontrol | Aktif |
+| Eğim kalite adaylarını kaydetme | Aktif, kontrol açılırsa etkili |
+| Parlak doku eğim kalite fallback'i | Kapalı |
+| Anatomik kalite kontrol | Kapalı |
+| Anatomik adaylarını kaydetme | Kapalı |
 | Anatomik merkez boşluk red eşiği | `0.35` |
-| Anatomik merkez ROI oranı | `0.60` |
-| Anatomik aday klasörü | `anatomik_kontrol_adaylari` |
-| Parlak doku kalite kontrol | Aktif |
-| Parlak doku percentile | `85.0` |
-| Parlak doku maks eksen oranı | `0.95` |
 
-Kalite kontrol varsayılan olarak çok karanlık, çok aydınlık, düşük kontrastlı veya siyah piksel oranı çok yüksek görüntüleri eler. Kenar artefakt temizliği strict kalite kontrolünden önce çalışır; böylece parlak kenar bantları yüzünden reddedilecek ama temizlenebilir görüntüler kurtarılabilir. Açıkça boş/bozuk görüntüler yine erken elenir.
+Kalite kontrol varsayılan olarak çok karanlık, çok aydınlık, düşük kontrastlı veya siyah piksel oranı çok yüksek görüntüleri eler. Kenar artefakt temizliği strict kalite kontrolünden önce çalışır; parlak kenar bantları yüzünden reddedilecek ama temizlenebilir görüntüler kurtarılabilir.
 
 ## Kenar Artefakt Kontrolü ve Temizliği
 
-Bazı 2D MRI dilimlerinde özellikle üst ve alt (daha az sıklıkla sol ve sağ) kenarlarda parlak/saturasyona yakın artefaktlar görülür. Bu artefaktlar global ortalama, standart sapma ve siyah piksel oranı kontrollerinden kolayca geçtiği için klasik kalite kontrol yakalayamaz; ancak CLAHE bu yerel parlak bantları çoğaltarak sınıflandırma performansını bozabilir.
+Bazı 2D MRI dilimlerinde özellikle üst ve alt kenarlarda parlak/saturasyona yakın artefaktlar görülebilir. Bu artefaktlar global ortalama, standart sapma ve siyah piksel oranı kontrollerinden geçebilir; CLAHE ise bu bantları güçlendirerek model girdisini bozabilir.
 
-`goruntu_isle` bu nedenle normalize ve CLAHE adımlarından **önce** opsiyonel bir kenar artefakt tespit ve temizleme adımı çalıştırır. Adım konservatiftir: skull stripping yerine geçmez, beyni kırpmaz, merkezi anatomik yapılara dokunmaz.
+`goruntu_isle_sonuc`, normalize ve CLAHE adımlarından önce opsiyonel kenar artefakt tespit ve temizleme adımı çalıştırır. Tespit ile temizleme bağımsızdır: `KENAR_ARTEFAKT_KONTROL_AKTIF` sayaç toplar, `KENAR_ARTEFAKT_TEMIZLEME_AKTIF` ise parlak kenar bileşenlerini temizler.
 
-Tespit mantığı: görüntünün üst, alt, sol ve sağ kenar şeritleri (`KENAR_SERIT_ORANI` ile oranlanır) için ortalama, p95, p99, parlak piksel oranı ve en büyük bağlantılı parlak bileşenin alan oranı hesaplanır. Bir kenar şeridi şu üç koşuldan herhangi biri sağlandığında suspicious sayılır:
+Temizleme, parlak bağlantılı bileşenlerin kenar şeritlerindeki payına bakar. Çoğunlukla kenarda kalan bileşenler tamamen silinir; merkezi anatomik yapıya bağlı görünen bileşenlerde yalnızca şerit içindeki pikseller temizlenir. Görüntünün yarısından büyük tek parlak bileşen anatomik kabul edilip korunur.
 
-- parlak piksel oranı >= `KENAR_PARLAK_PIXEL_ORANI_ESIGI`,
-- en büyük parlak bileşen oranı >= `KENAR_BILESEN_ORANI_ESIGI`,
-- p99 >= `KENAR_COK_PARLAKLIK_ESIGI`.
+Toplu işlem özetinde `kenar_artefakt_tespit`, `kenar_artefakt_temizlendi` ve varsa `kaydetme_hatasi` sayaçları raporlanır.
 
-Bir veya daha fazla kenar suspicious işaretlenirse görüntü için `artefakt_var` True olur ve sayaç artırılır. Görüntü yine de pipeline'da kalır; varsayılan davranış kenar artefaktı yüzünden görüntüyü reddetmek değil, temizlemektir.
+## Eğim Analizi, Düzeltme ve Kalite Kontrolü
 
-Temizleme aşamasında `KENAR_PARLAKLIK_ESIGI` ile parlak maske üretilir ve OpenCV bağlantılı bileşen analizi uygulanır. Piksellerinin çoğu kenar şeritlerinde kalan bileşenler `KENAR_TEMIZLEME_DEGERI` (varsayılan `0`) ile tamamen silinir. Merkez anatomisine bağlanan ama kenar şeridinde anlamlı parlak payı olan bileşenlerde yalnızca şerit içindeki pikseller temizlenir; merkezdeki parlak yapı korunur. Görüntünün yarısından büyük tek bir parlak bileşen anatomik kabul edilir ve dokunulmaz.
+Eğim analizi, Otsu maskesi ve en büyük geçerli foreground bileşeni üzerinden PCA açısı hesaplar; aynı bileşenin `minAreaRect` açısıyla uyumunu kontrol ederek güvenilirlik kararı verir. Yakın dairesel maskeler, zayıf foreground, düşük major eksen uzanımı veya uyumsuz açı ölçümleri güvenilmez sayılır.
 
-Adım deterministiktir, paralel işleme ile uyumludur ve çıktı `uint8` dtype'ını korur.
+Varsayılan politika otomatik döndürme yapmaz:
 
-İlgili ayarlar:
+- `EGIM_DUZELTME_AKTIF=False`
+- `EGIM_KALITE_KONTROL_AKTIF=False`
+- `EGIM_PARLAK_DOKU_KALITE_KONTROL_AKTIF=False`
 
-| Ayar | Varsayılan | Açıklama |
-| --- | --- | --- |
-| `KENAR_ARTEFAKT_KONTROL_AKTIF` | `True` | Kenar şerit tespiti ve sayaç toplama. |
-| `KENAR_ARTEFAKT_TEMIZLEME_AKTIF` | `True` | Kenar artefaktlarını sil. |
-| `KENAR_SERIT_ORANI` | `0.10` | Şerit kalınlığı (yükseklik/genişlik oranı). |
-| `KENAR_PARLAKLIK_ESIGI` | `225` | Parlak piksel eşiği (uint8). |
-| `KENAR_COK_PARLAKLIK_ESIGI` | `245` | Çok parlak (saturasyon) eşiği. |
-| `KENAR_PARLAK_PIXEL_ORANI_ESIGI` | `0.01` | Şerit içinde parlak piksel oranı eşiği. |
-| `KENAR_BILESEN_ORANI_ESIGI` | `0.003` | Şerit içinde en büyük parlak bileşen oranı eşiği. |
-| `KENAR_BILESEN_SERIT_PAY_ESIGI` | `0.7` | Bileşenin çoğunlukla kenar şeridinde sayılması için gereken piksel payı. |
-| `KENAR_KISMI_TEMIZLEME_MIN_PIXEL_ORANI` | `0.015` | Kısmi şerit temizliği için gereken minimum şerit piksel oranı. |
-| `KENAR_KISMI_TEMIZLEME_MIN_PIXEL` | `50` | Kısmi şerit temizliği için gereken minimum mutlak şerit piksel sayısı. |
-| `KENAR_TEMIZLEME_DEGERI` | `0` | Silinen artefakt piksellerine yazılan değer. |
-| `KENAR_ANATOMI_KORUMA_ORANI` | `0.5` | Bu orandan büyük parlak bileşenler anatomik kabul edilip korunur. |
-| `KENAR_ARTEFAKT_RAPORLA` | `True` | Toplu işleme özetinde sayaçları yazdır. |
+Bu kontroller açılırsa:
 
-Toplu işlem özetinde `kenar_artefakt_tespit` (kenar artefakt görülen görüntü sayısı), `kenar_artefakt_temizlendi` (gerçekten piksel silinen görüntü sayısı) ve varsa `kaydetme_hatasi` sayaçları raporlanır; mevcut `kalite_istatistikleri` anahtarları geriye dönük uyumlu kalır.
+- `EGIM_MIN_ACI=1.0` altındaki küçük açılar düzeltilmez.
+- `EGIM_MAKS_ACI=5.0` üstündeki güvenilir açılar görsel kontrol adayı sayılabilir.
+- `EGIM_KALITE_RED_ESIGI=12.5` ve üstündeki kalite açıları normal çıktıya yazılmayabilir.
+- `EGIM_KALITE_ADAYLARI_KAYDET=True` ise reddedilen görüntüler denetim için `kalite_kontrol_adaylari/` altına yazılır ve `egim_kalite_kontrol_manifest.csv` oluşturulur.
 
-Adım skull stripping'in yerine geçmez. Skull stripping varsayılan olarak kapalı kalır; OASIS Kaggle 2D dilimlerinde görüntü zaten kabaca beyin-kırpılmış olduğu için yalnızca açık kenar artefaktlarını sustururuz.
-
-## Eğim Düzeltme
-
-Eğim düzeltme, kenar artefakt temizliğinden ayrı bir adımdır. Kenar artefakt temizliği yalnızca parlak sınır bantlarını bastırır; sola/sağa hafif dönmüş MRI dilimlerini hizalama amacı taşımaz. Eğim düzeltme de registration değildir: görüntüyü bir atlasa kaydetmez, yalnızca aynı dilimin güvenilir bulunan küçük açısını düzeltmeye çalışır. Data augmentation da değildir; eğitim çeşitliliği üretmek için kullanılmamalıdır.
-
-Otomatik rotasyon medikal görüntülerde riskli olabileceği için eğim düzeltme konservatif eşiklerle çalışır. Bu ayar veri setinden örnekler görsel olarak incelendikten ve hafif, sistematik eğim gerçekten sorun olarak doğrulandıktan sonra kullanılmalıdır.
-
-Yöntem PCA açısını tek başına kullanmaz. Görüntü güvenli `uint8` aralığına alınır, Otsu eşikleme ile kaba beyin maskesi üretilir, maske morfolojik open/close işlemleriyle temizlenir ve en büyük geçerli bağlantılı bileşen seçilir. Bu bileşenin piksel koordinatlarından PCA ana eksen açısı hesaplanır; aynı bileşenin ana konturu için `cv2.minAreaRect` açısı da çıkarılır. Dönüş açısı olarak hassas PCA tahmini kullanılır, fakat yalnızca PCA ve contour/minAreaRect açıları uyumluysa sonuç güvenilir kabul edilir.
-
-Güvenilirlik konservatiftir: küçük gürültü bileşenleri yok sayılır, ana foreground çok küçükse tahmin reddedilir, minor/major eksen oranı yüksek olan yakın dairesel veya simetrik maskeler güvenilmez sayılır, PCA ile minAreaRect açısı `EGIM_RMSE_MAKS` dereceden fazla ayrışırsa otomatik düzeltme yapılmaz. Bu nedenle zaten hizalı veya anatomik ekseni belirsiz görüntülerde over-rotation riski azaltılır.
-
-Başlangıç için önerilen eşikler (özellik manuel olarak açıldığında):
-
-| Ayar | Önerilen başlangıç |
-| --- | --- |
-| `EGIM_MIN_ACI` | `1.0` |
-| `EGIM_MAKS_ACI` | `5.0` |
-
-`EGIM_MIN_ACI` altındaki açılar otomatik düzeltilmez. Güvenilir olmayan tahminler de değiştirilmeden bırakılır. `EGIM_MAKS_ACI` üstündeki güvenilir açılar otomatik döndürülmez; `egim_gorsel_kontrol_adayi` sayacına eklenir ve manuel/görsel inceleme adayı olarak ele alınmalıdır. Küçük ve güvenilir eğimler konservatif biçimde düzeltilebilir; aşırı güvenilir eğimler ayrıca kalite kontrol kuralıyla normal çıktılardan ayrılır.
-
-İlgili ayarlar:
-
-| Ayar | Varsayılan | Açıklama |
-| --- | --- | --- |
-| `EGIM_DUZELTME_AKTIF` | `False` | Eğim düzeltmeyi aç/kapat (varsayılan kapalı; opt-in). |
-| `EGIM_DUZELTME_RAPORLA` | `False` | Özellik aktifken toplu işlem özetinde eğim sayaçlarını yazdır. |
-| `EGIM_ONIZLEME_URET` | `False` | Varsayılan akışta dosya yazmaz; preview üretilirse bu bayrakla yönetilir. |
-| `EGIM_MIN_ACI` | `1.0` | Bu açı altındaki tahminleri otomatik düzeltme. |
-| `EGIM_MAKS_ACI` | `5.0` | Bu açı üstündeki güvenilir tahminleri manuel kontrol adayı say. |
-| `EGIM_RMSE_MAKS` | `2.5` | PCA ve minAreaRect açıları arasındaki maksimum fark (derece). Açı-duyarlı tolerans `max(EGIM_RMSE_MAKS, abs(pca_aci))` olarak uygulanır; küçük açılarda minAreaRect kuantizasyonu yüzünden statik eşik aşılırsa bile sonuç güvenilir sayılabilir. |
-| `EGIM_MIN_SATIR_SAYISI` | `45` | Ana maskenin gereken minimum dikey bbox yüksekliği. |
-| `EGIM_MIN_X_SPAN` | `8.0` | PCA major eksen uzanımı için minimum piksel eşiği. |
-| `EGIM_MIN_FOREGROUND_ORANI` | `0.04` | Ana foreground bileşeninin minimum görüntü alanı oranı. |
-| `EGIM_MIN_EKSEN_ORANI` | `0.88` | Minor/major eksen oranı bu değerin üstündeyse maske belirsiz sayılır (`egim_acisi_hesapla` içindir; `parlak_doku` metodu `EGIM_PARLAK_DOKU_MAKS_EKSEN_ORANI = 0.95` kullanır). |
-| `EGIM_DOLDURMA_DEGERI` | `0` | Rotasyonda oluşan boş alanların doldurma değeri. |
-| `EGIM_ROTASYON_PADDING_ORANI` | `0.18` | Rotasyondan önce kırpmayı azaltmak için eklenen geçici padding oranı. |
-
-Toplu işlemde `egim_tespit`, `egim_duzeltildi`, `egim_gorsel_kontrol_adayi` ve `egim_kalite_red` sayaçları, kenar artefakt sayaçları gibi görüntü bazlı delta olarak toplanır ve multiprocessing ile uyumludur. `EGIM_DUZELTME_AKTIF = False` iken görüntüler döndürülmez, preview dosyası yazılmaz; `EGIM_KALITE_KONTROL_AKTIF = False` iken aşırı eğimli görüntüler eski davranıştaki gibi normal çıktıya yazılabilir.
-
-## Eğim Kalite Kontrolü
-
-`EGIM_KALITE_KONTROL_AKTIF = True` iken kalite açısı `abs(angle) >= EGIM_KALITE_RED_ESIGI` olan görüntüler normal `trainval` veya `test` çıktılarına yazılmaz. Varsayılan eşik `12.5` derecedir ve aynı sabit eşik hem `trainval` hem de `test` için kullanılır; test performansına göre eşik seçilmez veya ayarlanmaz.
-
-Ana dış kontur belirsizse parlak iç doku ölçümü (`EGIM_PARLAK_DOKU_KALITE_KONTROL_AKTIF`) kalite kararı için fallback olarak kullanılır. `EGIM_KALITE_GUVENILIRLIK_ZORUNLU = False` olduğunda güvenilirlik filtresine takılan ama eşik üstü kalan şüpheli dilimler de normal çıktılardan ayrılır.
-
-Bu görüntüler ham veri klasöründen silinmez ve kaynak dosyalar değiştirilmez. Bunun yerine `EGIM_KALITE_ADAYLARI_KAYDET = True` ise ön işleme çıktı kökü altında ayrı bir kontrol adayı olarak kaydedilir:
-
-```text
-goruntu_isleme/cikti/
-|-- kalite_kontrol_adaylari/
-|   |-- egim_kalite_kontrol_manifest.csv
-|   |-- trainval/
-|   |   `-- <SinifAdi>/
-|   `-- test/
-|       `-- <SinifAdi>/
-|-- trainval/
-`-- test/
-```
-
-Aday dosya adları normal çıktıdaki deterministik şemayı kullanır; örneğin `ornek.jpg` için `ornek_jpg.png`, `ornek.png` için `ornek_png.png` yazılır. Böylece aynı köke sahip farklı uzantılı kaynaklar birbirini ezmez.
-
-Manifest CSV her reddedilen görüntü için en az şu alanları içerir: `original_path`, `split`, `class_name`, `detected_angle`, `reason` ve `candidate_path`. `reason` değeri aşırı eğim için `excessive_tilt` olur. Ham görüntülerin fiziksel olarak silinmemesinin nedeni denetlenebilirlik ve geri dönüş imkanıdır: kalite kararı manifestte izlenir, aday kopya görsel kontrol için ayrılır, fakat orijinal veri seti kaynak doğrulama veya farklı eşiklerle yeniden işleme için aynen kalır.
-
-Aday klasör yerleşimi `split_adi`'na göre belirlenir: `tum_gorselleri_isle_ve_bol` (önerilen akış) `trainval` ve `test` için `split_adi`'yı otomatik geçirir; aday klasörü `cikti/kalite_kontrol_adaylari/<split>/<SinifAdi>/` olarak `cikti/<split>/` ile kardeş üretilir. `tum_gorselleri_isle` doğrudan no-split bir çıktı klasörüyle çağrıldığında (örneğin `cikti_klasoru="cikti"` ve `split_adi=None`) aday klasörü deterministik biçimde aynı çıktının içine `cikti/kalite_kontrol_adaylari/<SinifAdi>/` olarak yuvalanır; manifest CSV bu nested kökte yer alır. Konfigürasyon hatasına yol açan örtük bir fallback değildir, belgelenmiş ikinci bir yerleşimdir.
+Eğim kalite adayları yalnızca ilgili kontrol açıldığında ve görüntü reddedildiğinde üretilir.
 
 ## Anatomik Kalite Kontrolü
 
-`ANATOMIK_KALITE_KONTROL_AKTIF = True` iken merkezi karanlık boşluk/ventrikül oranı `ANATOMIK_MERKEZ_BOSLUK_RED_ESIGI` eşiğini aşan görüntüler de normal `trainval` veya `test` çıktılarına yazılmaz. Bu kontrol eğimden bağımsızdır; reason değeri `anatomik_merkez_bosluk` olur.
+Anatomik kalite kontrol varsayılan olarak kapalıdır:
 
-Reddedilen görüntüler, denetim için ayrı aday klasörüne ve manifest dosyasına yazılır:
+- `ANATOMIK_KALITE_KONTROL_AKTIF=False`
+- `ANATOMIK_ADAYLARI_KAYDET=False`
 
-```text
-goruntu_isleme/cikti/
-|-- anatomik_kontrol_adaylari/
-|   |-- anatomik_kontrol_manifest.csv
-|   |-- trainval/
-|   |   `-- <SinifAdi>/
-|   `-- test/
-|       `-- <SinifAdi>/
-|-- trainval/
-`-- test/
-```
-
-Manifest alanları: `original_path`, `split`, `class_name`, `reason`, `score`, `central_dark_ratio`, `central_hole_ratio` ve `candidate_path`. Bu adaylar model eğitim/test klasörlerinde tutulmaz; yalnızca görsel denetim ve eşik ayarı için saklanır.
+Açılırsa, işlenmiş çıktıdaki merkezi karanlık boşluk/ventrikül benzeri alan oranı `ANATOMIK_MERKEZ_BOSLUK_RED_ESIGI` eşiğini aşan görüntüler normal `trainval` veya `test` çıktılarına yazılmaz. `ANATOMIK_ADAYLARI_KAYDET=True` ise aday kopyalar `anatomik_kontrol_adaylari/` altında tutulur ve `anatomik_kontrol_manifest.csv` dosyasına yazılır.
 
 ## Beklenen Çıktı Yapısı
 
-`preprocess` tamamlandığında çıktı şu yapıda olur:
+Varsayılan `preprocess` çıktısı:
 
 ```text
 goruntu_isleme/cikti/
-|-- anatomik_kontrol_adaylari/
-|   |-- anatomik_kontrol_manifest.csv
-|   |-- trainval/
-|   `-- test/
-|-- kalite_kontrol_adaylari/
-|   |-- egim_kalite_kontrol_manifest.csv
-|   |-- trainval/
-|   `-- test/
 |-- trainval/
 |   |-- NonDemented/
 |   |-- VeryMildDemented/
@@ -426,13 +324,27 @@ goruntu_isleme/cikti/
     `-- ModerateDemented/
 ```
 
+Eğim veya anatomik kalite aday kaydı açılır ve reddedilen görüntü oluşursa ek dizinler üretilebilir:
+
+```text
+goruntu_isleme/cikti/
+|-- kalite_kontrol_adaylari/
+|   |-- egim_kalite_kontrol_manifest.csv
+|   |-- trainval/
+|   `-- test/
+`-- anatomik_kontrol_adaylari/
+    |-- anatomik_kontrol_manifest.csv
+    |-- trainval/
+    `-- test/
+```
+
 `tum_gorselleri_isle` doğrudan çağrılırsa split klasörleri oluşturulmaz; çıktı `cikti/<SinifAdi>/` yapısında üretilir. CLI ve önerilen Python akışı `tum_gorselleri_isle_ve_bol` kullandığı için `trainval/test` yapısını üretir.
 
 Kaydedilen dosyalar `.png` formatındadır. Kaynak dosya köküne orijinal uzantı eklenerek ad çakışması engellenir:
 
 ```text
-ornek.jpg  -> ornek_jpg.png
-ornek.png  -> ornek_png.png
+ornek.jpg -> ornek_jpg.png
+ornek.png -> ornek_png.png
 ```
 
 Augmentation aktif edilirse ek dosyalar şu biçimde yazılır:
@@ -442,7 +354,7 @@ ornek_jpg_aug1.png
 ornek_jpg_aug2.png
 ```
 
-Varsayılan ayarlarda augmentation kapalı olduğu için bu ek dosyalar üretilmez. Test split'i işlenirken augmentation çarpanı sıfırlanır.
+Varsayılan ayarlarda offline augmentation kapalıdır. Test split'i işlenirken augmentation çarpanı sıfırlanır.
 
 ## Split ve Veri Sızıntısı Politikası
 
@@ -452,13 +364,23 @@ Varsayılan ayarlarda augmentation kapalı olduğu için bu ek dosyalar üretilm
 - Girdi zaten `trainval/test` klasörlerini içeriyorsa yeniden bölme yapılmaz, mevcut split korunur.
 - `trainval` ve `test` klasörlerinin kalite kontrol sonrasında beklenen sınıfları koruduğu doğrulanır.
 
+## Offline Augmentation
+
+`artirma.py` disk üzerinde augmentation üretmek için vardır, ancak varsayılan proje politikası offline augmentation kullanmaz:
+
+- `VERI_ARTIRMA_AKTIF=False`
+- `ARTIRMA_CARPANI=0`
+- Sınıf bazlı çarpanlar `0`
+- Ayna, rotasyon, elastik deformasyon, random crop, Gaussian noise ve intensity shift alt anahtarları kapalı
+
+Bu politika, veri dengesizliğinin model eğitiminde class weights ve DL tarafındaki online augmentation ile ele alınmasını hedefler. Offline augmentation açılırsa yalnızca trainval tarafında ek `.png` dosyaları yazılır; test tarafında çarpan sıfırdır.
+
 ## Bağımlılık Notları
 
-- Görüntü yükleme, kaydetme, CLAHE, resize, temel filtreler, morfoloji, Otsu maskeleme ve bazı augmentation adımları OpenCV ile çalışır.
-- `Pillow`, `SciPy` ve `scikit-image` ön işleme için yedek yol olarak kullanılmaz; DL/SL model katmanlarındaki görüntü okuma ve klasik özellik çıkarımı ihtiyaçları için bağımlılıklarda kalır.
-- `trainval/test` bölmesi `veri.py` içinde sınıf başına kota koruyan özel bir leak-free algoritmayla yapılır; `scikit-learn` proje bağımlılığı model/EDA tarafındaki iş akışları için kalır.
-- `SimpleITK`, sadece bias correction veya gelişmiş registration ayarları aktif edildiğinde anlamlıdır.
-- Toplu işlem `multiprocessing.Pool` ile paralel çalışabilir; affine/rigid registration aktifse template tutarlılığı için sequential moda döner.
+- Görüntü yükleme, kaydetme, CLAHE, resize, temel filtreler, morfoloji, Otsu maskeleme, bağlantılı bileşenler ve augmentation adımları OpenCV ile çalışır.
+- `SimpleITK`, sadece `BIAS_FIELD_METHOD="n4itk"` veya `REGISTRATION_METHOD` olarak `affine`/`rigid` seçildiğinde anlamlıdır.
+- `scikit-image` bu modülde fallback olarak kullanılmaz; bağımlılıklarda model/EDA tarafındaki ihtiyaçlar için kalır.
+- Toplu işlem `multiprocessing.Pool` ile paralel çalışabilir. Affine/rigid registration aktifse template tutarlılığı için sequential moda döner.
 
 ## Model Modülüne Devam
 

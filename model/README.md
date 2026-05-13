@@ -74,11 +74,12 @@ model/
     |-- raporlar/
     |-- gorseller/
     |-- sl_ozellikler/
+    |-- _normalize_istatistikleri/
     |-- hiperparametre_arama/
     `-- folds/
 ```
 
-`model/ciktilar/` eğitim, değerlendirme, CV, HPO ve özellik cache çıktıları için kullanılır; kaynak kodun parçası değildir.
+`model/ciktilar/` eğitim, değerlendirme, CV, HPO, özellik cache ve normalize istatistiği cache çıktıları için kullanılır; kaynak kodun parçası değildir.
 
 ## Dosyaların Görevleri
 
@@ -90,7 +91,7 @@ model/
 | `hpo.py` | Optuna TPE ile ResNet ve XGBoost hiperparametre araması yapar. |
 | `inference.py` | `.pt` ve `.json` modelleriyle tek görüntü veya klasör üzerinde tahmin alır. |
 | `common/evaluation.py` | Ortak sınıflandırma metrikleri ve detaylı değerlendirme raporlarını üretir. |
-| `dl/dataset.py` | PyTorch dataset/dataloader, transform, split, grup kontrolü ve K-fold veri hazırlığını içerir. |
+| `dl/dataset.py` | PyTorch dataset/dataloader, aspect-ratio koruyan transform, split, grup kontrolü, normalize istatistiği cache'i ve K-fold veri hazırlığını içerir. |
 | `dl/engine.py` | PyTorch epoch eğitim ve değerlendirme fonksiyonlarını içerir. |
 | `dl/losses.py` | Focal loss ve class weight yardımcılarını içerir. |
 | `dl/utils.py` | Seed, cihaz seçimi, checkpoint yükleme ve görselleştirme yardımcılarını içerir. |
@@ -98,7 +99,7 @@ model/
 | `sl/dataset.py` | XGBoost için klasör ağacından özellik matrisi ve `.npz` cache üretir. |
 | `sl/features.py` | HOG, LBP, GLCM, histogram ve istatistiksel görüntü özelliklerini çıkarır. |
 | `sl/training_runner.py` | XGBoost eğitim, validation/test, artifact ve CV akışını yönetir. |
-| `sl/xgb_classifier.py` | `XGBClassifier` oluşturma, kaydetme ve metadata ile yükleme yardımcılarını içerir. |
+| `sl/xgb_classifier.py` | `XGBClassifier` oluşturma, XGBoost cihaz seçimi, kaydetme ve metadata ile yükleme yardımcılarını içerir. |
 
 ## Kurulum
 
@@ -178,6 +179,7 @@ Varsayılan yollar `model/ayarlar.py` içinde tanımlıdır:
 | JSON raporlar | `model/ciktilar/raporlar` |
 | Grafikler | `model/ciktilar/gorseller` |
 | XGBoost özellik cache'i | `model/ciktilar/sl_ozellikler` |
+| ResNet normalize istatistiği cache'i | `model/ciktilar/_normalize_istatistikleri` |
 | HPO çıktıları | `model/ciktilar/hiperparametre_arama` |
 
 `--trainval-dir` ve `--test-dir` verilirse bu varsayılanlar geçersiz kılınır. Bir split kökü verilirse kod ilgili `trainval/` veya `test/` alt dizinini otomatik çözmeye çalışır.
@@ -205,7 +207,7 @@ mri-infer --model-path model/ciktilar/modeller/best_xgboost.json --image ornek.j
 
 ## ResNet Eğitimi
 
-ResNet hattı `torchvision.models.resnet18` omurgasını kullanır. Varsayılan olarak ImageNet ağırlıkları kullanılmaz; `--pretrained` verilirse pretrained ağırlıklar yüklenir. Model checkpoint dosyası `.pt` formatında kaydedilir.
+ResNet hattı `torchvision.models.resnet18` omurgasını kullanır. Varsayılan olarak ImageNet ağırlıkları kullanılmaz; `--pretrained` verilirse pretrained ağırlıklar yüklenir. Pretrained olmayan eğitimlerde normalize mean/std değerleri train split'inden hesaplanır ve checkpoint metadata'sına yazılır; pretrained eğitimlerde ImageNet normalize istatistikleri kullanılır. Model checkpoint dosyası `.pt` formatında kaydedilir.
 
 Temel eğitim:
 
@@ -241,7 +243,7 @@ mri-train --model resnet --folds 5 --trainval-dir goruntu_isleme/cikti/trainval 
 
 ## XGBoost Eğitimi
 
-XGBoost hattı görüntüleri gri tona çevirip `image_size x image_size` boyutuna getirir ve özellik matrisi üretir. Model `.json`, metadata ise `.meta.json` olarak kaydedilir.
+XGBoost hattı görüntüleri gri tona çevirip `image_size x image_size` boyutuna getirir ve HOG, LBP, GLCM, histogram/istatistik bloklarından özellik matrisi üretir. Validation varsa erken durdurma kullanılır; seçim metriği eğitim kodunda varsayılan olarak macro F1'dir. Model `.json`, metadata ise `.meta.json` olarak kaydedilir.
 
 Temel eğitim:
 
@@ -259,6 +261,7 @@ mri-train --model xgboost --trainval-dir goruntu_isleme/cikti/trainval --test-di
 
 ```bash
 mri-train --model xgboost --xgb-n-estimators 500 --xgb-max-depth 8 --xgb-learning-rate 0.05 --xgb-subsample 0.7 --xgb-colsample-bytree 0.8
+mri-train --model xgboost --xgb-class-balance balanced --xgb-n-jobs 8
 ```
 
 ### XGBoost GPU Desteği
@@ -268,7 +271,7 @@ mri-train --model xgboost --xgb-n-estimators 500 --xgb-max-depth 8 --xgb-learnin
 | Değer | Davranış |
 | --- | --- |
 | `auto` | Hem XGBoost CUDA build'i hem de PyTorch CUDA mevcutsa GPU kullanır; aksi hâlde CPU'ya düşer. Varsayılan. |
-| `cuda` | GPU'yu zorla açar. CUDA'lı XGBoost build'i yoksa uyarı verilir ve CPU'ya düşülür. |
+| `cuda` | GPU'yu zorla ister. CUDA'lı XGBoost build'i yoksa erken uyarı verilir; fit/predict aşamasında XGBoost hata verebilir. |
 | `cpu` | Her zaman CPU kullanır. |
 
 ```bash
@@ -276,7 +279,7 @@ mri-train --model xgboost --xgb-device cuda --trainval-dir goruntu_isleme/cikti/
 mri-tune --model xgboost --xgb-device auto --trials 30 --metric f1
 ```
 
-Her HPO trial'ı bittikten sonra `gc.collect()` ve `torch.cuda.empty_cache()` çağrısıyla Python referansları ve CUDA önbelleği temizlenir. Bu sayede uzun HPO çalışmalarında VRAM/RAM baskısı birikimi engellenir.
+Her HPO trial'ı bittikten sonra `gc.collect()`, `torch.cuda.empty_cache()` ve uygun ortamlarda `torch.cuda.ipc_collect()` çağrısıyla Python referansları ve CUDA önbelleği temizlenir. Bu sayede uzun HPO çalışmalarında VRAM/RAM baskısı birikimi engellenir.
 
 ### Augmented Veri Seti ile Eğitim
 
@@ -302,6 +305,8 @@ mri-train --model xgboost --folds 5 --trainval-dir goruntu_isleme/cikti/trainval
 
 `--feature-cache` kullanıldığında cache dosyaları veri dizini ve `image_size` metadata'sı ile doğrulanır. Aynı cache farklı veri dizini veya farklı görüntü boyutu için kullanılırsa hata verilir.
 
+Sınıf dengesizliği için `--xgb-class-balance balanced` kullanılabilir. Bu modda `sklearn.compute_sample_weight("balanced", ...)` ile train ve validation örnek ağırlıkları hesaplanır; ağırlıklar hem XGBoost loss'una hem de erken durdurma değerlendirmesine aktarılır.
+
 ## Hiperparametre Araması
 
 `mri-tune`, Optuna `TPESampler` ile Bayes tabanlı arama çalıştırır. Desteklenen seçim metrikleri:
@@ -325,6 +330,7 @@ XGBoost HPO:
 
 ```bash
 mri-tune --model xgboost --trials 30 --metric f1 --trainval-dir goruntu_isleme/cikti/trainval --test-dir goruntu_isleme/cikti/test --feature-cache model/ciktilar/sl_ozellikler
+mri-tune --model xgboost --trials 40 --metric f1 --xgb-class-balance balanced --n-jobs 2 --no-hpo-plots
 ```
 
 Trial değerlendirmesini K-fold ile yapmak için:
@@ -335,6 +341,8 @@ mri-tune --model resnet --trials 20 --hpo-folds 5 --metric f1 --trainval-dir gor
 
 Varsayılan davranışta HPO bittikten sonra en iyi trial parametreleriyle `trainval` tamamı üzerinde final eğitim çalıştırılır. Yalnızca arama sonuçlarını üretmek için `--skip-final-train` kullanılabilir.
 
+ResNet HPO'da TPE sampler ve tek hold-out modunda MedianPruner kullanılır. `--hpo-folds > 1` veya `--model xgboost` modunda epoch bazlı pruning devre dışıdır; trial sonucu fold ortalaması veya XGBoost validation metriğiyle değerlendirilir. SQLite gibi kalıcı Optuna storage kullanıldığında aynı `study-name` tekrar çalıştırılırsa mevcut trial sayısı okunur ve yalnızca eksik trial'lar tamamlanır.
+
 HPO çıktıları:
 
 ```text
@@ -342,9 +350,19 @@ model/ciktilar/hiperparametre_arama/<study_name>/
 |-- trial_history.csv
 |-- study_summary.json
 |-- trials/
+|   `-- trial_000/trial_summary.json
 |-- gorseller/
+|   |-- hpo_optimization_history.png
+|   |-- hpo_param_importances.png
+|   |-- hpo_parallel_coordinate.png
+|   `-- hpo_slice.png
 `-- best_run/
+    |-- modeller/
+    |-- raporlar/
+    `-- gorseller/
 ```
+
+`--no-hpo-plots` verilirse `gorseller/` altındaki Optuna grafiklerinin üretimi atlanır. Final eğitim atlanmadıysa `best_run/` altında `best_resnet_tuned.pt` veya `best_xgboost_tuned.json` ve ilgili rapor/grafikler üretilir.
 
 ## Tahmin Alma
 
@@ -360,7 +378,7 @@ mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --image ornek.jpg
 mri-infer --model-path model/ciktilar/modeller/best_xgboost.json --image ornek.jpg
 ```
 
-Klasör üzerinde batch tahmin:
+Klasör üzerinde batch tahmin. Batch modu klasörün doğrudan içindeki `.jpg`, `.jpeg` ve `.png` dosyalarını işler; alt klasörleri özyinelemeli taramaz.
 
 ```bash
 mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --batch ornek_klasor
@@ -371,9 +389,10 @@ Ham görüntüyle tahmin alırken eğitim dağılımına daha yakın kalmak içi
 
 ```bash
 mri-infer --model-path model/ciktilar/modeller/best_resnet.pt --image Veri_Seti/OriginalDataset/NonDemented/ornek.jpg --preprocess
+mri-infer --model-path model/ciktilar/modeller/best_xgboost.json --image Veri_Seti/OriginalDataset/NonDemented/ornek.jpg --preprocess
 ```
 
-Batch ve tek görüntü inference çıktıları terminale yazılır; komutlar varsayılan olarak dosya üretmez.
+Batch ve tek görüntü inference çıktıları terminale yazılır; komutlar varsayılan olarak dosya üretmez. `.pt` checkpoint'lerde normalize mean/std ve sınıf adları checkpoint metadata'sından okunur; `.json` XGBoost modellerinde varsa yan dosya `.meta.json` kullanılır.
 
 ## Önemli CLI Parametreleri
 
@@ -422,8 +441,12 @@ Batch ve tek görüntü inference çıktıları terminale yazılır; komutlar va
 | `--xgb-subsample` | Satır örnekleme oranı. |
 | `--xgb-colsample-bytree` | Sütun örnekleme oranı. |
 | `--xgb-reg-lambda` | L2 regularizasyon değeri. |
+| `--xgb-reg-alpha` | L1 regularizasyon değeri. |
+| `--xgb-gamma` | Ağaç bölünmesi için minimum loss azalması. |
 | `--xgb-min-child-weight` | Minimum child weight. |
 | `--xgb-device` | XGBoost cihaz modu: `auto`, `cpu`, `cuda`. Varsayılan `auto`. |
+| `--xgb-n-jobs` | XGBoost worker thread sayısı. Verilmezse `os.cpu_count()` kullanılır. |
+| `--xgb-class-balance` | `none` veya `balanced`; dengesiz sınıflar için örnek ağırlığı uygular. |
 | `--feature-cache` | Özellik matrislerini `.npz` olarak saklayacak dizin. |
 
 ### HPO Parametreleri
@@ -436,14 +459,36 @@ Batch ve tek görüntü inference çıktıları terminale yazılır; komutlar va
 | `--study-name` | Optuna study adı. |
 | `--storage` | Opsiyonel Optuna storage URL değeri. |
 | `--output-dir` | Arama çıktılarının yazılacağı klasör. |
+| `--epochs` | ResNet trial'larında epoch sayısı. |
+| `--patience` | ResNet trial'larında early stopping sabrı. |
+| `--val-ratio` / `--test-ratio` | Hold-out validation/test oranları. |
+| `--n-startup-trials` | TPE sampler için başlangıç random trial sayısı. |
+| `--pruner-startup-trials` | MedianPruner başlamadan önce tamamlanacak trial sayısı. |
+| `--pruner-warmup-epochs` | Pruning öncesi minimum epoch sayısı. |
+| `--n-jobs` | Optuna `study.optimize` paralel trial sayısı. Tek GPU ResNet koşumlarında `1` bırakılması önerilir. |
 | `--batch-size-choices` | ResNet için denenecek batch size adayları. |
 | `--image-size-choices` | Denenecek görüntü boyutu adayları. |
+| `--lr-min` / `--lr-max` | ResNet öğrenme hızı aralığı. |
+| `--weight-decay-min` / `--weight-decay-max` | ResNet weight decay aralığı. |
+| `--scheduler-factor-min` / `--scheduler-factor-max` | ResNet scheduler factor aralığı. |
+| `--scheduler-patience-min` / `--scheduler-patience-max` | ResNet scheduler sabır aralığı. |
 | `--loss-choices` | ResNet HPO için denenecek loss adayları. |
+| `--focal-gamma-min` / `--focal-gamma-max` | Focal loss gamma aralığı. |
+| `--dropout-min` / `--dropout-max` | ResNet classifier dropout aralığı. |
+| `--label-smoothing-min` / `--label-smoothing-max` | CE loss için label smoothing aralığı. |
+| `--hflip-p-choices` | Denenecek horizontal flip olasılıkları. Varsayılan yalnızca `0.0`. |
+| `--rotation-degrees-min` / `--rotation-degrees-max` | RandomRotation aralığı. |
+| `--color-jitter-min` / `--color-jitter-max` | Brightness/contrast jitter aralığı. |
 | `--search-pretrained` | ResNet için `pretrained` seçeneğini arama uzayına ekler. |
 | `--hpo-folds` | Her trial'i K-fold CV ile değerlendirir. |
 | `--feature-cache` | XGBoost HPO için özellik cache dizini. |
+| `--no-feature-cache` | XGBoost HPO'da disk özellik cache'ini kapatır. |
+| `--xgb-device` | XGBoost HPO cihaz modu: `auto`, `cpu`, `cuda`. |
+| `--xgb-n-jobs` | XGBoost trial'larında worker thread sayısı. |
+| `--xgb-class-balance` | XGBoost trial ve final eğitiminde `none` veya `balanced`. |
 | `--skip-final-train` | Arama sonunda final eğitim yapmaz. |
 | `--verbose-trials` | Trial içi eğitim loglarını gösterir. |
+| `--no-hpo-plots` | Optuna analiz grafiklerini ve final dashboard üretimini atlar. |
 
 ## Üretilen Çıktılar
 
@@ -492,6 +537,12 @@ model/ciktilar/raporlar/cv_summary_<model>_<timestamp>.json
 ```text
 model/ciktilar/sl_ozellikler/trainval_img224.npz
 model/ciktilar/sl_ozellikler/test_img224.npz
+```
+
+Pretrained olmayan ResNet eğitimlerinde train split'ten hesaplanan normalize istatistikleri şu klasörde cache'lenir:
+
+```text
+model/ciktilar/_normalize_istatistikleri/<hash>.json
 ```
 
 ## Veri Sızıntısı ve Split Politikası
