@@ -336,7 +336,7 @@ def _search_space_summary_xgb(args: argparse.Namespace) -> dict[str, Any]:
         "reg_alpha_range": [1e-4, 10.0],
         "gamma_range": [1e-4, 5.0],
         "min_child_weight_range": [1, 20],
-        "max_delta_step_range": [0, 10],
+        "max_delta_step_range": [0, 20],
     }
 
 
@@ -775,7 +775,7 @@ def _sample_xgb_params(trial, args: argparse.Namespace) -> dict[str, Any]:
         "reg_alpha": trial.suggest_float("reg_alpha", 1e-4, 10.0, log=True),
         "gamma": trial.suggest_float("gamma", 1e-4, 5.0, log=True),
         "min_child_weight": trial.suggest_int("min_child_weight", 1, 20),
-        "max_delta_step": trial.suggest_int("max_delta_step", 0, 10),
+        "max_delta_step": trial.suggest_int("max_delta_step", 0, 20),
         "image_size": trial.suggest_categorical(
             "image_size",
             sorted(set(args.image_size_choices)),
