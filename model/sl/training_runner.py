@@ -82,30 +82,33 @@ def _xgb_predicted_labels(y_pred: np.ndarray) -> tuple[np.ndarray, list[int]]:
     return arr.argmax(axis=1), list(range(arr.shape[1]))
 
 
-def _xgb_macro_f1_loss(y_true, y_pred):
+def _xgb_macro_f1_loss(y_true, y_pred, sample_weight=None):
     preds, labels = _xgb_predicted_labels(y_pred)
     return 1.0 - f1_score(
         y_true, preds, labels=labels, average="macro", zero_division=0,
+        sample_weight=sample_weight,
     )
 
 
-def _xgb_macro_precision_loss(y_true, y_pred):
+def _xgb_macro_precision_loss(y_true, y_pred, sample_weight=None):
     preds, labels = _xgb_predicted_labels(y_pred)
     return 1.0 - precision_score(
         y_true, preds, labels=labels, average="macro", zero_division=0,
+        sample_weight=sample_weight,
     )
 
 
-def _xgb_macro_recall_loss(y_true, y_pred):
+def _xgb_macro_recall_loss(y_true, y_pred, sample_weight=None):
     preds, labels = _xgb_predicted_labels(y_pred)
     return 1.0 - recall_score(
         y_true, preds, labels=labels, average="macro", zero_division=0,
+        sample_weight=sample_weight,
     )
 
 
-def _xgb_accuracy_loss(y_true, y_pred):
+def _xgb_accuracy_loss(y_true, y_pred, sample_weight=None):
     preds, _labels = _xgb_predicted_labels(y_pred)
-    return 1.0 - accuracy_score(y_true, preds)
+    return 1.0 - accuracy_score(y_true, preds, sample_weight=sample_weight)
 
 
 _SELECTION_METRIC_CALLABLES: dict[str, Any] = {
@@ -146,6 +149,11 @@ class SLTrainingConfig:
     reg_alpha: float = 0.0
     gamma: float = 0.0
     min_child_weight: int = 1
+    # XGBoost max_delta_step: ozellikle dengesiz cok-sinifli problemde her ag
+    # gunceleme adimini sinirlar (XGBoost dokumani 1-10 araligini onerir). 0
+    # (varsayilan) kisitlamayi devre disi birakir; >0 azinlik sinifindaki
+    # gradyan patlamalarina karsi log-loss'u stabilize eder.
+    max_delta_step: int = 0
     image_size: int = 224
     trainval_dir: Path | str | None = None
     test_dir: Path | str | None = None
@@ -233,6 +241,8 @@ def validate_sl_config(
         raise ValueError("--xgb-gamma negatif olamaz.")
     if config.min_child_weight < 0:
         raise ValueError("--xgb-min-child-weight negatif olamaz.")
+    if config.max_delta_step < 0:
+        raise ValueError("--xgb-max-delta-step negatif olamaz.")
     if config.image_size < 32:
         raise ValueError("--image-size en az 32 olmali.")
     if config.device not in {"auto", "cpu", "cuda"}:
@@ -786,6 +796,7 @@ def run_sl_training(
         "reg_alpha": config.reg_alpha,
         "gamma": config.gamma,
         "min_child_weight": config.min_child_weight,
+        "max_delta_step": config.max_delta_step,
         "random_state": config.seed,
     }
     eval_metric, xgb_early_stopping_metric = _xgb_eval_metric_for_selection(selection_metric)

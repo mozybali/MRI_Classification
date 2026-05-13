@@ -97,7 +97,7 @@ logs/
 goruntu_isleme/cikti/
 eda_analiz/eda_ciktilar/
 
-model/ciktilar/**
+model/ciktilar/
 !model/ciktilar/**/
 !model/ciktilar/**/*.png
 _review_tmp/
