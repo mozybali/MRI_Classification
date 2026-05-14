@@ -267,7 +267,8 @@
   const tabSingle = document.getElementById('tab-single');
   const tabBatch = document.getElementById('tab-batch');
 
-  let selectedFile = null;
+  let selectedFile = null;   // tekli mod için
+  let selectedZips = [];     // çoklu ZIP mod için
   let currentMode = 'single'; // 'single' or 'batch'
 
   // Tab Switch
@@ -277,6 +278,7 @@
     tabBatch.className = 'btn btn-secondary';
     uploadPrompt.innerHTML = '<div class="upload-icon">+</div><p>MRI Görüntüsünü Sürükle veya Seç</p>';
     fileInput.accept = 'image/*';
+    fileInput.removeAttribute('multiple');
     resetUI();
   });
 
@@ -286,11 +288,13 @@
     tabSingle.className = 'btn btn-secondary';
     uploadPrompt.innerHTML = '<div class="upload-icon">📦</div><p>ZIP Dosyasını Sürükle veya Seç</p>';
     fileInput.accept = '.zip';
+    fileInput.setAttribute('multiple', 'true');
     resetUI();
   });
 
   function resetUI() {
     selectedFile = null;
+    selectedZips = [];
     previewContainer.style.display = 'none';
     uploadPrompt.style.display = 'block';
     predictBtn.disabled = true;
@@ -313,10 +317,9 @@
   });
 
   function handleFiles(files) {
-    const file = files[0];
-    selectedFile = file;
-
     if (currentMode === 'single') {
+      const file = files[0];
+      selectedFile = file;
       if (!file.type.startsWith('image/')) {
         showToast("Lütfen bir resim seçin.", "error"); return;
       }
@@ -331,10 +334,18 @@
       };
       reader.readAsDataURL(file);
     } else {
-      if (!file.name.endsWith('.zip')) {
-        showToast("Lütfen bir ZIP dosyası seçin.", "error"); return;
+      // Batch mod: birden fazla ZIP desteklenir
+      const zips = Array.from(files).filter(f => f.name.endsWith('.zip'));
+      if (zips.length === 0) {
+        showToast("Lütfen en az bir ZIP dosyası seçin.", "error"); return;
       }
-      uploadPrompt.innerHTML = `<div class="upload-icon">✅</div><p>${file.name}</p>`;
+      const skipped = files.length - zips.length;
+      selectedZips = zips;
+      const label = zips.length === 1
+        ? zips[0].name
+        : `${zips.length} ZIP seçildi`;
+      uploadPrompt.innerHTML = `<div class="upload-icon">✅</div><p>${label}</p>`;
+      if (skipped > 0) showToast(`${skipped} ZIP olmayan dosya yoksayıldı.`, "warning");
       predictBtn.disabled = false;
     }
   }
@@ -366,7 +377,8 @@
   }
 
   predictBtn.addEventListener('click', async () => {
-    if (!selectedFile) return;
+    if (currentMode === 'single' && !selectedFile) return;
+    if (currentMode === 'batch' && selectedZips.length === 0) return;
     
     predictBtn.disabled = true;
     predictBtn.innerHTML = '<div class="spinner"></div> İşleniyor...';
@@ -384,11 +396,11 @@
         else showToast(data.error, "error");
       } catch (err) { showToast("Sunucu hatası", "error"); }
     } else {
-      formData.append('zip_file', selectedFile);
+      selectedZips.forEach(z => formData.append('zip_file', z));
       try {
         const res = await fetch('{% url "infer:batch_predict" %}', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' }, body: formData });
         const data = await res.json();
-        if (data.success) showBatchResult(data.results);
+        if (data.success) showBatchResult(data.results, data.errors || []);
         else showToast(data.error, "error");
       } catch (err) { showToast("Batch işlemi başarısız", "error"); }
     }
@@ -397,11 +409,11 @@
     predictBtn.innerHTML = 'Analizi Başlat';
   });
 
-  function showBatchResult(results) {
+  function showBatchResult(results, errors) {
     batchResults.style.display = 'block';
     const tbody = document.getElementById('batch-table-body');
     tbody.innerHTML = '';
-    
+
     results.forEach(res => {
       const tr = document.createElement('tr');
       tr.style.borderBottom = '1px solid var(--border)';
@@ -412,6 +424,22 @@
       `;
       tbody.appendChild(tr);
     });
+
+    // Hatalı dosyaları kırmızı satır olarak göster
+    errors.forEach(err => {
+      const tr = document.createElement('tr');
+      tr.style.borderBottom = '1px solid var(--border)';
+      tr.style.opacity = '0.6';
+      tr.innerHTML = `
+        <td style="padding: 12px; font-size: 0.875rem; color: var(--danger, #ff6b6b);">${err.filename}</td>
+        <td colspan="2" style="font-size: 0.75rem; color: var(--danger, #ff6b6b);">Hata: ${err.error}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    if (errors.length > 0) {
+      showToast(`${errors.length} dosya işlenemedi. Tablo altında gösteriliyor.`, "warning");
+    }
 
     document.getElementById('csv-data-input').value = JSON.stringify(results);
     batchResults.scrollIntoView({ behavior: 'smooth' });
