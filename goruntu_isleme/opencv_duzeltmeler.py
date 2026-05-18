@@ -18,8 +18,6 @@ __all__ = [
     "kenar_serit_maskesi",
     "parlak_maske",
     "baglantili_bilesenler",
-    "pca_compute_2d",
-    "affine_dondur_padding",
 ]
 
 
@@ -86,50 +84,3 @@ def baglantili_bilesenler(mask_u8: np.ndarray, connectivity: int = 8):
     return cv2.connectedComponentsWithStats(mask_u8, connectivity=connectivity)
 
 
-def pca_compute_2d(coords_xy: np.ndarray):
-    """2B koordinatlar uzerinde OpenCV PCA uygula.
-
-    Args:
-        coords_xy: (N, 2) seklinde (x, y) sirali koordinatlar.
-
-    Returns:
-        (mean, eigenvectors, eigenvalues) - eigenvalues azalan sirada,
-        eigenvectors'in satirlari ana eksenleri verir.
-    """
-    data = np.ascontiguousarray(coords_xy, dtype=np.float64)
-    mean, eigenvectors, eigenvalues = cv2.PCACompute2(data, mean=None)
-    return mean.ravel(), eigenvectors, eigenvalues.ravel()
-
-
-def affine_dondur_padding(
-    arr_u8: np.ndarray, aci_deg: float, pad: int, dolgu: int
-) -> np.ndarray:
-    """Padding'li affine rotasyon uygula ve orijinal boyuta merkezden kirp."""
-    if arr_u8.dtype != np.uint8:
-        arr_u8 = uint8_goruntu(arr_u8)
-    h, w = arr_u8.shape[:2]
-    pad = max(0, int(pad))
-    dolgu_int = int(np.clip(dolgu, 0, 255))
-    padded = cv2.copyMakeBorder(
-        arr_u8,
-        pad,
-        pad,
-        pad,
-        pad,
-        borderType=cv2.BORDER_CONSTANT,
-        value=dolgu_int,
-    )
-    ph, pw = padded.shape[:2]
-    merkez = ((pw - 1) / 2.0, (ph - 1) / 2.0)
-    matrix = cv2.getRotationMatrix2D(merkez, float(aci_deg), 1.0)
-    rotated = cv2.warpAffine(
-        padded,
-        matrix,
-        (pw, ph),
-        flags=cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_CONSTANT,
-        borderValue=dolgu_int,
-    )
-    y0 = (ph - h) // 2
-    x0 = (pw - w) // 2
-    return rotated[y0:y0 + h, x0:x0 + w]

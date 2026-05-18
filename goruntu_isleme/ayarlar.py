@@ -1,4 +1,4 @@
-﻿"""
+"""
 ayarlar.py
 ----------
 MRI görüntü işleme için merkezi konfigürasyon dosyası.
@@ -20,39 +20,13 @@ __all__ = [
     "HISTOGRAM_ESITLEME_AKTIF", "CLAHE_CLIP_LIMIT",
     "FILTRE_METODU", "GAUSSIAN_BLUR_SIGMA",
     "MASKE_KENAR_PAYI",
-    "SKULL_STRIPPING_AKTIF", "SKULL_STRIPPING_METHOD",
-    "BIAS_FIELD_CORRECTION_AKTIF", "BIAS_FIELD_METHOD",
-    "REGISTRATION_AKTIF", "REGISTRATION_METHOD",
+    "REGISTRATION_AKTIF",
     "MORFOLOJIK_OPERASYONLAR_AKTIF", "MORFOLOJIK_KERNEL_BOYUTU",
-    # Veri artırma
-    "VERI_ARTIRMA_AKTIF", "ARTIRMA_CARPANI",
-    "SINIF_BAZLI_ARTIRMA_AKTIF", "SINIF_BAZLI_CARPANLAR",
-    "YATAY_AYNA_AKTIF", "YATAY_AYNA_OLASILIK",
-    "ROTASYON_AKTIF", "ROTASYON_MAKS_ACI",
-    "PARLAKLIK_ARALIK", "KONTRAST_ARALIK",
-    "ELASTIC_DEFORMATION_AKTIF", "ELASTIC_ALPHA", "ELASTIC_SIGMA",
-    "RANDOM_CROP_AKTIF", "RANDOM_CROP_RATIO",
-    "GAUSSIAN_NOISE_AKTIF", "GAUSSIAN_NOISE_MEAN", "GAUSSIAN_NOISE_SIGMA",
-    "INTENSITY_SHIFT_AKTIF", "INTENSITY_SHIFT_LIMIT",
     # Veri bölümleme
     "TEST_ORANI", "RASTGELE_TOHUM",
     # Kalite kontrol
     "KALITE_KONTROL_AKTIF", "MIN_MEAN_INTENSITY", "MAX_MEAN_INTENSITY",
     "MIN_STD_INTENSITY", "MAX_BLACK_RATIO", "SIYAH_PIKSEL_ESIGI",
-    "EGIM_KALITE_KONTROL_AKTIF", "EGIM_KALITE_RED_ESIGI",
-    "EGIM_KALITE_GUVENILIRLIK_ZORUNLU",
-    "EGIM_KALITE_GUVENILMEZ_UYUMLU_RMSE_ESIGI",
-    "EGIM_KALITE_GUVENILMEZ_BUYUK_ACI_RED_ESIGI",
-    "EGIM_KALITE_ADAYLARI_KAYDET",
-    "EGIM_KALITE_ADAYLARI_KLASOR_ADI", "EGIM_KALITE_MANIFEST_DOSYA_ADI",
-    "EGIM_PARLAK_DOKU_KALITE_KONTROL_AKTIF",
-    "EGIM_PARLAK_DOKU_PERCENTILE", "EGIM_PARLAK_DOKU_FOREGROUND_ESIGI",
-    "EGIM_PARLAK_DOKU_MIN_PIXEL_ORANI", "EGIM_PARLAK_DOKU_MAKS_EKSEN_ORANI",
-    "ANATOMIK_KALITE_KONTROL_AKTIF", "ANATOMIK_ADAYLARI_KAYDET",
-    "ANATOMIK_ADAYLARI_KLASOR_ADI", "ANATOMIK_MANIFEST_DOSYA_ADI",
-    "ANATOMIK_MERKEZ_BOSLUK_RED_ESIGI", "ANATOMIK_MERKEZ_ROI_ORANI",
-    "ANATOMIK_KARANLIK_ESIGI", "ANATOMIK_FOREGROUND_ESIGI",
-    "ANATOMIK_MIN_FOREGROUND_ORANI",
     # Kenar artefakt kontrol
     "KENAR_ARTEFAKT_KONTROL_AKTIF", "KENAR_ARTEFAKT_TEMIZLEME_AKTIF",
     "KENAR_SERIT_ORANI", "KENAR_PARLAKLIK_ESIGI", "KENAR_COK_PARLAKLIK_ESIGI",
@@ -64,20 +38,8 @@ __all__ = [
     "KENAR_ANATOMI_KORUMA_ORANI",
     # Padding davranisi
     "PADDING_OTOMATIK_ARKAPLAN",
-    # Egim duzeltme guvenilirlik
-    "EGIM_MIN_EKSEN_ORANI",
     # Goruntu minimum boyut
     "GORUNTU_MIN_BOYUT",
-    # Parlak doku minimum piksel tabanı
-    "PARLAK_DOKU_MIN_PIKSEL_TABAN",
-    # Egim tahmini bileşen minimum alan oranı
-    "EGIM_MIN_BILESEN_ALANI_ORANI",
-    # Eğim düzeltme
-    "EGIM_DUZELTME_AKTIF", "EGIM_DUZELTME_RAPORLA",
-    "EGIM_ONIZLEME_URET", "EGIM_MIN_ACI", "EGIM_MAKS_ACI",
-    "EGIM_RMSE_MAKS", "EGIM_MIN_SATIR_SAYISI", "EGIM_MIN_X_SPAN",
-    "EGIM_MIN_FOREGROUND_ORANI", "EGIM_DOLDURMA_DEGERI",
-    "EGIM_ROTASYON_PADDING_ORANI",
 ]
 
 # ==================== GENEL AYARLAR ====================
@@ -134,21 +96,13 @@ GORUNTU_UZANTILARI = [".jpg", ".jpeg", ".png"]
 BOYUTLANDIRMA_MODU = "pad"  # "pad" veya "stretch"
 
 # "pad" modunda eklenen kenar piksellerinin doldurulacagi yogunluk degeri.
-# MRI 2D dilimlerinde arka plan tipik olarak siyah oldugu icin 0 onerilir.
-# PADDING_OTOMATIK_ARKAPLAN True ise bu deger yalnizca tahmin basarisiz
-# oldugunda fallback olarak kullanilir.
 PADDING_DEGERI = 0
 
 # Padding canvas'ini doldururken otomatik arka plan tahmini kullanilsin mi?
-# True ise olceklenmis goruntunun dort kose yamasinin medyani padding
-# degeri olarak kullanilir. Boylece CLAHE gibi normalizasyon sonrasi
-# "0" arka plan ile padding "0"'i arasinda olusan gorunur sinir bandi
-# engellenir. False ise yukaridaki PADDING_DEGERI sabiti kullanilir.
 PADDING_OTOMATIK_ARKAPLAN = True
 
 # Normalizasyon ayarları
 # Kırpma yüzdeleri: Aşırı karanlık ve aydınlık pikselleri temizler.
-# Kenar/anatomik detay kaybını azaltmak için konservatif tutulur.
 KIRPMA_YUZDELERI = (0.5, 99.5)
 
 # Normalizasyon stratejisi - z-score yalnizca "aggressive" stratejide uygulanir.
@@ -158,8 +112,6 @@ KIRPMA_YUZDELERI = (0.5, 99.5)
 NORMALIZASYON_STRATEJISI = "standard"  # "minimal", "standard", "aggressive"
 
 # Histogram eşitleme (CLAHE) - Kontrast iyileştirme.
-# Train ve test arasinda deterministik olmasi icin sabit clip_limit kullanilir
-# (adaptive mod, std-bazli esiklerden dolayi splitler arasi tutarsizlik yaratir).
 HISTOGRAM_ESITLEME_AKTIF = True
 CLAHE_CLIP_LIMIT = 2.0  # Sabit clip limit (orta seviye kontrast iyilestirme)
 
@@ -173,74 +125,15 @@ GAUSSIAN_BLUR_SIGMA = 0.5  # "gaussian" modunda kullanilir
 # Arka plan işleme
 MASKE_KENAR_PAYI = 2
 
-# Skull stripping (kafatası çıkarma)
-# Kaggle Alzheimer 2D slice veri setinde goruntuler zaten beyin-kirpilmis durumdadir;
-# Otsu tabanli basit skull strip kortikal dokuyu kismen silebilir. Default kapali.
-# Ham hacim (NIfTI) ile calisirken HD-BET / SynthStrip onerilir.
-SKULL_STRIPPING_AKTIF = False
-SKULL_STRIPPING_METHOD = "simple"  # "simple" veya "advanced" (morfolojik işlemlerle)
-
-# Bias field correction (MRI yoğunluk düzensizliği düzeltme)
-BIAS_FIELD_CORRECTION_AKTIF = False
-BIAS_FIELD_METHOD = "n4itk"  # "n4itk" (profesyonel) veya "simple" (hızlı)
-
-# Registration/Hizalama
+# Registration/Hizalama (center-of-mass tabanli basit oteleme)
 # Girdi dilimleri merkezden kayabiliyorsa basit center-of-mass hizalama
-# uygulanir. "simple" mod yalnızca kaydırma yapar; ölçekleme/kırpma yapmadan
-# beyin dokusunu hedef çerçevenin merkezine taşır.
+# uygulanir. Yalnızca kaydırma yapar; ölçekleme/kırpma yapmadan beyin
+# dokusunu hedef çerçevenin merkezine taşır.
 REGISTRATION_AKTIF = True
-REGISTRATION_METHOD = "simple"  # "simple" (center-of-mass), "affine" (gelişmiş), "rigid"
 
-# Morfolojik işlemler
+# Morfolojik işlemler (foreground maskesi temizliginde kullanilir)
 MORFOLOJIK_OPERASYONLAR_AKTIF = True
 MORFOLOJIK_KERNEL_BOYUTU = 3
-
-# ==================== VERİ ARTIRMA AYARLARI ====================
-# Veri artırma (Data Augmentation) - Yapay veri üretimi
-# Bu bolumdeki ayarlar yalnizca *offline* (disk uzerinde cogaltma) augmentasyonu
-# yonetir ve `goruntu_isleme/artirma.py` tarafindan tuketilir. Mevcut politika:
-# offline augmentasyon kapali; egitimde online augmentasyon (model/dl) ve
-# class-weighted loss (compute_class_weights) kullanilir. Bu nedenle asagidaki
-# tum alt-switch'ler False sabitlenmistir; VERI_ARTIRMA_AKTIF tek master switch
-# olarak calismaz, alt-switch'ler de ayni politikayi izler. Master True yapilirsa
-# alt-switch'lerin de bilincli olarak True'ya cekilmesi beklenir.
-# Parametre degerleri (alpha/sigma/limit/aralik) referans olarak korunur; offline
-# augmentation acildiginda kullanilacak baslangic noktasidir.
-VERI_ARTIRMA_AKTIF = False
-ARTIRMA_CARPANI = 0  # Her orijinal görüntüden kaç artırılmış versiyon üretilecek
-
-# Sınıf bazlı dengesiz augmentation - artık devre dışı; dengesizlik
-# eğitimde class weights ile telafi edilir.
-SINIF_BAZLI_ARTIRMA_AKTIF = False
-SINIF_BAZLI_CARPANLAR = {
-    "NonDemented": 0,
-    "VeryMildDemented": 0,
-    "MildDemented": 0,
-    "ModerateDemented": 0,
-}
-
-# Artırma parametreleri (basit)
-YATAY_AYNA_AKTIF = False
-YATAY_AYNA_OLASILIK = 0.15
-ROTASYON_AKTIF = False
-ROTASYON_MAKS_ACI = 5.0       # Anatomik yapıyı korumak için daha küçük açı
-PARLAKLIK_ARALIK = (-20, 20)     # Parlaklık değişimi aralığı (piksel)
-KONTRAST_ARALIK = (0.9, 1.1)     # Kontrast çarpanı aralığı
-
-# Gelişmiş medikal-spesifik artırma parametreleri
-ELASTIC_DEFORMATION_AKTIF = False
-ELASTIC_ALPHA = 15               # Daha yumuşak deformasyon
-ELASTIC_SIGMA = 8                # Deformasyon yumuşaklığı
-
-RANDOM_CROP_AKTIF = False
-RANDOM_CROP_RATIO = 0.97         # Acilirse kenarlari koruyan hafif kirpma
-
-GAUSSIAN_NOISE_AKTIF = False
-GAUSSIAN_NOISE_MEAN = 0
-GAUSSIAN_NOISE_SIGMA = 5         # Gürültü şiddeti
-
-INTENSITY_SHIFT_AKTIF = False
-INTENSITY_SHIFT_LIMIT = 0.03      # Yogunluk kaymasi limiti (%3)
 
 # ==================== VERİ BÖLÜMLEME AYARLARI ====================
 # Trainval/test kaynak grubu bolmesi icin kullanilir
@@ -256,65 +149,7 @@ MIN_MEAN_INTENSITY = 5       # Minimum ortalama yoğunluk (çok karanlık kontro
 MAX_MEAN_INTENSITY = 200     # Maksimum ortalama yoğunluk (çok aydınlık kontrol)
 MIN_STD_INTENSITY = 15        # Minimum standart sapma (düz görüntü kontrol)
 MAX_BLACK_RATIO = 0.80        # Maksimum siyah piksel oranı (boş görüntü kontrol)
-SIYAH_PIKSEL_ESIGI = 10      # Siyah piksel sayımında kullanılan yoğunluk eşiği (bu değerin altı siyah sayılır)
-
-# Guvenilir egim tahmini kalite kontrolu. Esik trainval ve test icin aynidir;
-# test performansina gore degistirilmez. Reddedilen goruntuler ham veriden
-# silinmez, cikti klasorunde ayri bir aday klasorune kopya olarak yazilir.
-#
-# Politika: yalnizca egim *kontrolu* yapilir, otomatik egim *duzeltmesi*
-# uygulanmaz (bkz. EGIM_DUZELTME_AKTIF = False). Bu nedenle 15 derece ve
-# uzeri guvenilir egimler kalite adayi olarak ayrilir; daha kucuk egimler
-# normal ciktiya birakilir (duzeltilmez).
-#
-# EGIM_KALITE_GUVENILIRLIK_ZORUNLU False ise guvenilirlik filtresinden
-# gecmeyen ama aci esigini asan goruntuler de kalite adayi olarak ayrilir.
-# Bu agresif mod daha cok goruntu ayirabilir.
-EGIM_KALITE_KONTROL_AKTIF = False
-# 200 goruntu ornegi: ~%8 goruntu guvenilir bicimde >=15 derece egimli bulundu.
-# Bu oran kabul edilebilir; daha dusuk deger (orn. 10) false positive uretebilir
-# cunku PCA/minAreaRect aci hesabi kucuk acilarda gurultulu olabilir.
-EGIM_KALITE_RED_ESIGI = 12.5
-EGIM_KALITE_GUVENILIRLIK_ZORUNLU = False
-# Ana maske izotropik gorunse bile PCA ve minAreaRect acilari cok iyi
-# uyusuyorsa, red esigi ve ustundeki egimler normal ciktiya kacmasin.
-EGIM_KALITE_GUVENILMEZ_UYUMLU_RMSE_ESIGI = 1.0
-# Ana egim tahmini guvenilmez olsa bile cok buyuk acilar normal ciktiya
-# kacmasin. Bu esik 15 derecelik ana red esiginden kasitli olarak yuksektir;
-# maske_isotropik/kontur_ambiguous gibi belirsiz ama bariz yatmis adaylari
-# ayirirken kucuk guvenilmez acilarda fazla red uretmez.
-EGIM_KALITE_GUVENILMEZ_BUYUK_ACI_RED_ESIGI = 25.0
-EGIM_KALITE_ADAYLARI_KAYDET = True
-EGIM_KALITE_ADAYLARI_KLASOR_ADI = "kalite_kontrol_adaylari"
-EGIM_KALITE_MANIFEST_DOSYA_ADI = "egim_kalite_kontrol_manifest.csv"
-
-# Ic/parlak doku egimi kalite kontrolu. Dis beyin konturu yuvarlak veya
-# ambiguous gorundugunde ana PCA olcumu kucuk aci verebilir; bu fallback
-# yalnizca kalite adayi kararinda kullanilir, otomatik dondurme yapmaz.
-EGIM_PARLAK_DOKU_KALITE_KONTROL_AKTIF = False
-EGIM_PARLAK_DOKU_PERCENTILE = 85.0
-EGIM_PARLAK_DOKU_FOREGROUND_ESIGI = 10
-EGIM_PARLAK_DOKU_MIN_PIXEL_ORANI = 0.03
-# 200 goruntu ornegi: 8 goruntu eksen_orani >= 0.95 ile guvenilmez isaretlendi.
-# Bu goruntuler neredeyse dairesel beyinlerdi (eksen orani 0.95-0.97 araliginda).
-# Esigi dusurursek (orn. 0.90) 31 goruntu guvenilmez sayilir — asiri agresif.
-EGIM_PARLAK_DOKU_MAKS_EKSEN_ORANI = 0.95
-
-# Anatomik/gorsel kalite kontrolu. Büyük merkezi karanlik bosluk/ventrikul
-# gorunumu olan dilimler normal train/test ciktilarina alinmaz; denetim icin
-# ayri aday klasorune kopyalanir.
-ANATOMIK_KALITE_KONTROL_AKTIF = False
-ANATOMIK_ADAYLARI_KAYDET = False
-ANATOMIK_ADAYLARI_KLASOR_ADI = "anatomik_kontrol_adaylari"
-ANATOMIK_MANIFEST_DOSYA_ADI = "anatomik_kontrol_manifest.csv"
-# 200 goruntu ornegi: hicbir goruntu bu esigi asmadi (maks skor ~0.011).
-# Veri seti goruntulerinde buyuk merkezi bosluk yok; esik gevşek ama sorunsuz.
-# Daha sıkı (orn. 0.15) yapmak bu veri setinde gereksiz red uretir.
-ANATOMIK_MERKEZ_BOSLUK_RED_ESIGI = 0.35
-ANATOMIK_MERKEZ_ROI_ORANI = 0.60
-ANATOMIK_KARANLIK_ESIGI = 15
-ANATOMIK_FOREGROUND_ESIGI = 10
-ANATOMIK_MIN_FOREGROUND_ORANI = 0.05
+SIYAH_PIKSEL_ESIGI = 10      # Siyah piksel sayımında kullanılan yoğunluk eşiği
 
 # ==================== KENAR ARTEFAKT AYARLARI ====================
 # Bazi MRI gorsellerinde ust/alt/sol/sag kenarlarda parlak/saturasyona
@@ -328,17 +163,12 @@ ANATOMIK_MIN_FOREGROUND_ORANI = 0.05
 KENAR_ARTEFAKT_KONTROL_AKTIF = True
 
 # Tespit edilen kenar artefaktlarini temizle.
-# Tespit ile temizleme bagimsiz yonetilir; tespit acik ama temizleme
-# kapali ise sadece istatistik toplanir. Varsayilan aktif oldugunda
-# normalize/CLAHE oncesi konservatif kenar temizligi uygulanir.
 KENAR_ARTEFAKT_TEMIZLEME_AKTIF = True
 
 # Kenar serit kalinligi (yukseklik/genisligin orani). 0.10 -> %10.
-# Artefakt temizligi aktifken anatomik kenar kaybini azaltmak icin dar tutulur.
 KENAR_SERIT_ORANI = 0.10
 
-# "Parlak" piksel esigi (uint8, 0-255). Bu esigin ustundeki pikseller
-# kenar serit istatistiklerinde parlak sayilir.
+# "Parlak" piksel esigi (uint8, 0-255).
 KENAR_PARLAKLIK_ESIGI = 225
 
 # "Cok parlak" piksel esigi (uint8). p99 bu esigin ustundeyse kenar
@@ -346,12 +176,10 @@ KENAR_PARLAKLIK_ESIGI = 225
 KENAR_COK_PARLAKLIK_ESIGI = 245
 
 # Kenar serit istatistiklerinde hesaplanan percentile degerleri.
-# p95 genel parlaklik seviyesini, p99 saturasyon artefaktlarini yakalar.
 KENAR_SERIT_PERCENTILE_P95 = 95
 KENAR_SERIT_PERCENTILE_P99 = 99
 
-# Bir kenar seridinde parlak piksel orani >= bu deger ise kenar
-# suspicious sayilir (varsayilan: %1).
+# Bir kenar seridinde parlak piksel orani >= bu deger ise kenar suspicious.
 KENAR_PARLAK_PIXEL_ORANI_ESIGI = 0.01
 
 # Kenar seridi icindeki en buyuk parlak baglantili bilesenin tum kenar
@@ -359,97 +187,25 @@ KENAR_PARLAK_PIXEL_ORANI_ESIGI = 0.01
 KENAR_BILESEN_ORANI_ESIGI = 0.003
 
 # Temizleme kriteri: bir parlak baglantili bilesenin piksellerinin
-# kenar seritlerine dusen pay'i >= bu deger ise bilesen artefakt sayilir
-# ve silinir. 0.7 -> bilesenin %70'inden fazlasi serit icindeyse temizle.
-# Boylece serit kalinligini biraz asarak merkeze tasan parlak bantlar
-# da yakalanir; merkezdeki anatomik parlak bolgeler (serit pay'i dusuk)
-# korunur.
+# kenar seritlerine dusen pay'i >= bu deger ise bilesen artefakt sayilir.
 KENAR_BILESEN_SERIT_PAY_ESIGI = 0.7
 
-# Kismi temizleme kriteri: bilesen merkeze bagli oldugu icin tamamen
-# silinmeyecekse, serit icindeki parlak piksel sayisi hem asagidaki oran
-# hem de mutlak piksel esigi ile kontrol edilir. Bu iki esikten buyugu
-# kullanilir. 0.015 -> goruntu alaninin %1.5'i.
+# Kismi temizleme kriteri.
 KENAR_KISMI_TEMIZLEME_MIN_PIXEL_ORANI = 0.015
 KENAR_KISMI_TEMIZLEME_MIN_PIXEL = 50
 
 # Temizleme sirasinda artefakt piksellerine yazilacak deger (uint8).
-# MRI arka plani genelde 0 oldugundan varsayilan 0.
-# Not: Kenar temizligi normalize/CLAHE oncesi calistigi icin sabit 0 yazmak
-# guvenlidir; CLAHE sonrasi arka plan kucuk nonzero degerlere kayar ancak
-# temizlenen kenar pikselleri foreground maskesine dahil edilmedigi icin
-# normalizasyon istatistiklerini bozmaz. Padding tarafindaki gorsel sinir
-# riski PADDING_OTOMATIK_ARKAPLAN ile, kenar tarafinda ise temizlemenin
-# CLAHE oncesi yapilmasiyla bertaraf edilir.
 KENAR_TEMIZLEME_DEGERI = 0
 
 # Bir parlak baglantili bilesenin alani toplam goruntu alaninin bu oranindan
-# buyukse anatomik kabul edilir ve dokunulmaz. 0.5 -> goruntunun yarisindan
-# buyuk parlak yapilar (ornegin saturasyonlu beyin dokusu) korunur. Deger
-# [0.0, 1.0] araligi disinda verilirse uyarilir ve guvenli sinirlara klempelenir.
+# buyukse anatomik kabul edilir ve dokunulmaz.
 KENAR_ANATOMI_KORUMA_ORANI = 0.5
 
 # Kalite raporlamada kenar artefakt sayaclari yazdirilsin mi?
 KENAR_ARTEFAKT_RAPORLA = True
 
-# ==================== EGIM DUZELTME AYARLARI ====================
-# Hafif sola/saga yatmis 2D MRI dilimleri icin konservatif egim duzeltme.
-# Mevcut politika: egim *kontrolu* yapilir (bkz. EGIM_KALITE_KONTROL_AKTIF)
-# ancak otomatik egim *duzeltmesi* yapilmaz.
-#
-# Asagidaki esiklerin etki alani parametre bazinda farklidir:
-#   * EGIM_DUZELTME_AKTIF, EGIM_DUZELTME_RAPORLA, EGIM_ONIZLEME_URET,
-#     EGIM_DOLDURMA_DEGERI, EGIM_ROTASYON_PADDING_ORANI: yalnizca otomatik
-#     dondurme akisinda (duzeltme True iken) kullanilir.
-#   * EGIM_MIN_ACI, EGIM_MAKS_ACI, EGIM_RMSE_MAKS, EGIM_MIN_SATIR_SAYISI,
-#     EGIM_MIN_X_SPAN, EGIM_MIN_FOREGROUND_ORANI: hem dondurme akisinda hem
-#     de kalite kontrol akisinda guvenilirlik/aday secimi icin kullanilir;
-#     duzeltme kapali olsa bile kalite raporlamasini ve aday klasorunu
-#     dogrudan etkiler.
-EGIM_DUZELTME_AKTIF = False
-EGIM_DUZELTME_RAPORLA = False
-EGIM_ONIZLEME_URET = False
-# Kalite kontrolde "egim_gorsel_kontrol_adayi" sayacina dusmesi icin alt sinir.
-EGIM_MIN_ACI = 1.0
-# Bu acinin ustundeki tahminler kalite akisinda da uyari/aday olarak isaretlenir;
-# ana red esigi (15 derece) ile aradaki bantta yumusak uyari saglar.
-EGIM_MAKS_ACI = 5.0
-# PCA ve minAreaRect acilari arasindaki izin verilen maksimum fark (derece).
-# Hem duzeltme guvenilirligi hem de kalite akisindaki "uyumlu" karari icin
-# ana esik. EGIM_KALITE_GUVENILMEZ_UYUMLU_RMSE_ESIGI bundan daha sikidir.
-EGIM_RMSE_MAKS = 2.5
-EGIM_MIN_SATIR_SAYISI = 45
-EGIM_MIN_X_SPAN = 8.0
-# Ana foreground bileseni goruntu alaninin en az bu orani kadar olmali.
-EGIM_MIN_FOREGROUND_ORANI = 0.04
-EGIM_DOLDURMA_DEGERI = 0
-EGIM_ROTASYON_PADDING_ORANI = 0.18
-
-# Egim tahmini PCA tabanli olarak yapilir; minor/major eksen orani bu
-# esikten buyukse maske neredeyse izotropik (dairesel) kabul edilir ve
-# tahmin guvenilmez sayilir. OASIS/Kaggle 2D Alzheimer dilimleri beyin
-# kirpilmis ve nispeten izotropik gorundugu icin 0.80 tum gercek dilimleri
-# "maske_isotropik" sayabiliyordu. Mevcut deger 0.88 daha az goruntuyu
-# izotropik isaretleyerek yatmis adaylari kalite akisina dusurur ve hala
-# konservatif kalir. Daha agresif ayrim icin 0.92 / 0.95 esikleri veri
-# setinden orneklerle dogrulanarak yukseltilebilir.
-# Ana egim tahmini (egim_acisi_hesapla) icin izotropik maske esigi.
-# 0.88 = minor/major eksen orani; bu esigi asan maskeler "maske_isotropik"
-# olarak guvenilmez isaretlenir. parlak_doku icin ayri EGIM_PARLAK_DOKU_MAKS_EKSEN_ORANI kullanilir.
-EGIM_MIN_EKSEN_ORANI = 0.88
-
 # ==================== GENEL GORUNTU ISLEM SINIRLARI ====================
-# Egim ve anatomik analiz metodlarinin kabul ettigi minimum goruntu boyutu
-# (piksel). Bu boyutun altindaki goruntuler icin PCA / flood-fill sonuclari
-# anlamsiz olacagindan erken donus yapilir.
+# Foreground maske olusumunda morfolojik adimlarin uygulandigi minimum
+# goruntu boyutu (piksel). Bu boyutun altindaki goruntuler icin yalnizca
+# basit Otsu maskesi kullanilir.
 GORUNTU_MIN_BOYUT = 8
-
-# parlak_doku_egim_acisi_hesapla icinde foreground veya parlak piksel sayisi
-# bu degerin altina dustugunde tahmin yapilmaz. Kucuk goruntuler icin mutlak
-# bir zemin saglar; gercek sinir EGIM_PARLAK_DOKU_MIN_PIXEL_ORANI ile dinamik
-# olarak hesaplanir ve bu degerle max() alinir.
-PARLAK_DOKU_MIN_PIKSEL_TABAN = 20
-
-# egim_acisi_hesapla'da baglantili bilesen filtrelemesi icin minimum alan orani.
-# Goruntu alaninin bu oraninin altindaki bilesen adaylari egim tahminine dahil edilmez.
-EGIM_MIN_BILESEN_ALANI_ORANI = 0.005

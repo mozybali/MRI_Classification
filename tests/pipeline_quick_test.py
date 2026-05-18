@@ -40,7 +40,6 @@ def _check_imports():
 
     optional_packages = {
         "cv2": "opencv-python",
-        "SimpleITK": "SimpleITK",
     }
 
     all_ok = True
