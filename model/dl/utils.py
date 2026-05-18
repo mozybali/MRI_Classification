@@ -95,7 +95,15 @@ def configure_torch_runtime(
 
 
 def get_device(verbose: bool = True) -> torch.device:
-    """CUDA > MPS > CPU oncelik sirasi ile uygun device dondur."""
+    """CUDA > MPS > CPU oncelik sirasi ile uygun device dondur.
+
+    MRI_WEB_CPU_ONLY=1 set edilmisse her zaman CPU doner.
+    Web sunuculari MPS/fork uyumsuzlugundan dolayi bu mod ile calistirilmali.
+    """
+    if os.environ.get("MRI_WEB_CPU_ONLY") == "1":
+        if verbose:
+            print("[INFO] Web modu: CPU kullaniliyor (MRI_WEB_CPU_ONLY=1)")
+        return torch.device("cpu")
     if torch.cuda.is_available():
         device = torch.device("cuda")
         if verbose:

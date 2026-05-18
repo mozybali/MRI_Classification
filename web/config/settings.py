@@ -25,10 +25,13 @@ SECRET_KEY = os.environ.get(
     "django-insecure-fallback-key-change-in-production",
 )
 DEBUG = os.environ.get("DEBUG", "True") == "True"
+RUNNING_DEV_SERVER = "runserver" in sys.argv
+if RUNNING_DEV_SERVER and os.environ.get("DJANGO_RUNSERVER_PRODUCTION") != "1":
+    DEBUG = True
 ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 
 # ── Model dizini (ML checkpoint'leri) ────────────────────────────────────────
-MODEL_DIR = PROJECT_ROOT / os.environ.get("MODEL_DIR", "model/ciktilar/modeller")
+MODEL_DIR = PROJECT_ROOT / os.environ.get("MODEL_DIR", "modeller/web_modelleri")
 
 # ── Uygulamalar ──────────────────────────────────────────────────────────────
 INSTALLED_APPS = [
@@ -37,17 +40,18 @@ INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
-    "whitenoise.runserver_nostatic",
     "django.contrib.staticfiles",
     # Proje uygulamaları
     "inference_app",
     "dashboard_app",
 ]
 
+if not DEBUG:
+    INSTALLED_APPS.insert(5, "whitenoise.runserver_nostatic")
+
 # ── Middleware ───────────────────────────────────────────────────────────────
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -55,6 +59,9 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+if not DEBUG:
+    MIDDLEWARE.insert(1, "whitenoise.middleware.WhiteNoiseMiddleware")
 
 ROOT_URLCONF = "config.urls"
 

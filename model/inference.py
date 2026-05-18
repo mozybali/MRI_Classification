@@ -53,11 +53,15 @@ else:
 
 
 def _detect_model_type(model_path: Path) -> str:
-    """Dosya uzantisindan model tipini belirle."""
+    """Dosya uzantisindan (ve sidecar'dan) model tipini belirle."""
     suffix = model_path.suffix.lower()
     if suffix == ".json":
         return "xgboost"
     if suffix == ".pt":
+        # Yani sira .yolo.meta.json varsa YOLO; yoksa ResNet checkpoint'i.
+        meta = model_path.parent / (model_path.stem + ".yolo.meta.json")
+        if meta.exists():
+            return "yolo"
         return "torch"
     raise ValueError(f"Desteklenmeyen model dosya formati: {suffix}")
 
@@ -261,6 +265,15 @@ Ornekler:
 
             def predict_fn(m, p, s, c):
                 return predict_image_xgb(
+                    m, p, s, c, apply_mri_preprocessing=apply_preprocess
+                )
+        elif model_type == "yolo":
+            from model.yolo_inference import load_yolo_model, predict_image_yolo
+
+            model, image_size, class_names = load_yolo_model(model_path)
+
+            def predict_fn(m, p, s, c):
+                return predict_image_yolo(
                     m, p, s, c, apply_mri_preprocessing=apply_preprocess
                 )
         else:

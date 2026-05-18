@@ -109,6 +109,67 @@
     transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
+  .run-status {
+    display: none;
+    margin-top: var(--space-md);
+    padding: var(--space-md);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-surface);
+  }
+
+  .run-status.active {
+    display: block;
+  }
+
+  .run-status-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin-bottom: var(--space-sm);
+    font-size: 0.875rem;
+  }
+
+  .run-status-title {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font-weight: 600;
+  }
+
+  .run-status-time {
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .run-status-detail {
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+    margin-bottom: var(--space-sm);
+  }
+
+  .run-progress {
+    height: 8px;
+    overflow: hidden;
+    border-radius: var(--radius-full);
+    background: var(--bg-elevated);
+  }
+
+  .run-progress-bar {
+    height: 100%;
+    width: 40%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--accent), #22c55e);
+    animation: runProgress 1.1s ease-in-out infinite;
+  }
+
+  @keyframes runProgress {
+    0% { transform: translateX(-110%); }
+    100% { transform: translateX(260%); }
+  }
+
   @keyframes fadeIn {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
@@ -144,7 +205,7 @@
             <label style="display: block; margin-bottom: var(--space-xs); font-size: 0.875rem;">Aktif Model</label>
             <select id="model-select" class="btn btn-secondary" style="width: 100%; text-align: left;">
               {% for m in models %}
-                <option value="{{ m.name }}">{{ m.name }} ({{ m.type|upper }})</option>
+                <option value="{{ m.name }}" data-type="{{ m.type }}">{{ m.name }} ({{ m.type|upper }})</option>
               {% empty %}
                 <option disabled>Hiç model bulunamadı!</option>
               {% endfor %}
@@ -187,6 +248,18 @@
         <button id="predict-btn" class="btn btn-primary" style="width: 100%; justify-content: center;" disabled>
           <span>Analizi Başlat</span>
         </button>
+        <div id="run-status" class="run-status" aria-live="polite">
+          <div class="run-status-head">
+            <div class="run-status-title">
+              <div class="spinner" aria-hidden="true"></div>
+              <span id="run-status-title">Analiz çalışıyor</span>
+            </div>
+            <span id="run-status-time" class="run-status-time">00:00</span>
+          </div>
+          <div id="run-status-detail" class="run-status-detail">Model hazırlanıyor...</div>
+          <div class="run-progress"><div class="run-progress-bar"></div></div>
+          <button id="cancel-run-btn" class="btn btn-ghost" type="button" style="margin-top: var(--space-sm); padding-left: 0;">İptal Et</button>
+        </div>
       </div>
     </section>
 
@@ -263,6 +336,11 @@
   const predictBtn = document.getElementById('predict-btn');
   const resultPanel = document.getElementById('result-panel');
   const batchResults = document.getElementById('batch-results-container');
+  const runStatus = document.getElementById('run-status');
+  const runStatusTitle = document.getElementById('run-status-title');
+  const runStatusDetail = document.getElementById('run-status-detail');
+  const runStatusTime = document.getElementById('run-status-time');
+  const cancelRunBtn = document.getElementById('cancel-run-btn');
   
   const tabSingle = document.getElementById('tab-single');
   const tabBatch = document.getElementById('tab-batch');
@@ -270,6 +348,10 @@
   let selectedFile = null;   // tekli mod için
   let selectedZips = [];     // çoklu ZIP mod için
   let currentMode = 'single'; // 'single' or 'batch'
+  let activeController = null;
+  let statusTimer = null;
+  let statusMessageTimer = null;
+  let statusStartedAt = null;
 
   // Tab Switch
   tabSingle.addEventListener('click', () => {
@@ -301,6 +383,7 @@
     resultPanel.style.display = 'none';
     batchResults.style.display = 'none';
     document.getElementById('preprocess-steps-container').style.display = 'none';
+    stopRunStatus();
   }
 
   dropZone.addEventListener('click', () => fileInput.click());
@@ -376,12 +459,87 @@
     } catch (err) { container.style.display = 'none'; }
   }
 
+  function formatElapsed(seconds) {
+    const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const secs = Math.floor(seconds % 60).toString().padStart(2, '0');
+    return `${mins}:${secs}`;
+  }
+
+  function selectedModelInfo() {
+    const select = document.getElementById('model-select');
+    const option = select.options[select.selectedIndex];
+    return {
+      name: select.value,
+      type: (option?.dataset?.type || 'model').toUpperCase(),
+    };
+  }
+
+  function startRunStatus(mode) {
+    const info = selectedModelInfo();
+    const isBatch = mode === 'batch';
+    const batchCount = selectedZips.length;
+    const messages = isBatch
+      ? [
+          `${info.type} modeli hazırlanıyor...`,
+          `${batchCount} ZIP sunucuya gönderildi, görüntüler açılıyor...`,
+          'Görüntüler sırayla analiz ediliyor...',
+          'Toplu sonuç tablosu hazırlanıyor...'
+        ]
+      : [
+          `${info.type} modeli hazırlanıyor...`,
+          'Görüntü ön işleme ve tensör hazırlığı yapılıyor...',
+          'Tahmin çalışıyor...',
+          'Olasılık dağılımı hesaplanıyor...'
+        ];
+    let messageIndex = 0;
+
+    statusStartedAt = Date.now();
+    runStatusTitle.textContent = isBatch ? 'Toplu analiz çalışıyor' : 'Analiz çalışıyor';
+    runStatusDetail.textContent = messages[0];
+    runStatusTime.textContent = '00:00';
+    runStatus.classList.add('active');
+
+    statusTimer = window.setInterval(() => {
+      runStatusTime.textContent = formatElapsed((Date.now() - statusStartedAt) / 1000);
+    }, 500);
+
+    statusMessageTimer = window.setInterval(() => {
+      messageIndex = Math.min(messageIndex + 1, messages.length - 1);
+      runStatusDetail.textContent = messages[messageIndex];
+    }, isBatch ? 4500 : 2500);
+  }
+
+  function stopRunStatus(finalMessage = '') {
+    if (statusTimer) window.clearInterval(statusTimer);
+    if (statusMessageTimer) window.clearInterval(statusMessageTimer);
+    statusTimer = null;
+    statusMessageTimer = null;
+    statusStartedAt = null;
+    if (finalMessage) runStatusDetail.textContent = finalMessage;
+    runStatus.classList.remove('active');
+  }
+
+  function finishRunStatus(data, isBatch) {
+    const timings = data?.timings;
+    if (!timings) return;
+    const load = Number(timings.model_load_seconds || 0).toFixed(2);
+    const total = Number(timings.total_seconds || 0).toFixed(2);
+    const count = isBatch ? `${data.processed_count || data.results?.length || 0} görüntü, ` : '';
+    showToast(`${count}toplam ${total} sn; model yükleme ${load} sn.`, "info");
+  }
+
+  cancelRunBtn.addEventListener('click', () => {
+    if (activeController) activeController.abort();
+  });
+
   predictBtn.addEventListener('click', async () => {
     if (currentMode === 'single' && !selectedFile) return;
     if (currentMode === 'batch' && selectedZips.length === 0) return;
     
     predictBtn.disabled = true;
     predictBtn.innerHTML = '<div class="spinner"></div> İşleniyor...';
+    startRunStatus(currentMode);
+    activeController = new AbortController();
     
     const formData = new FormData();
     formData.append('model_name', document.getElementById('model-select').value);
@@ -390,21 +548,33 @@
     if (currentMode === 'single') {
       formData.append('image', selectedFile);
       try {
-        const res = await fetch('{% url "infer:predict" %}', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' }, body: formData });
+        const res = await fetch('{% url "infer:predict" %}', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' }, body: formData, signal: activeController.signal });
         const data = await res.json();
-        if (data.success) showResult(data);
+        if (data.success) {
+          showResult(data);
+          finishRunStatus(data, false);
+        }
         else showToast(data.error, "error");
-      } catch (err) { showToast("Sunucu hatası", "error"); }
+      } catch (err) {
+        showToast(err.name === 'AbortError' ? "İşlem iptal edildi" : "Sunucu hatası", err.name === 'AbortError' ? "info" : "error");
+      }
     } else {
       selectedZips.forEach(z => formData.append('zip_file', z));
       try {
-        const res = await fetch('{% url "infer:batch_predict" %}', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' }, body: formData });
+        const res = await fetch('{% url "infer:batch_predict" %}', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' }, body: formData, signal: activeController.signal });
         const data = await res.json();
-        if (data.success) showBatchResult(data.results, data.errors || []);
+        if (data.success) {
+          showBatchResult(data.results, data.errors || []);
+          finishRunStatus(data, true);
+        }
         else showToast(data.error, "error");
-      } catch (err) { showToast("Batch işlemi başarısız", "error"); }
+      } catch (err) {
+        showToast(err.name === 'AbortError' ? "İşlem iptal edildi" : "Batch işlemi başarısız", err.name === 'AbortError' ? "info" : "error");
+      }
     }
     
+    activeController = null;
+    stopRunStatus();
     predictBtn.disabled = false;
     predictBtn.innerHTML = 'Analizi Başlat';
   });

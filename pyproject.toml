@@ -37,6 +37,8 @@ dev = [
 [project.scripts]
 mri-train = "model.train:main"
 mri-infer = "model.inference:main"
+mri-yolo-train = "model.yolo_trainer:main"
+mri-yolo-eval = "model.yolo_eval:main"
 mri-preprocess = "goruntu_isleme.ana_islem:main"
 mri-eda = "eda_analiz.eda_calistir:main"
 mri-tune = "model.hpo:main"

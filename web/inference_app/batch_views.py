@@ -1,6 +1,7 @@
 import zipfile
 import io
 import csv
+import time
 from pathlib import Path
 from django.http import JsonResponse, HttpResponse
 from django.conf import settings
@@ -45,13 +46,32 @@ def batch_predict(request):
         return JsonResponse({"error": "ZIP dosyası ve model seçimi zorunludur."}, status=400)
 
     try:
+        request_started_at = time.perf_counter()
         model_path = settings.MODEL_DIR / model_name
         results = []
         errors = []
 
-        # ResNet için lazy import (torch bağımlılığı)
+        # Model tipini belirle (sidecar .yolo.meta.json varsa YOLO, yoksa ResNet)
+        yolo_meta_path = settings.MODEL_DIR / (Path(model_name).stem + ".yolo.meta.json")
+        is_yolo = model_name.endswith(".pt") and yolo_meta_path.exists()
+        is_resnet = model_name.endswith(".pt") and not is_yolo
+
+        model = None
+        meta = None
+        model_load_started_at = time.perf_counter()
         resnet_predict_fn = None
-        if model_name.endswith(".pt"):
+        yolo_predict_fn = None
+        if is_yolo:
+            try:
+                from model.yolo_inference import predict_image_yolo as _predict_image_yolo
+                yolo_predict_fn = _predict_image_yolo
+            except ImportError as exc:
+                return JsonResponse(
+                    {"error": f"YOLO inference için ultralytics kurulu olmalı: {exc}"},
+                    status=503,
+                )
+            model, meta = registry.get_yolo(model_path)
+        elif is_resnet:
             try:
                 from model.inference import predict_image as _predict_image
                 resnet_predict_fn = _predict_image
@@ -60,6 +80,12 @@ def batch_predict(request):
                     {"error": f"ResNet inference için torch kurulu olmalı: {exc}"},
                     status=503,
                 )
+            model, meta = registry.get_resnet(model_path)
+        else:
+            model, meta = registry.get_xgboost(model_path)
+
+        model_loaded_at = time.perf_counter()
+        processed_count = 0
 
         for zip_file in zip_files:
             with zipfile.ZipFile(zip_file) as z:
@@ -77,19 +103,25 @@ def batch_predict(request):
                             )
                             tmp_path = Path(settings.MEDIA_ROOT) / path
 
-                        if model_name.endswith(".pt"):
-                            model, meta = registry.get_resnet(model_path)
+                        if is_yolo:
+                            res = yolo_predict_fn(
+                                model, tmp_path,
+                                meta["image_size"], meta["class_names"],
+                                apply_mri_preprocessing=apply_preprocess,
+                            )
+                        elif is_resnet:
                             res = resnet_predict_fn(
                                 model, tmp_path,
                                 meta["image_size"], meta["class_names"], meta["device"],
-                                apply_mri_preprocessing=apply_preprocess
+                                normalize_mean=meta["mean"],
+                                normalize_std=meta["std"],
+                                apply_mri_preprocessing=apply_preprocess,
                             )
                         else:
-                            model, meta = registry.get_xgboost(model_path)
                             res = predict_image_xgb_local(
                                 model, tmp_path,
                                 meta["image_size"], meta["class_names"],
-                                apply_mri_preprocessing=apply_preprocess
+                                apply_mri_preprocessing=apply_preprocess,
                             )
 
                         results.append({
@@ -97,6 +129,7 @@ def batch_predict(request):
                             "prediction": res["tahmin_adi"],
                             "confidence": round(res["guven_skoru"] * 100, 2)
                         })
+                        processed_count += 1
 
                     except Exception as img_err:
                         # Tek bir görüntü hatalıysa tüm batch durmasın
@@ -105,7 +138,18 @@ def batch_predict(request):
                         if path:
                             default_storage.delete(path)
 
-        return JsonResponse({"success": True, "results": results, "errors": errors})
+        finished_at = time.perf_counter()
+        return JsonResponse({
+            "success": True,
+            "results": results,
+            "errors": errors,
+            "processed_count": processed_count,
+            "timings": {
+                "model_load_seconds": round(model_loaded_at - model_load_started_at, 3),
+                "processing_seconds": round(finished_at - model_loaded_at, 3),
+                "total_seconds": round(finished_at - request_started_at, 3),
+            },
+        })
 
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)

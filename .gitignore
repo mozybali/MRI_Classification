@@ -139,3 +139,6 @@ web/staticfiles/
 web/.env
 web/db.sqlite3
 docs/*
+
+modeller/*
+rapor-onizleme.md

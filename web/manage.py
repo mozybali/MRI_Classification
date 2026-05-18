@@ -3,6 +3,11 @@
 import os
 import sys
 
+# MRI_WEB_CPU_ONLY varsayilan olarak kapali; MPS/CUDA aktif.
+# Django auto-reloader fork kullandigi icin MPS'de segfault riski vardir.
+# --noreload ile baslatildiginda bu risk ortadan kalkar (asagidaki komut):
+#   python manage.py runserver --noreload
+
 
 def main():
     """Run administrative tasks."""

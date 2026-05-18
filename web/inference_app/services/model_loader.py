@@ -65,6 +65,32 @@ class _ModelRegistry:
 
         return self._cache[key], self._meta[key]
 
+    # ── YOLO ────────────────────────────────────────────────────────────────
+    def get_yolo(self, model_path: Path):
+        """YOLOv8 modelini yükle (ilk çağrıda) ya da önbellekten döndür."""
+        key = self._make_key(model_path)
+        if key in self._cache:
+            return self._cache[key], self._meta[key]
+
+        with self._lock:
+            if key in self._cache:
+                return self._cache[key], self._meta[key]
+
+            try:
+                from model.yolo_inference import load_yolo_model
+
+                yolo_model, image_size, class_names = load_yolo_model(model_path)
+                meta = {
+                    "image_size": image_size,
+                    "class_names": class_names,
+                }
+                self._cache[key] = yolo_model
+                self._meta[key] = meta
+            except Exception as exc:
+                raise RuntimeError(f"YOLO model yüklenemedi ({model_path.name}): {exc}") from exc
+
+        return self._cache[key], self._meta[key]
+
     # ── XGBoost ─────────────────────────────────────────────────────────────
     def get_xgboost(self, model_path: Path):
         """XGBoost modelini yükle (ilk çağrıda) ya da önbellekten döndür."""
@@ -100,7 +126,11 @@ class _ModelRegistry:
         models = []
         for path in sorted(model_dir.iterdir()):
             if path.suffix.lower() == ".pt":
-                models.append({"name": path.name, "type": "resnet", "path": str(path)})
+                yolo_meta = model_dir / (path.stem + ".yolo.meta.json")
+                if yolo_meta.exists():
+                    models.append({"name": path.name, "type": "yolo", "path": str(path)})
+                else:
+                    models.append({"name": path.name, "type": "resnet", "path": str(path)})
             elif path.suffix.lower() == ".json" and not path.name.endswith(".meta.json"):
                 models.append({"name": path.name, "type": "xgboost", "path": str(path)})
         return models

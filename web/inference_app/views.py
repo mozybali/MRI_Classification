@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from pathlib import Path
 
 from django.shortcuts import render, get_object_or_404
@@ -38,6 +39,8 @@ def predict(request):
         if not image_file or not model_name:
             return JsonResponse({"error": "Görüntü ve model seçimi zorunludur."}, status=400)
 
+        request_started_at = time.perf_counter()
+
         # 1. Model yolunu belirle ve yükle
         model_path = settings.MODEL_DIR / model_name
         if not model_path.exists():
@@ -49,7 +52,27 @@ def predict(request):
 
         # 3. Tahmin yap
         result = {}
-        if model_name.endswith(".pt"):
+        model_load_started_at = time.perf_counter()
+        yolo_meta_path = settings.MODEL_DIR / (Path(model_name).stem + ".yolo.meta.json")
+        if model_name.endswith(".pt") and yolo_meta_path.exists():
+            try:
+                from model.yolo_inference import predict_image_yolo
+            except ImportError as exc:
+                return JsonResponse(
+                    {"error": f"YOLO inference için ultralytics kurulu olmalı: {exc}"},
+                    status=503,
+                )
+            model, meta = registry.get_yolo(model_path)
+            model_loaded_at = time.perf_counter()
+            result = predict_image_yolo(
+                model,
+                tmp_path,
+                meta["image_size"],
+                meta["class_names"],
+                apply_mri_preprocessing=apply_preprocess,
+            )
+            model_type = "yolo"
+        elif model_name.endswith(".pt"):
             try:
                 from model.inference import predict_image
             except ImportError as exc:
@@ -58,6 +81,7 @@ def predict(request):
                     status=503,
                 )
             model, meta = registry.get_resnet(model_path)
+            model_loaded_at = time.perf_counter()
             result = predict_image(
                 model,
                 tmp_path,
@@ -71,6 +95,7 @@ def predict(request):
             model_type = "resnet"
         elif model_name.endswith(".json"):
             model, meta = registry.get_xgboost(model_path)
+            model_loaded_at = time.perf_counter()
             result = predict_image_xgb_local(
                 model,
                 tmp_path,
@@ -81,6 +106,8 @@ def predict(request):
             model_type = "xgboost"
         else:
             return JsonResponse({"error": "Desteklenmeyen model formatı."}, status=400)
+
+        inference_finished_at = time.perf_counter()
 
         # 4. Veritabanına kaydet
         # Geçici dosyayı media/predictions altına taşıyalım veya direkt oradan referans verelim
@@ -102,7 +129,12 @@ def predict(request):
             "css_class": record.css_class,
             "confidence": record.confidence,
             "probabilities": record.probabilities,
-            "image_url": record.image.url
+            "image_url": record.image.url,
+            "timings": {
+                "model_load_seconds": round(model_loaded_at - model_load_started_at, 3),
+                "inference_seconds": round(inference_finished_at - model_loaded_at, 3),
+                "total_seconds": round(inference_finished_at - request_started_at, 3),
+            },
         })
 
     except Exception as e:

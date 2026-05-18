@@ -11,6 +11,7 @@ CLASS_CHOICES = [
 MODEL_CHOICES = [
     ("resnet",   "ResNet18"),
     ("xgboost",  "XGBoost"),
+    ("yolo",     "YOLOv8"),
 ]
 
 
