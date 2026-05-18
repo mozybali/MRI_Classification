@@ -82,5 +82,3 @@ def baglantili_bilesenler(mask_u8: np.ndarray, connectivity: int = 8):
     if mask_u8.dtype != np.uint8:
         mask_u8 = mask_u8.astype(np.uint8)
     return cv2.connectedComponentsWithStats(mask_u8, connectivity=connectivity)
-
-

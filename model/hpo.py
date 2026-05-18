@@ -4,7 +4,14 @@
 """
 hpo.py
 ------
-Bayesian hyperparameter search for MRI classification models via Optuna TPE.
+MRI siniflandirma modelleri icin Optuna TPE tabanli Bayes search girisi.
+
+Bu dosya ortak CLI/dispatch akisini yonetir: argparser, study/storage
+hazirligi, ortak validasyon yardimcisi, study artifact'lari ve gorseller.
+Model-spesifik mantik iki ayri dosyaya bolunmustur:
+
+- ``hpo_dl.py``  : ResNet/DL HPO bilesenleri
+- ``hpo_xgb.py`` : XGBoost HPO bilesenleri
 """
 
 from __future__ import annotations
@@ -31,19 +38,11 @@ if __package__ in {None, ""}:
     )
     from model.training_runner import (
         SUPPORTED_SELECTION_METRICS,
-        TrainingConfig,
         _selection_mode_for_metric,
-        run_cv_training,
-        run_training,
         validate_training_config,
     )
-    from model.sl.training_runner import (
-        SLTrainingConfig,
-        run_sl_cv_training,
-        run_sl_training,
-        validate_sl_config,
-    )
-    from model.dl.utils import release_cuda_memory
+    from model.sl.training_runner import validate_sl_config
+    from model import hpo_dl, hpo_xgb
 else:
     from .ayarlar import (
         HPO_KLASORU,
@@ -53,19 +52,11 @@ else:
     )
     from .training_runner import (
         SUPPORTED_SELECTION_METRICS,
-        TrainingConfig,
         _selection_mode_for_metric,
-        run_cv_training,
-        run_training,
         validate_training_config,
     )
-    from .sl.training_runner import (
-        SLTrainingConfig,
-        run_sl_cv_training,
-        run_sl_training,
-        validate_sl_config,
-    )
-    from .dl.utils import release_cuda_memory
+    from .sl.training_runner import validate_sl_config
+    from . import hpo_dl, hpo_xgb
 
 try:
     import optuna
@@ -302,96 +293,14 @@ def _resolve_study_dir(args: argparse.Namespace, study_name: str) -> Path:
 
 def _search_space_summary(args: argparse.Namespace) -> dict[str, Any]:
     if args.model == "xgboost":
-        return _search_space_summary_xgb(args)
-    return {
-        "batch_size_choices": sorted(set(args.batch_size_choices)),
-        "image_size_choices": sorted(set(args.image_size_choices)),
-        "lr_range": [args.lr_min, args.lr_max],
-        "weight_decay_range": [args.weight_decay_min, args.weight_decay_max],
-        "scheduler_factor_range": [args.scheduler_factor_min, args.scheduler_factor_max],
-        "scheduler_patience_range": [
-            args.scheduler_patience_min,
-            args.scheduler_patience_max,
-        ],
-        "loss_choices": list(dict.fromkeys(args.loss_choices)),
-        "focal_gamma_range": [args.focal_gamma_min, args.focal_gamma_max],
-        "dropout_range": [args.dropout_min, args.dropout_max],
-        "label_smoothing_range": [args.label_smoothing_min, args.label_smoothing_max],
-        "hflip_p_choices": sorted(set(args.hflip_p_choices)),
-        "rotation_degrees_range": [args.rotation_degrees_min, args.rotation_degrees_max],
-        "color_jitter_range": [args.color_jitter_min, args.color_jitter_max],
-        "search_pretrained": bool(args.search_pretrained and args.model == "resnet"),
-    }
+        return hpo_xgb._search_space_summary_xgb(args)
+    return hpo_dl._search_space_summary_dl(args)
 
 
-def _search_space_summary_xgb(args: argparse.Namespace) -> dict[str, Any]:
-    return {
-        "image_size_choices": sorted(set(args.image_size_choices)),
-        "n_estimators_range": [100, 1000],
-        "max_depth_range": [3, 10],
-        "learning_rate_range": [0.01, 0.3],
-        "subsample_range": [0.4, 1.0],
-        "colsample_bytree_range": [0.4, 1.0],
-        "reg_lambda_range": [1e-3, 10.0],
-        "reg_alpha_range": [1e-4, 10.0],
-        "gamma_range": [1e-4, 5.0],
-        "min_child_weight_range": [1, 20],
-        "max_delta_step_range": [0, 20],
-    }
-
-
-def _build_config_from_args(
-    args: argparse.Namespace,
-    *,
-    batch_size: int = 32,
-    image_size: int = 224,
-    lr: float = 1e-4,
-    weight_decay: float = 1e-4,
-    scheduler_factor: float = 0.5,
-    scheduler_patience: int = 5,
-    loss: str = "ce",
-    focal_gamma: float = 2.0,
-    pretrained: bool = False,
-    epochs: int | None = None,
-    dropout: float = 0.5,
-    label_smoothing: float = 0.0,
-    hflip_p: float = 0.0,
-    rotation_degrees: float = 10.0,
-    color_jitter: float = 0.1,
-) -> TrainingConfig:
-    """HPO argumanlari ve trial/final parametrelerinden TrainingConfig olustur."""
-    return TrainingConfig(
-        model=args.model,
-        epochs=epochs if epochs is not None else args.epochs,
-        batch_size=batch_size,
-        lr=lr,
-        patience=args.patience,
-        image_size=image_size,
-        trainval_dir=args.trainval_dir,
-        test_dir=args.test_dir,
-        val_ratio=args.val_ratio,
-        test_ratio=args.test_ratio,
-        loss=loss,
-        seed=args.seed,
-        num_workers=args.num_workers,
-        pretrained=pretrained,
-        weight_decay=weight_decay,
-        scheduler_factor=scheduler_factor,
-        scheduler_patience=scheduler_patience,
-        focal_gamma=focal_gamma,
-        dropout=dropout,
-        label_smoothing=label_smoothing,
-        hflip_p=hflip_p,
-        rotation_degrees=rotation_degrees,
-        color_jitter=color_jitter,
-    )
-
-
-def _resolve_feature_cache(args: argparse.Namespace) -> str | None:
-    if getattr(args, "no_feature_cache", False):
-        return None
-    cache = getattr(args, "feature_cache", None)
-    return cache if cache else None
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as file:
+        json.dump(payload, file, indent=2, ensure_ascii=False)
 
 
 def validate_search_args(args: argparse.Namespace) -> None:
@@ -417,636 +326,12 @@ def validate_search_args(args: argparse.Namespace) -> None:
         raise ValueError("--hpo-folds en az 1 olmali.")
     if getattr(args, "n_jobs", 1) < 1:
         raise ValueError("--n-jobs en az 1 olmali.")
-    if (
-        getattr(args, "xgb_n_jobs", None) is not None
-        and int(args.xgb_n_jobs) < 1
-    ):
-        raise ValueError("--xgb-n-jobs pozitif tamsayi olmali.")
 
     if args.model == "xgboost":
-        base_sl_config = SLTrainingConfig(
-            image_size=min(args.image_size_choices),
-            trainval_dir=args.trainval_dir,
-            test_dir=args.test_dir,
-            val_ratio=args.val_ratio,
-            test_ratio=args.test_ratio,
-            seed=args.seed,
-        )
-        validate_sl_config(base_sl_config, require_test_dir=False, full_trainval=False)
-        if not args.skip_final_train:
-            validate_sl_config(base_sl_config, require_test_dir=True, full_trainval=True)
+        hpo_xgb._validate_xgb_args(args)
         return
 
-    if not args.batch_size_choices:
-        raise ValueError("--batch-size-choices bos olamaz.")
-    if args.lr_min <= 0 or args.lr_max <= 0 or args.lr_min >= args.lr_max:
-        raise ValueError("lr araligi pozitif olmali ve min < max olmali.")
-    if (
-        args.weight_decay_min < 0
-        or args.weight_decay_max < 0
-        or args.weight_decay_min >= args.weight_decay_max
-    ):
-        raise ValueError("weight decay araligi gecersiz.")
-    if (
-        args.scheduler_factor_min <= 0
-        or args.scheduler_factor_max >= 1
-        or args.scheduler_factor_min >= args.scheduler_factor_max
-    ):
-        raise ValueError("scheduler factor araligi 0 ile 1 arasinda olmali ve min < max olmali.")
-    if args.scheduler_patience_min < 1 or args.scheduler_patience_min > args.scheduler_patience_max:
-        raise ValueError("scheduler patience araligi gecersiz.")
-    if args.focal_gamma_min < 0 or args.focal_gamma_min > args.focal_gamma_max:
-        raise ValueError("focal gamma araligi gecersiz.")
-    if (
-        args.dropout_min < 0
-        or args.dropout_max >= 1.0
-        or args.dropout_min > args.dropout_max
-    ):
-        raise ValueError("dropout araligi 0 ile 1 arasinda olmali ve min <= max olmali.")
-    if (
-        args.label_smoothing_min < 0
-        or args.label_smoothing_max >= 1.0
-        or args.label_smoothing_min > args.label_smoothing_max
-    ):
-        raise ValueError("label smoothing araligi 0 ile 1 arasinda olmali ve min <= max olmali.")
-    if not args.hflip_p_choices:
-        raise ValueError("--hflip-p-choices bos olamaz.")
-    if any(p < 0 or p > 1 for p in args.hflip_p_choices):
-        raise ValueError("hflip olasiliklari 0 ile 1 arasinda olmali.")
-    if (
-        args.rotation_degrees_min < 0
-        or args.rotation_degrees_min > args.rotation_degrees_max
-    ):
-        raise ValueError("rotation degrees araligi gecersiz.")
-    if (
-        args.color_jitter_min < 0
-        or args.color_jitter_min > args.color_jitter_max
-    ):
-        raise ValueError("color jitter araligi gecersiz.")
-    if not args.loss_choices:
-        raise ValueError("--loss-choices bos olamaz.")
-
-    base_config = _build_config_from_args(
-        args,
-        batch_size=min(args.batch_size_choices),
-        image_size=min(args.image_size_choices),
-        lr=args.lr_min,
-        weight_decay=args.weight_decay_min,
-        scheduler_factor=args.scheduler_factor_min,
-        scheduler_patience=args.scheduler_patience_min,
-        loss=args.loss_choices[0],
-        focal_gamma=args.focal_gamma_min,
-    )
-
-    validate_training_config(
-        base_config,
-        require_test_dir=False,
-        full_trainval=False,
-    )
-    if not args.skip_final_train:
-        validate_training_config(
-            base_config,
-            require_test_dir=True,
-            full_trainval=True,
-        )
-
-
-def _sample_params(trial, args: argparse.Namespace) -> dict[str, Any]:
-    params = {
-        "batch_size": trial.suggest_categorical(
-            "batch_size",
-            sorted(set(args.batch_size_choices)),
-        ),
-        "image_size": trial.suggest_categorical(
-            "image_size",
-            sorted(set(args.image_size_choices)),
-        ),
-        "lr": trial.suggest_float("lr", args.lr_min, args.lr_max, log=True),
-        "weight_decay": trial.suggest_float(
-            "weight_decay",
-            args.weight_decay_min,
-            args.weight_decay_max,
-            log=True,
-        ),
-        "scheduler_factor": trial.suggest_float(
-            "scheduler_factor",
-            args.scheduler_factor_min,
-            args.scheduler_factor_max,
-        ),
-        "scheduler_patience": trial.suggest_int(
-            "scheduler_patience",
-            args.scheduler_patience_min,
-            args.scheduler_patience_max,
-        ),
-        "loss": trial.suggest_categorical(
-            "loss",
-            list(dict.fromkeys(args.loss_choices)),
-        ),
-    }
-    if params["loss"] == "focal":
-        params["focal_gamma"] = trial.suggest_float(
-            "focal_gamma",
-            args.focal_gamma_min,
-            args.focal_gamma_max,
-        )
-        params["label_smoothing"] = 0.0
-    else:
-        params["focal_gamma"] = 2.0
-        params["label_smoothing"] = trial.suggest_float(
-            "label_smoothing",
-            args.label_smoothing_min,
-            args.label_smoothing_max,
-        )
-
-    params["dropout"] = trial.suggest_float(
-        "dropout",
-        args.dropout_min,
-        args.dropout_max,
-    )
-    params["hflip_p"] = trial.suggest_categorical(
-        "hflip_p",
-        sorted(set(args.hflip_p_choices)),
-    )
-    params["rotation_degrees"] = trial.suggest_int(
-        "rotation_degrees",
-        args.rotation_degrees_min,
-        args.rotation_degrees_max,
-    )
-    params["color_jitter"] = trial.suggest_float(
-        "color_jitter",
-        args.color_jitter_min,
-        args.color_jitter_max,
-    )
-
-    if args.model == "resnet" and args.search_pretrained:
-        params["pretrained"] = trial.suggest_categorical("pretrained", [False, True])
-    else:
-        params["pretrained"] = False
-    return params
-
-
-def _trial_dir(study_dir: Path, trial_number: int) -> Path:
-    return study_dir / "trials" / f"trial_{trial_number:03d}"
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as file:
-        json.dump(payload, file, indent=2, ensure_ascii=False)
-
-
-def _objective_factory(args: argparse.Namespace, study_dir: Path):
-    use_cv = args.hpo_folds > 1
-
-    def objective(trial) -> float:
-        params = _sample_params(trial, args)
-        trial_dir = _trial_dir(study_dir, trial.number)
-        trial_dir.mkdir(parents=True, exist_ok=True)
-
-        config = _build_config_from_args(
-            args,
-            batch_size=params["batch_size"],
-            image_size=params["image_size"],
-            lr=params["lr"],
-            weight_decay=params["weight_decay"],
-            scheduler_factor=params["scheduler_factor"],
-            scheduler_patience=params["scheduler_patience"],
-            loss=params["loss"],
-            focal_gamma=params["focal_gamma"],
-            pretrained=params["pretrained"],
-            dropout=params["dropout"],
-            label_smoothing=params["label_smoothing"],
-            hflip_p=params["hflip_p"],
-            rotation_degrees=params["rotation_degrees"],
-            color_jitter=params["color_jitter"],
-        )
-
-        cv_results: dict[str, Any] | None = None
-        results: dict[str, Any] | None = None
-        try:
-            try:
-                if use_cv:
-                    cv_results = run_cv_training(
-                        config,
-                        n_folds=args.hpo_folds,
-                        save_artifacts=False,
-                        evaluate_test_set=False,
-                        verbose=args.verbose_trials,
-                        selection_metric=args.metric,
-                        deterministic=False,
-                    )
-                else:
-                    results = run_training(
-                        config,
-                        save_artifacts=False,
-                        evaluate_test_set=False,
-                        verbose=args.verbose_trials,
-                        selection_metric=args.metric,
-                        on_epoch_end=lambda epoch, _train, val: _on_epoch_end(
-                            trial,
-                            args.metric,
-                            epoch,
-                            val,
-                        ),
-                        deterministic=False,
-                    )
-            except Exception as exc:
-                if optuna is not None and isinstance(exc, optuna.TrialPruned):
-                    _write_json(
-                        trial_dir / "trial_summary.json",
-                        {
-                            "trial_number": trial.number,
-                            "state": "PRUNED",
-                            "params": params,
-                            "metric": args.metric,
-                            "message": str(exc),
-                        },
-                    )
-                    raise
-
-                _write_json(
-                    trial_dir / "trial_summary.json",
-                    {
-                        "trial_number": trial.number,
-                        "state": "FAILED",
-                        "params": params,
-                        "metric": args.metric,
-                        "error": str(exc),
-                    },
-                )
-                raise
-
-            if use_cv:
-                aggregate = cv_results["aggregate"]
-                val_summary = aggregate.get("val") or {}
-                metric_summary = val_summary.get(args.metric)
-                if metric_summary is None:
-                    raise RuntimeError(
-                        f"CV val metrikleri eksik: '{args.metric}' bulunamadi."
-                    )
-                objective_value = float(metric_summary["mean"])
-                trial.set_user_attr("trial_dir", str(trial_dir))
-                trial.set_user_attr("hpo_folds", args.hpo_folds)
-                trial.set_user_attr(f"val_{args.metric}_mean", metric_summary["mean"])
-                trial.set_user_attr(f"val_{args.metric}_std", metric_summary["std"])
-                f1_summary = val_summary.get("f1")
-                if f1_summary is not None:
-                    trial.set_user_attr("best_val_f1_mean", f1_summary["mean"])
-                    trial.set_user_attr("best_val_f1_std", f1_summary["std"])
-
-                best_epochs = [
-                    int(r["best_epoch"]) for r in cv_results["fold_results"]
-                    if r.get("best_epoch") is not None
-                ]
-                if best_epochs:
-                    rounded = int(round(sum(best_epochs) / len(best_epochs)))
-                    trial.set_user_attr("best_epoch", rounded)
-                    trial.set_user_attr("best_epochs_per_fold", best_epochs)
-
-                _write_json(
-                    trial_dir / "trial_summary.json",
-                    {
-                        "trial_number": trial.number,
-                        "state": "COMPLETE",
-                        "metric": args.metric,
-                        "objective_value": objective_value,
-                        "params": params,
-                        "hpo_folds": args.hpo_folds,
-                        "cv_aggregate": aggregate,
-                        "config": cv_results["config"],
-                    },
-                )
-                return objective_value
-
-            best_val_metrics = results["best_val_metrics"]
-            objective_value = float(best_val_metrics[args.metric])
-            trial.set_user_attr("trial_dir", str(trial_dir))
-            trial.set_user_attr("best_epoch", results["best_epoch"])
-            trial.set_user_attr("best_val_loss", results["best_val_loss"])
-            trial.set_user_attr("lowest_val_loss", results["lowest_val_loss"])
-            trial.set_user_attr("best_val_f1", best_val_metrics["f1"])
-
-            _write_json(
-                trial_dir / "trial_summary.json",
-                {
-                    "trial_number": trial.number,
-                    "state": "COMPLETE",
-                    "metric": args.metric,
-                    "objective_value": objective_value,
-                    "params": params,
-                    "best_epoch": results["best_epoch"],
-                    "best_val_loss": results["best_val_loss"],
-                    "lowest_val_loss": results["lowest_val_loss"],
-                    "best_val_metrics": best_val_metrics,
-                    "config": results["config"],
-                },
-            )
-            return objective_value
-        finally:
-            # Trial sonu (basari/hata/prune farketmez) buyuk referanslari dusur
-            # ve PyTorch caching allocator'in tutu VRAM bloklarini surucuye geri
-            # ver. HPO sirasinda batch_size/image_size trial bazinda degistigi
-            # icin fragmentasyonun bir sonraki trial'a sarkmamasi kritik.
-            cv_results = None
-            results = None
-            release_cuda_memory()
-
-    return objective
-
-
-def _on_epoch_end(trial, metric_name: str, epoch: int, val_metrics: dict[str, float]) -> None:
-    trial.report(float(val_metrics[metric_name]), step=epoch)
-    if trial.should_prune():
-        raise optuna.TrialPruned(
-            f"Trial {trial.number} prune edildi (epoch={epoch}, {metric_name}={val_metrics[metric_name]:.4f})"
-        )
-
-
-# ==================== XGBoost HPO ====================
-
-def _sample_xgb_params(trial, args: argparse.Namespace) -> dict[str, Any]:
-    return {
-        "n_estimators": trial.suggest_int("n_estimators", 100, 1000),
-        "max_depth": trial.suggest_int("max_depth", 3, 10),
-        "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
-        "subsample": trial.suggest_float("subsample", 0.4, 1.0),
-        "colsample_bytree": trial.suggest_float("colsample_bytree", 0.4, 1.0),
-        "reg_lambda": trial.suggest_float("reg_lambda", 1e-3, 10.0, log=True),
-        "reg_alpha": trial.suggest_float("reg_alpha", 1e-4, 10.0, log=True),
-        "gamma": trial.suggest_float("gamma", 1e-4, 5.0, log=True),
-        "min_child_weight": trial.suggest_int("min_child_weight", 1, 20),
-        "max_delta_step": trial.suggest_int("max_delta_step", 0, 20),
-        "image_size": trial.suggest_categorical(
-            "image_size",
-            sorted(set(args.image_size_choices)),
-        ),
-    }
-
-
-def _xgb_objective_factory(args: argparse.Namespace, study_dir: Path):
-    # NOT: XGBoost trial'larinda epoch bazli pruning desteklenmemektedir.
-    # XGBoost mod'unda study NopPruner ile olusturulur (bk. main()) ve
-    # trial.report() cagrilmaz; her trial tam egitime tabi tutulur.
-    use_cv = args.hpo_folds > 1
-
-    def objective(trial) -> float:
-        params = _sample_xgb_params(trial, args)
-        trial_dir = _trial_dir(study_dir, trial.number)
-        trial_dir.mkdir(parents=True, exist_ok=True)
-
-        config = SLTrainingConfig(
-            n_estimators=params["n_estimators"],
-            max_depth=params["max_depth"],
-            learning_rate=params["learning_rate"],
-            subsample=params["subsample"],
-            colsample_bytree=params["colsample_bytree"],
-            reg_lambda=params["reg_lambda"],
-            reg_alpha=params["reg_alpha"],
-            gamma=params["gamma"],
-            min_child_weight=params["min_child_weight"],
-            max_delta_step=params["max_delta_step"],
-            image_size=params["image_size"],
-            trainval_dir=args.trainval_dir,
-            test_dir=args.test_dir,
-            val_ratio=args.val_ratio,
-            test_ratio=args.test_ratio,
-            seed=args.seed,
-            feature_cache=_resolve_feature_cache(args),
-            device=getattr(args, "xgb_device", "auto"),
-            n_jobs=getattr(args, "xgb_n_jobs", None),
-            class_balance=getattr(args, "xgb_class_balance", "none"),
-        )
-
-        try:
-            if use_cv:
-                cv_results = run_sl_cv_training(
-                    config,
-                    n_folds=args.hpo_folds,
-                    save_artifacts=False,
-                    evaluate_test_set=False,
-                    verbose=args.verbose_trials,
-                    selection_metric=args.metric,
-                )
-            else:
-                results = run_sl_training(
-                    config,
-                    save_artifacts=False,
-                    evaluate_test_set=False,
-                    verbose=args.verbose_trials,
-                    selection_metric=args.metric,
-                )
-        except Exception as exc:
-            _write_json(
-                trial_dir / "trial_summary.json",
-                {
-                    "trial_number": trial.number,
-                    "state": "FAILED",
-                    "params": params,
-                    "metric": args.metric,
-                    "error": str(exc),
-                },
-            )
-            raise
-
-        if use_cv:
-            aggregate = cv_results["aggregate"]
-            val_summary = aggregate.get("val") or {}
-            metric_summary = val_summary.get(args.metric)
-            if metric_summary is None:
-                raise RuntimeError(
-                    f"XGBoost CV val metrikleri eksik: '{args.metric}' bulunamadi."
-                )
-            objective_value = float(metric_summary["mean"])
-            best_iterations = [
-                int(r["best_iteration"]) for r in cv_results["fold_results"]
-                if r.get("best_iteration") is not None
-            ]
-            best_iteration_avg = (
-                int(round(sum(best_iterations) / len(best_iterations)))
-                if best_iterations
-                else None
-            )
-            trial.set_user_attr("trial_dir", str(trial_dir))
-            trial.set_user_attr("hpo_folds", args.hpo_folds)
-            trial.set_user_attr(f"val_{args.metric}_mean", metric_summary["mean"])
-            trial.set_user_attr(f"val_{args.metric}_std", metric_summary["std"])
-            f1_summary = val_summary.get("f1")
-            if f1_summary is not None:
-                trial.set_user_attr("best_val_f1_mean", f1_summary["mean"])
-            if best_iteration_avg is not None:
-                trial.set_user_attr("best_iteration", best_iteration_avg)
-                trial.set_user_attr("best_iterations_per_fold", best_iterations)
-            _write_json(
-                trial_dir / "trial_summary.json",
-                {
-                    "trial_number": trial.number,
-                    "state": "COMPLETE",
-                    "metric": args.metric,
-                    "objective_value": objective_value,
-                    "params": params,
-                    "hpo_folds": args.hpo_folds,
-                    "cv_aggregate": aggregate,
-                    "best_iteration": best_iteration_avg,
-                    "config": cv_results["config"],
-                },
-            )
-            return objective_value
-
-        best_val_metrics = results["best_val_metrics"]
-        if best_val_metrics is None:
-            raise ValueError("XGBoost trial val metrikleri bos.")
-        objective_value = float(best_val_metrics[args.metric])
-        best_iteration = results.get("best_iteration")
-        best_iteration_int = int(best_iteration) if best_iteration is not None else None
-        trial.set_user_attr("trial_dir", str(trial_dir))
-        trial.set_user_attr("best_val_f1", best_val_metrics["f1"])
-        if best_iteration_int is not None:
-            trial.set_user_attr("best_iteration", best_iteration_int)
-
-        _write_json(
-            trial_dir / "trial_summary.json",
-            {
-                "trial_number": trial.number,
-                "state": "COMPLETE",
-                "metric": args.metric,
-                "objective_value": objective_value,
-                "params": params,
-                "best_iteration": best_iteration_int,
-                "best_val_metrics": best_val_metrics,
-                "config": results["config"],
-            },
-        )
-        return objective_value
-
-    return objective
-
-
-def _resolve_final_xgb_n_estimators(
-    searched_n_estimators: int,
-    best_iteration: Any | None,
-) -> tuple[int, int | None]:
-    searched_n_estimators = max(1, int(searched_n_estimators))
-    if best_iteration is None:
-        return searched_n_estimators, None
-
-    try:
-        best_iteration_int = int(best_iteration)
-    except (TypeError, ValueError):
-        return searched_n_estimators, None
-
-    if best_iteration_int < 0:
-        return searched_n_estimators, None
-
-    final_n_estimators = min(searched_n_estimators, best_iteration_int + 1)
-    return max(1, final_n_estimators), best_iteration_int
-
-
-def _run_final_xgb_training(
-    args: argparse.Namespace,
-    study_dir: Path,
-    best_params: dict[str, Any],
-    study_name: str,
-    best_trial_number: int,
-    best_iteration: Any | None,
-) -> dict[str, Any]:
-    searched_n_estimators = int(best_params["n_estimators"])
-    final_n_estimators, best_iteration_int = _resolve_final_xgb_n_estimators(
-        searched_n_estimators,
-        best_iteration,
-    )
-    config = SLTrainingConfig(
-        n_estimators=final_n_estimators,
-        max_depth=int(best_params["max_depth"]),
-        learning_rate=float(best_params["learning_rate"]),
-        subsample=float(best_params["subsample"]),
-        colsample_bytree=float(best_params["colsample_bytree"]),
-        reg_lambda=float(best_params["reg_lambda"]),
-        reg_alpha=float(best_params.get("reg_alpha", 0.0)),
-        gamma=float(best_params.get("gamma", 0.0)),
-        min_child_weight=int(best_params["min_child_weight"]),
-        max_delta_step=int(best_params.get("max_delta_step", 0)),
-        image_size=int(best_params["image_size"]),
-        trainval_dir=args.trainval_dir,
-        test_dir=args.test_dir,
-        val_ratio=args.val_ratio,
-        test_ratio=args.test_ratio,
-        seed=args.seed,
-        feature_cache=_resolve_feature_cache(args),
-        device=getattr(args, "xgb_device", "auto"),
-        n_jobs=getattr(args, "xgb_n_jobs", None),
-        class_balance=getattr(args, "xgb_class_balance", "none"),
-    )
-    final_dir = study_dir / "best_run"
-    return run_sl_training(
-        config,
-        output_root=final_dir,
-        artifact_tag="xgboost_tuned",
-        save_artifacts=True,
-        evaluate_test_set=True,
-        full_trainval=True,
-        verbose=True,
-        selection_metric=args.metric,
-        extra_report={
-            "study_name": study_name,
-            "best_trial_number": best_trial_number,
-            "optimized_metric": args.metric,
-            "search_type": "bayesian_tpe",
-            "best_trial_n_estimators": searched_n_estimators,
-            "best_trial_best_iteration": best_iteration_int,
-            "final_n_estimators": final_n_estimators,
-            "final_n_estimators_source": (
-                "best_iteration_plus_one"
-                if best_iteration_int is not None
-                else "best_trial_n_estimators"
-            ),
-        },
-    )
-
-
-def _run_final_training(
-    args: argparse.Namespace,
-    study_dir: Path,
-    best_params: dict[str, Any],
-    study_name: str,
-    best_trial_number: int,
-    best_epoch: int | None,
-) -> dict[str, Any]:
-    final_config = _build_config_from_args(
-        args,
-        epochs=int(best_epoch) if best_epoch is not None else args.epochs,
-        batch_size=int(best_params["batch_size"]),
-        lr=float(best_params["lr"]),
-        image_size=int(best_params["image_size"]),
-        loss=str(best_params["loss"]),
-        pretrained=bool(best_params.get("pretrained", False)),
-        weight_decay=float(best_params["weight_decay"]),
-        scheduler_factor=float(best_params["scheduler_factor"]),
-        scheduler_patience=int(best_params["scheduler_patience"]),
-        focal_gamma=float(best_params.get("focal_gamma", 2.0)),
-        dropout=float(best_params.get("dropout", 0.5)),
-        label_smoothing=float(best_params.get("label_smoothing", 0.0)),
-        hflip_p=float(best_params.get("hflip_p", 0.0)),
-        rotation_degrees=float(best_params.get("rotation_degrees", 10.0)),
-        color_jitter=float(best_params.get("color_jitter", 0.1)),
-    )
-    final_dir = study_dir / "best_run"
-    return run_training(
-        final_config,
-        output_root=final_dir,
-        artifact_tag=f"{args.model}_tuned",
-        save_artifacts=True,
-        evaluate_test_set=True,
-        full_trainval=True,
-        verbose=True,
-        selection_metric=args.metric,
-        extra_report={
-            "study_name": study_name,
-            "best_trial_number": best_trial_number,
-            "best_trial_epoch_count": int(best_epoch) if best_epoch is not None else args.epochs,
-            "optimized_metric": args.metric,
-            "search_type": "bayesian_tpe",
-        },
-    )
+    hpo_dl._validate_dl_args(args)
 
 
 def _figure_from_plot_result(plot_result: Any) -> Any | None:
@@ -1265,9 +550,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if trials_to_run > 0:
         if args.model == "xgboost":
-            objective_fn = _xgb_objective_factory(args, study_dir)
+            objective_fn = hpo_xgb._xgb_objective_factory(args, study_dir)
         else:
-            objective_fn = _objective_factory(args, study_dir)
+            objective_fn = hpo_dl._objective_factory(args, study_dir)
         study.optimize(
             objective_fn,
             n_trials=trials_to_run,
@@ -1292,7 +577,7 @@ def main(argv: list[str] | None = None) -> int:
             "Tum trainval uzerinde final egitim baslatiliyor."
         )
         if args.model == "xgboost":
-            final_run = _run_final_xgb_training(
+            final_run = hpo_xgb._run_final_xgb_training(
                 args=args,
                 study_dir=study_dir,
                 best_params=study.best_trial.params,
@@ -1301,7 +586,7 @@ def main(argv: list[str] | None = None) -> int:
                 best_iteration=study.best_trial.user_attrs.get("best_iteration"),
             )
         else:
-            final_run = _run_final_training(
+            final_run = hpo_dl._run_final_training(
                 args=args,
                 study_dir=study_dir,
                 best_params=study.best_trial.params,

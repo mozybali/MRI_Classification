@@ -42,7 +42,7 @@ from model.dl.utils import (
     plot_training_curves,
     set_seed,
 )
-from model import hpo, training_runner
+from model import hpo, hpo_dl, hpo_xgb, training_runner
 from model.train import build_model, parse_args as parse_train_args
 
 
@@ -783,7 +783,7 @@ def test_hpo_skip_final_train_icin_test_dizini_zorunlu_degildir(monkeypatch):
         calls["full_trainval"] = full_trainval
 
     monkeypatch.setattr(hpo, "optuna", FakeOptuna())
-    monkeypatch.setattr(hpo, "validate_training_config", fake_validate_training_config)
+    monkeypatch.setattr(hpo_dl, "validate_training_config", fake_validate_training_config)
 
     args = hpo.parse_args(["--trials", "1", "--skip-final-train"])
     hpo.validate_search_args(args)
@@ -1101,9 +1101,9 @@ def test_run_final_training_en_iyi_epoch_ve_full_trainval_kullanir(monkeypatch, 
         captured["kwargs"] = kwargs
         return {"output_root": tmp_path / "best_run", "report_path": tmp_path / "report.json"}
 
-    monkeypatch.setattr(hpo, "run_training", fake_run_training)
+    monkeypatch.setattr(hpo_dl, "run_training", fake_run_training)
 
-    result = hpo._run_final_training(
+    result = hpo_dl._run_final_training(
         args=hpo.parse_args(["--model", "resnet", "--epochs", "12"]),
         study_dir=tmp_path,
         best_params={
@@ -1273,7 +1273,7 @@ def test_hpo_parse_args_hpo_folds_flagini_cozer():
 
 def test_hpo_validate_args_hpo_folds_negatif_reddeder(monkeypatch):
     monkeypatch.setattr(hpo, "optuna", object())
-    monkeypatch.setattr(hpo, "validate_training_config", lambda *a, **k: None)
+    monkeypatch.setattr(hpo_dl, "validate_training_config", lambda *a, **k: None)
 
     args = hpo.parse_args(["--trials", "1", "--hpo-folds", "0", "--skip-final-train"])
     with pytest.raises(ValueError, match="--hpo-folds en az 1"):
@@ -1753,19 +1753,19 @@ def test_hpo_parse_args_paralel_ve_cache_flaglerini_cozer():
 
 def test_hpo_resolve_feature_cache_no_feature_cache_iken_none_doner():
     args = hpo.parse_args(["--trials", "1", "--no-feature-cache"])
-    assert hpo._resolve_feature_cache(args) is None
+    assert hpo_xgb._resolve_feature_cache(args) is None
 
 
 def test_hpo_resolve_feature_cache_acik_dizini_kullanir():
     args = hpo.parse_args(
         ["--trials", "1", "--feature-cache", "custom/cache_dir"]
     )
-    assert hpo._resolve_feature_cache(args) == "custom/cache_dir"
+    assert hpo_xgb._resolve_feature_cache(args) == "custom/cache_dir"
 
 
 def test_hpo_validate_search_args_n_jobs_negatif_reddeder(monkeypatch):
     monkeypatch.setattr(hpo, "optuna", object())
-    monkeypatch.setattr(hpo, "validate_training_config", lambda *a, **k: None)
+    monkeypatch.setattr(hpo_dl, "validate_training_config", lambda *a, **k: None)
 
     args = hpo.parse_args(["--trials", "1", "--n-jobs", "0", "--skip-final-train"])
     with pytest.raises(ValueError, match="--n-jobs en az 1"):
@@ -1774,7 +1774,7 @@ def test_hpo_validate_search_args_n_jobs_negatif_reddeder(monkeypatch):
 
 def test_hpo_validate_search_args_xgb_n_jobs_negatif_reddeder(monkeypatch):
     monkeypatch.setattr(hpo, "optuna", object())
-    monkeypatch.setattr(hpo, "validate_sl_config", lambda *a, **k: None)
+    monkeypatch.setattr(hpo_xgb, "validate_sl_config", lambda *a, **k: None)
 
     args = hpo.parse_args(
         [
@@ -2145,7 +2145,7 @@ def test_hpo_dl_objective_basari_yolunda_release_cuda_memory_cagrir(monkeypatch,
     release_calls = {"count": 0}
 
     monkeypatch.setattr(
-        hpo,
+        hpo_dl,
         "release_cuda_memory",
         lambda: release_calls.__setitem__("count", release_calls["count"] + 1),
     )
@@ -2159,7 +2159,7 @@ def test_hpo_dl_objective_basari_yolunda_release_cuda_memory_cagrir(monkeypatch,
         },
         "config": {"model": "resnet"},
     }
-    monkeypatch.setattr(hpo, "run_training", lambda *a, **k: fake_results)
+    monkeypatch.setattr(hpo_dl, "run_training", lambda *a, **k: fake_results)
 
     def fake_sample(_trial, _args):
         return {
@@ -2179,10 +2179,10 @@ def test_hpo_dl_objective_basari_yolunda_release_cuda_memory_cagrir(monkeypatch,
             "pretrained": False,
         }
 
-    monkeypatch.setattr(hpo, "_sample_params", fake_sample)
+    monkeypatch.setattr(hpo_dl, "_sample_params", fake_sample)
 
     args = _hpo_args_for_dl()
-    objective = hpo._objective_factory(args, tmp_path)
+    objective = hpo_dl._objective_factory(args, tmp_path)
     trial = _build_fake_trial()
 
     value = objective(trial)
@@ -2200,7 +2200,7 @@ def test_hpo_dl_objective_basarisiz_trialde_de_release_cuda_memory_cagrir(monkey
     release_calls = {"count": 0}
 
     monkeypatch.setattr(
-        hpo,
+        hpo_dl,
         "release_cuda_memory",
         lambda: release_calls.__setitem__("count", release_calls["count"] + 1),
     )
@@ -2208,7 +2208,7 @@ def test_hpo_dl_objective_basarisiz_trialde_de_release_cuda_memory_cagrir(monkey
     def boom(*_args, **_kwargs):
         raise RuntimeError("CUDA out of memory simulasyonu")
 
-    monkeypatch.setattr(hpo, "run_training", boom)
+    monkeypatch.setattr(hpo_dl, "run_training", boom)
 
     def fake_sample(_trial, _args):
         return {
@@ -2228,10 +2228,10 @@ def test_hpo_dl_objective_basarisiz_trialde_de_release_cuda_memory_cagrir(monkey
             "pretrained": False,
         }
 
-    monkeypatch.setattr(hpo, "_sample_params", fake_sample)
+    monkeypatch.setattr(hpo_dl, "_sample_params", fake_sample)
 
     args = _hpo_args_for_dl()
-    objective = hpo._objective_factory(args, tmp_path)
+    objective = hpo_dl._objective_factory(args, tmp_path)
     trial = _build_fake_trial()
 
     with pytest.raises(RuntimeError, match="CUDA out of memory"):
@@ -2249,7 +2249,7 @@ def test_hpo_dl_objective_cv_basari_yolunda_release_cuda_memory_cagrir(monkeypat
     release_calls = {"count": 0}
 
     monkeypatch.setattr(
-        hpo,
+        hpo_dl,
         "release_cuda_memory",
         lambda: release_calls.__setitem__("count", release_calls["count"] + 1),
     )
@@ -2269,7 +2269,7 @@ def test_hpo_dl_objective_cv_basari_yolunda_release_cuda_memory_cagrir(monkeypat
         "fold_results": [{"best_epoch": 3}, {"best_epoch": 4}],
         "config": {"model": "resnet"},
     }
-    monkeypatch.setattr(hpo, "run_cv_training", lambda *a, **k: fake_cv)
+    monkeypatch.setattr(hpo_dl, "run_cv_training", lambda *a, **k: fake_cv)
 
     def fake_sample(_trial, _args):
         return {
@@ -2289,7 +2289,7 @@ def test_hpo_dl_objective_cv_basari_yolunda_release_cuda_memory_cagrir(monkeypat
             "pretrained": False,
         }
 
-    monkeypatch.setattr(hpo, "_sample_params", fake_sample)
+    monkeypatch.setattr(hpo_dl, "_sample_params", fake_sample)
 
     args = hpo.parse_args(
         [
@@ -2302,7 +2302,7 @@ def test_hpo_dl_objective_cv_basari_yolunda_release_cuda_memory_cagrir(monkeypat
             "--skip-final-train",
         ]
     )
-    objective = hpo._objective_factory(args, tmp_path)
+    objective = hpo_dl._objective_factory(args, tmp_path)
     trial = _build_fake_trial()
 
     value = objective(trial)
@@ -2320,7 +2320,7 @@ def test_hpo_dl_objective_pruned_trialde_de_release_cuda_memory_cagrir(monkeypat
     release_calls = {"count": 0}
 
     monkeypatch.setattr(
-        hpo,
+        hpo_dl,
         "release_cuda_memory",
         lambda: release_calls.__setitem__("count", release_calls["count"] + 1),
     )
@@ -2328,7 +2328,7 @@ def test_hpo_dl_objective_pruned_trialde_de_release_cuda_memory_cagrir(monkeypat
     def pruned(*_args, **_kwargs):
         raise hpo.optuna.TrialPruned("erken pruning")
 
-    monkeypatch.setattr(hpo, "run_training", pruned)
+    monkeypatch.setattr(hpo_dl, "run_training", pruned)
 
     def fake_sample(_trial, _args):
         return {
@@ -2348,10 +2348,10 @@ def test_hpo_dl_objective_pruned_trialde_de_release_cuda_memory_cagrir(monkeypat
             "pretrained": False,
         }
 
-    monkeypatch.setattr(hpo, "_sample_params", fake_sample)
+    monkeypatch.setattr(hpo_dl, "_sample_params", fake_sample)
 
     args = _hpo_args_for_dl()
-    objective = hpo._objective_factory(args, tmp_path)
+    objective = hpo_dl._objective_factory(args, tmp_path)
     trial = _build_fake_trial()
 
     with pytest.raises(hpo.optuna.TrialPruned):

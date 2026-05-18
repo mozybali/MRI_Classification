@@ -381,7 +381,7 @@ class TestXGBStudySummary:
         assert "n_estimators_range" not in summary
 
     def test_final_xgb_n_estimators_uses_best_iteration(self):
-        from model.hpo import _resolve_final_xgb_n_estimators
+        from model.hpo_xgb import _resolve_final_xgb_n_estimators
 
         assert _resolve_final_xgb_n_estimators(100, 24) == (25, 24)
         assert _resolve_final_xgb_n_estimators(100, "9") == (10, 9)
@@ -389,7 +389,7 @@ class TestXGBStudySummary:
         assert _resolve_final_xgb_n_estimators(100, 150) == (100, 150)
 
     def test_final_xgb_training_receives_best_iteration_estimators(self, tmp_path, monkeypatch):
-        from model import hpo
+        from model import hpo, hpo_xgb
 
         args = hpo.parse_args([
             "--model", "xgboost",
@@ -407,7 +407,7 @@ class TestXGBStudySummary:
                 "report_path": kwargs["output_root"] / "rapor.json",
             }
 
-        monkeypatch.setattr(hpo, "run_sl_training", fake_run_sl_training)
+        monkeypatch.setattr(hpo_xgb, "run_sl_training", fake_run_sl_training)
         best_params = {
             "n_estimators": 200,
             "max_depth": 4,
@@ -419,7 +419,7 @@ class TestXGBStudySummary:
             "image_size": 64,
         }
 
-        hpo._run_final_xgb_training(
+        hpo_xgb._run_final_xgb_training(
             args=args,
             study_dir=tmp_path,
             best_params=best_params,

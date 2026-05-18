@@ -16,7 +16,7 @@ class GorselBiasAlignmentMixin:
 
         Farklı kesit/merkez kaymalarına sahip 2D MRI dilimlerini hedef
         çerçevenin merkezine taşır. Yalnızca öteleme yapar; ölçekleme veya
-        dönme uygulamaz, böylece anatomik distorsiyon üretmez.
+        dönme uygulamaz, böylece anatomik bozulmaya yol açmaz.
         """
         if not REGISTRATION_AKTIF:
             return goruntu
