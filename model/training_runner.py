@@ -515,12 +515,18 @@ def run_training(
 
     artifact_stem = artifact_tag or config.model
     output_dirs = None
+    best_checkpoint_path = None
     if save_artifacts:
         output_dirs = _build_output_dirs(output_root or CIKTI_KLASORU)
-
-    best_checkpoint_path = (
-        output_dirs["models"] / f"best_{artifact_stem}.pt" if output_dirs else None
-    )
+        
+        # Sürümleme (v2, v3 vb.) kontrolü:
+        base_stem = artifact_stem
+        version = 1
+        best_checkpoint_path = output_dirs["models"] / f"best_{base_stem}.pt"
+        while best_checkpoint_path.exists():
+            version += 1
+            artifact_stem = f"{base_stem}_v{version}"
+            best_checkpoint_path = output_dirs["models"] / f"best_{artifact_stem}.pt"
     train_losses: list[float] = []
     val_losses: list[float] = []
     train_accs: list[float] = []

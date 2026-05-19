@@ -12,8 +12,17 @@ Kullanim:
 
 from __future__ import annotations
 
-import argparse
 import sys
+
+# macOS OpenMP çakışmasını önlemek için xgboost'u torch'tan (dl modülleri) önce yüklüyoruz.
+# Ancak bu işlemi sadece xgboost modeli seçildiyse yapıyoruz, aksi takdirde resnet mps üzerinde segfault alıyor.
+if any("xgboost" in arg for arg in sys.argv):
+    try:
+        import xgboost
+    except ImportError:
+        pass
+
+import argparse
 from pathlib import Path
 
 if __package__ in {None, ""}:
@@ -197,6 +206,12 @@ Ornekler:
         help="Bir yapragin daha fazla bolunmesi icin gereken minimum loss azalmasi (min_split_loss).",
     )
     xgb_group.add_argument("--xgb-min-child-weight", type=int, default=1, help="Min child weight")
+    xgb_group.add_argument(
+        "--xgb-max-delta-step",
+        type=int,
+        default=0,
+        help="XGBoost max_delta_step degeri. Dengesiz veri setleri icin 1-10 arasi onerilir."
+    )
     xgb_group.add_argument("--feature-cache", type=str, default=None, help="Ozellik cache dizini (.npz)")
     xgb_group.add_argument(
         "--xgb-device",
@@ -289,6 +304,7 @@ def main(argv: list[str] | None = None) -> int:
             reg_alpha=args.xgb_reg_alpha,
             gamma=args.xgb_gamma,
             min_child_weight=args.xgb_min_child_weight,
+            max_delta_step=args.xgb_max_delta_step,
             image_size=args.image_size,
             trainval_dir=args.trainval_dir,
             test_dir=args.test_dir,

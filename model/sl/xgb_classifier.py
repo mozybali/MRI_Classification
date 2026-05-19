@@ -77,6 +77,7 @@ def build_xgb_classifier(
     params: dict[str, Any] | None = None,
     *,
     eval_metric: Any = None,
+    custom_metric: Any = None,
     device: XgbDeviceMode = "auto",
     n_jobs: int | None = None,
 ) -> XGBClassifier:
@@ -133,6 +134,8 @@ def build_xgb_classifier(
         defaults.update(params)
     if eval_metric is not None:
         defaults["eval_metric"] = eval_metric
+    if custom_metric is not None:
+        defaults["custom_metric"] = custom_metric
 
     if defaults.get("device") == "cuda" and not _xgboost_has_cuda_build():
         # Kullanici acikca cuda istedi, ama yuklu XGBoost CPU-only build.

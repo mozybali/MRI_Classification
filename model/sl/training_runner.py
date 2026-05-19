@@ -10,6 +10,12 @@ DL training_runner ile ayni donuş şemasini kullanir.
 
 from __future__ import annotations
 
+# macOS OpenMP çakışmasını önlemek için xgboost'u torch'tan önce yüklüyoruz.
+try:
+    import xgboost
+except ImportError:
+    pass
+
 import json
 import warnings
 from dataclasses import asdict, dataclass
@@ -75,6 +81,17 @@ SUPPORTED_SELECTION_METRICS = {"loss", "accuracy", "precision", "recall", "f1"}
 
 def _xgb_predicted_labels(y_pred: np.ndarray) -> tuple[np.ndarray, list[int]]:
     arr = np.asarray(y_pred)
+    if arr.ndim == 1:
+        # XGBoost 2.x custom_metric'te multi:softprob cikisi (n*k,) flat olabilir;
+        # sinif sayisi bilinmiyorsa en yakin kare sayiya yuvarla (guvenli tahmini).
+        n_classes = len(SINIF_ISIMLERI)
+        if arr.size % n_classes == 0:
+            arr = arr.reshape(-1, n_classes)
+        else:
+            raise ValueError(
+                f"Custom metric: flat y_pred boyutu ({arr.size}) "
+                f"n_classes={n_classes} ile bolunemiyor."
+            )
     if arr.ndim != 2:
         raise ValueError(
             f"Custom metric multiclass softprob bekliyor; aldi shape={arr.shape}"
@@ -82,33 +99,33 @@ def _xgb_predicted_labels(y_pred: np.ndarray) -> tuple[np.ndarray, list[int]]:
     return arr.argmax(axis=1), list(range(arr.shape[1]))
 
 
-def _xgb_macro_f1_loss(y_true, y_pred, sample_weight=None):
+# XGBoost 2.x custom_metric imzasi: (y_true, y_pred) -> (name: str, value: float)
+# XGBoost varsayilan olarak minimize eder; (1 - metrik) dondurerek maksimizasyon saglanir.
+
+def _xgb_macro_f1_loss(y_true: np.ndarray, y_pred: np.ndarray) -> tuple[str, float]:
     preds, labels = _xgb_predicted_labels(y_pred)
-    return 1.0 - f1_score(
+    return ("1-macro_f1", 1.0 - float(f1_score(
         y_true, preds, labels=labels, average="macro", zero_division=0,
-        sample_weight=sample_weight,
-    )
+    )))
 
 
-def _xgb_macro_precision_loss(y_true, y_pred, sample_weight=None):
+def _xgb_macro_precision_loss(y_true: np.ndarray, y_pred: np.ndarray) -> tuple[str, float]:
     preds, labels = _xgb_predicted_labels(y_pred)
-    return 1.0 - precision_score(
+    return ("1-macro_precision", 1.0 - float(precision_score(
         y_true, preds, labels=labels, average="macro", zero_division=0,
-        sample_weight=sample_weight,
-    )
+    )))
 
 
-def _xgb_macro_recall_loss(y_true, y_pred, sample_weight=None):
+def _xgb_macro_recall_loss(y_true: np.ndarray, y_pred: np.ndarray) -> tuple[str, float]:
     preds, labels = _xgb_predicted_labels(y_pred)
-    return 1.0 - recall_score(
+    return ("1-macro_recall", 1.0 - float(recall_score(
         y_true, preds, labels=labels, average="macro", zero_division=0,
-        sample_weight=sample_weight,
-    )
+    )))
 
 
-def _xgb_accuracy_loss(y_true, y_pred, sample_weight=None):
+def _xgb_accuracy_loss(y_true: np.ndarray, y_pred: np.ndarray) -> tuple[str, float]:
     preds, _labels = _xgb_predicted_labels(y_pred)
-    return 1.0 - accuracy_score(y_true, preds, sample_weight=sample_weight)
+    return ("1-accuracy", 1.0 - float(accuracy_score(y_true, preds)))
 
 
 _SELECTION_METRIC_CALLABLES: dict[str, Any] = {
@@ -119,12 +136,13 @@ _SELECTION_METRIC_CALLABLES: dict[str, Any] = {
 }
 
 
-def _xgb_eval_metric_for_selection(selection_metric: str) -> tuple[Any, str]:
-    """selection_metric -> (eval_metric, xgb_early_stopping_metric_label).
+def _xgb_eval_metric_for_selection(selection_metric: str) -> tuple[str, Any, str]:
+    """selection_metric -> (eval_metric_str, custom_metric_callable | None, label).
 
-    ``loss`` icin tek metrik ("mlogloss") doner; diger metrikler icin
-    [mlogloss, custom_loss] listesi doner. XGBoost early stopping listenin
-    son metrigine gore karar verdigi icin custom metric daima son sirada.
+    XGBoost 2.x'te callable metrikler ``eval_metric`` degil ``custom_metric``
+    parametresine gecilmeli. ``loss`` icin custom_metric=None; diger metrikler
+    icin custom_metric=callable doner. XGBoost early stopping custom_metric
+    mevcutsa onu son metrik olarak kullanir ve minimize eder.
     """
     if selection_metric not in SUPPORTED_SELECTION_METRICS:
         raise ValueError(
@@ -132,10 +150,10 @@ def _xgb_eval_metric_for_selection(selection_metric: str) -> tuple[Any, str]:
             f"Desteklenen: {sorted(SUPPORTED_SELECTION_METRICS)}"
         )
     if selection_metric == "loss":
-        return "mlogloss", "mlogloss"
+        return "mlogloss", None, "mlogloss"
     callable_metric = _SELECTION_METRIC_CALLABLES[selection_metric]
-    label = f"1 - macro_{selection_metric}" if selection_metric != "accuracy" else "1 - accuracy"
-    return ["mlogloss", callable_metric], label
+    label = f"1-macro_{selection_metric}" if selection_metric != "accuracy" else "1-accuracy"
+    return "mlogloss", callable_metric, label
 
 
 @dataclass(slots=True)
@@ -690,11 +708,12 @@ def run_sl_training(
         "max_delta_step": config.max_delta_step,
         "random_state": config.seed,
     }
-    eval_metric, xgb_early_stopping_metric = _xgb_eval_metric_for_selection(selection_metric)
+    eval_metric, custom_metric, xgb_early_stopping_metric = _xgb_eval_metric_for_selection(selection_metric)
     model = build_xgb_classifier(
         num_classes,
         xgb_params,
         eval_metric=eval_metric,
+        custom_metric=custom_metric,
         device=config.device,
         n_jobs=config.n_jobs,
     )
@@ -790,7 +809,16 @@ def run_sl_training(
     feature_importance_path: Path | None = None
     if save_artifacts:
         output_dirs = _build_output_dirs(output_root or CIKTI_KLASORU)
-        checkpoint_path = output_dirs["models"] / f"best_{artifact_stem}.json"
+        
+        # Sürümleme (v2, v3 vb.) kontrolü:
+        base_stem = artifact_stem
+        version = 1
+        checkpoint_path = output_dirs["models"] / f"best_{base_stem}.json"
+        while checkpoint_path.exists():
+            version += 1
+            artifact_stem = f"{base_stem}_v{version}"
+            checkpoint_path = output_dirs["models"] / f"best_{artifact_stem}.json"
+
         save_xgb_model(
             model,
             checkpoint_path,
