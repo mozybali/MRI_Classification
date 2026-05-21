@@ -492,13 +492,15 @@ def run_training(
         lr=config.lr,
         weight_decay=config.weight_decay,
     )
+    # Scheduler ve early stopping checkpoint secimiyle ayni sinyali izlesin:
+    # selection_metric "loss" ise minimize, f1/accuracy/... ise maximize.
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
-        mode="min",
+        mode="min" if selection_mode == "minimize" else "max",
         factor=config.scheduler_factor,
         patience=config.scheduler_patience,
     )
-    early_stopping = EarlyStopping(patience=config.patience)
+    early_stopping = EarlyStopping(patience=config.patience, mode=selection_mode)
 
     # GradScaler bf16'da gereksiz; fp16 secimi runtime'da yapildigi icin
     # CUDA fp16 yolu icin scaler'i burada olusturup epoch dongusu boyunca paylas.
@@ -582,7 +584,7 @@ def run_training(
                     f"Train Loss: {train_scalars['loss']:.4f} Acc: {train_scalars['accuracy']:.4f} "
                     f"F1: {train_scalars['f1']:.4f} | LR: {lr_current:.2e}"
                 )
-            scheduler.step(train_scalars["loss"])
+            scheduler.step(train_scalars[selection_metric])
             if on_epoch_end is not None:
                 on_epoch_end(epoch, train_scalars, {})
             best_train_metrics = dict(train_scalars)
@@ -611,7 +613,7 @@ def run_training(
         if on_epoch_end is not None:
             on_epoch_end(epoch, train_scalars, val_scalars)
 
-        scheduler.step(val_scalars["loss"])
+        scheduler.step(val_scalars[selection_metric])
 
         if val_scalars["loss"] < lowest_val_loss:
             lowest_val_loss = val_scalars["loss"]
@@ -651,11 +653,11 @@ def run_training(
                         f"({selection_metric}={current_selection_value:.4f})"
                     )
 
-        if early_stopping(val_scalars["loss"]):
+        if early_stopping(val_scalars[selection_metric]):
             if verbose:
                 print(
-                    f"\n[INFO] Early stopping: {config.patience} epoch boyunca "
-                    "iyilesme olmadi."
+                    f"\n[INFO] Early stopping (selection_metric={selection_metric}): "
+                    f"{config.patience} epoch boyunca iyilesme olmadi."
                 )
             break
 

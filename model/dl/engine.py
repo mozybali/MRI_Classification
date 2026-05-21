@@ -233,25 +233,40 @@ def evaluate(
 
 
 class EarlyStopping:
-    """Overfitting'i onlemek icin early stopping mekanizmasi."""
+    """Overfitting'i onlemek icin early stopping mekanizmasi.
 
-    def __init__(self, patience: int = VARSAYILAN_EARLY_STOPPING_SABIR, min_delta: float = 1e-4):
+    ``mode`` izlenen metrigin yonunu belirler: ``"minimize"`` (loss gibi; kucuk
+    deger iyi) veya ``"maximize"`` (f1/accuracy gibi; buyuk deger iyi). Ic mantik
+    her zaman bir ``score``'u maksimize eder; minimize modda metrik negatiflenir.
+    Boylece checkpoint secimi hangi metrige bakiyorsa early stopping de ayni
+    sinyali izler ve karar uzayi tek merkeze toplanir.
+    """
+
+    def __init__(
+        self,
+        patience: int = VARSAYILAN_EARLY_STOPPING_SABIR,
+        min_delta: float = 1e-4,
+        mode: str = "minimize",
+    ):
+        if mode not in {"minimize", "maximize"}:
+            raise ValueError(f"Gecersiz EarlyStopping mode: {mode}")
         self.patience = patience
         self.min_delta = min_delta
+        self.mode = mode
         self.counter = 0
         self.best_score: float | None = None
         self.should_stop = False
 
-    def __call__(self, val_loss: float) -> bool:
+    def __call__(self, metric_value: float) -> bool:
         # NaN/Inf gelirse karsilastirmalar False doner ve best_score bozulur;
         # bu durumu acik bir bozulma adimi olarak say.
-        if not math.isfinite(val_loss):
+        if not math.isfinite(metric_value):
             self.counter += 1
             if self.counter >= self.patience:
                 self.should_stop = True
             return self.should_stop
 
-        score = -val_loss
+        score = -metric_value if self.mode == "minimize" else metric_value
         if self.best_score is None:
             # Ilk gecerli skor baseline'i kurar; onceki NaN/Inf adimlarinda
             # artmis olabilecek counter'i sifirla.
