@@ -8,6 +8,17 @@ import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
+# ── OpenMP runtime çakışması koruması ────────────────────────────────────────
+# torch ve xgboost aynı process'te kullanıldığında her ikisi de kendi OpenMP
+# runtime'ını (libiomp5 / libomp) yükler. İki runtime aynı anda yüklenince
+# "OMP: Error #15" tetiklenir; process abort olur ya da kilitlenir (web tepkisiz
+# kalır). Tek model kullanılırken tek framework yüklendiği için sorun görünmez;
+# ikinci model (farklı tür) devreye girince ortaya çıkar.
+# Bu satır herhangi bir torch/xgboost import'undan ÖNCE çalışmalıdır — settings.py
+# Django başlangıcında, model yüklemelerinden çok önce import edildiği için
+# burası güvenli noktadır. setdefault: kullanıcı kendi değerini ezmesin diye.
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+
 # ── Dizin tanımları ──────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent          # web/
 PROJECT_ROOT = BASE_DIR.parent                              # MRI_Classification/
