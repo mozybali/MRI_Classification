@@ -240,8 +240,9 @@ Ornekler:
         help=(
             "Sinif dengesizligi telafisi. 'none' (varsayilan): mevcut davranis, "
             "agirlik uygulanmaz. 'balanced': sklearn compute_sample_weight ile "
-            "her ornege class-frequency'ye ters orantili agirlik atanir; hem "
-            "XGBoost loss'una hem eval_set/erken durdurma metriklerine gecirilir."
+            "her ornege class-frequency'ye ters orantili agirlik atanir; agirlik "
+            "yalnizca XGBoost egitim loss'una uygulanir, eval_set/erken durdurma "
+            "metrikleri raporlanan validasyonla ayni uzayda kalsin diye agirliksizdir."
         ),
     )
 

@@ -112,16 +112,18 @@ def _xgb_predicted_labels(y_pred: np.ndarray) -> tuple[np.ndarray, list[int]]:
 
 
 # XGBoost sklearn API eval_metric callable imzasi:
-# (y_true, y_pred, sample_weight=None) -> float. XGBoost'un _metric_decorator'i
-# eval DMatrix'inde agirlik varsa (--xgb-class-balance balanced ile
-# sample_weight_eval_set gecildiginde) callable'i sample_weight kwarg'iyle
-# cagirir; bu yuzden imzada opsiyonel olarak kabul edip sklearn metrigine
-# aktariyoruz. Aksi halde balanced modda fit asamasinda TypeError alinir ve
-# erken durdurma metrigi de agirliklandirilmamis olurdu. XGBoost varsayilan
-# olarak minimize eder; (1 - metrik) dondurerek maksimizasyon saglanir.
-# Callable'lar eval_metric listesinde gecirilir ve metrik adi fonksiyonun
-# __name__'inden okunur. XGBoost'un native (name, value) tuple imzali
-# ``custom_metric`` parametresi sklearn XGBClassifier'da desteklenmez.
+# (y_true, y_pred, sample_weight=None) -> float. Erken durdurma bilerek
+# agirliksiz validasyon uzerinden karar verir: balanced modda dahi
+# sample_weight_eval_set gecilmez, dolayisiyla eval DMatrix'lerinde agirlik
+# bulunmaz ve XGBoost'un _metric_decorator'i callable'i sample_weight olmadan
+# cagirir. sample_weight parametresi yine de imzada savunma amacli tutulur:
+# _metric_decorator, bir eval DMatrix'inde agirlik bulursa callable'i
+# sample_weight kwarg'iyle cagirir; opsiyonel parametre bu durumda TypeError'i
+# onler. XGBoost varsayilan olarak minimize eder; (1 - metrik) dondurerek
+# maksimizasyon saglanir. Callable'lar eval_metric listesinde gecirilir ve
+# metrik adi fonksiyonun __name__'inden okunur. XGBoost'un native
+# (name, value) tuple imzali ``custom_metric`` parametresi sklearn
+# XGBClassifier'da desteklenmez.
 
 def _xgb_macro_f1_loss(
     y_true: np.ndarray,
@@ -769,17 +771,17 @@ def run_sl_training(
 
     # Sinif dengesizligi telafisi: --xgb-class-balance balanced ise az ornekli
     # sinifin ornek-bazli agirligi n_samples / (n_classes * n_class_samples)
-    # formuluyle artirilir. Eval_set'e de ayni agirliklar gecirilir; aksi halde
-    # XGBoost'un erken durdurmasi dengesiz mlogloss/macro-f1 uzerinden karar
-    # verir ve azinlik sinifindaki iyilesmeyi gormez.
+    # formuluyle artirilir. Agirlik YALNIZCA egitim hedefine (sample_weight)
+    # uygulanir; eval_set'e (dolayisiyla erken durdurmaya) bilerek gecirilmez.
+    # Boylece XGBoost'un durdugu iterasyon, best_val_metrics'in raporladigi ve
+    # HPO objective'inin puanladigi agirliksiz validasyon metrigiyle ayni
+    # uzayda secilir. sample_weight_eval_set gecilseydi erken durdurma agirlikli
+    # validasyona, raporlanan/optimize edilen deger agirliksiz validasyona gore
+    # olur ve ikisi ayrisirdi.
     train_sample_weight: np.ndarray | None = None
     if config.class_balance == "balanced":
         train_sample_weight = compute_sample_weight("balanced", y_train)
         fit_params["sample_weight"] = train_sample_weight
-        eval_weights: list[np.ndarray] = [train_sample_weight]
-        if X_val is not None and y_val is not None:
-            eval_weights.append(compute_sample_weight("balanced", y_val))
-        fit_params["sample_weight_eval_set"] = eval_weights
         if verbose:
             unique_classes, counts = np.unique(y_train, return_counts=True)
             weight_summary = {

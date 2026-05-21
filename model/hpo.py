@@ -240,8 +240,8 @@ Ornekler:
             "XGBoost sinif dengesizligi telafisi (sadece --model xgboost icin). "
             "'none' (varsayilan): mevcut davranis. 'balanced': sklearn "
             "compute_sample_weight ile her ornege ters-frekans agirlik atanir; "
-            "hem trial fit'lerinde hem final egitimde train ve eval_set "
-            "agirliklandirilir."
+            "hem trial fit'lerinde hem final egitimde agirlik yalnizca egitim "
+            "loss'una uygulanir, eval_set/erken durdurma agirliksiz birakilir."
         ),
     )
     parser.add_argument(

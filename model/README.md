@@ -305,7 +305,7 @@ mri-train --model xgboost --folds 5 --trainval-dir goruntu_isleme/cikti/trainval
 
 `--feature-cache` kullanıldığında cache dosyaları veri dizini ve `image_size` metadata'sı ile doğrulanır. Aynı cache farklı veri dizini veya farklı görüntü boyutu için kullanılırsa hata verilir.
 
-Sınıf dengesizliği için `--xgb-class-balance balanced` kullanılabilir. Bu modda `sklearn.compute_sample_weight("balanced", ...)` ile train ve validation örnek ağırlıkları hesaplanır; ağırlıklar hem XGBoost loss'una hem de erken durdurma değerlendirmesine aktarılır.
+Sınıf dengesizliği için `--xgb-class-balance balanced` kullanılabilir. Bu modda `sklearn.compute_sample_weight("balanced", ...)` ile train örnek ağırlıkları hesaplanır ve yalnızca XGBoost eğitim loss'una uygulanır. `eval_set`/erken durdurma metrikleri bilerek ağırlıksız bırakılır; böylece modelin durduğu iterasyon, raporlanan ve HPO objective'inin optimize ettiği ağırlıksız validasyon metriğiyle aynı uzayda seçilir.
 
 ## Hiperparametre Araması
 
