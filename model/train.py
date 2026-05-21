@@ -16,7 +16,10 @@ import sys
 
 # macOS OpenMP çakışmasını önlemek için xgboost'u torch'tan (dl modülleri) önce yüklüyoruz.
 # Ancak bu işlemi sadece xgboost modeli seçildiyse yapıyoruz, aksi takdirde resnet mps üzerinde segfault alıyor.
-if any("xgboost" in arg for arg in sys.argv):
+# Yalnızca macOS: Windows'ta xgboost'u torch'tan önce yüklemek torch'un c10.dll'ini
+# bozuyor (OSError WinError 1114). Windows'ta torch zaten dl.dataset üzerinden
+# xgboost'tan önce yüklendiği için bu workaround'a gerek yok.
+if sys.platform == "darwin" and any("xgboost" in arg for arg in sys.argv):
     try:
         import xgboost
     except ImportError:

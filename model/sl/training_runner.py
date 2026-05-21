@@ -10,11 +10,23 @@ DL training_runner ile ayni donuş şemasini kullanir.
 
 from __future__ import annotations
 
-# macOS OpenMP çakışmasını önlemek için xgboost'u torch'tan önce yüklüyoruz.
-try:
-    import xgboost
-except ImportError:
-    pass
+import sys
+
+# OpenMP runtime cakismasi: torch, xgboost ve scikit-learn Windows/macOS'ta
+# kendi OpenMP runtime'larini yukler ve yanlis sirada yuklenirlerse cakisirlar.
+# - macOS: xgboost torch'tan ONCE yuklenmeli, aksi halde segfault.
+# - Windows: torch sklearn/xgboost'tan ONCE yuklenmeli, aksi halde torch'un
+#   c10.dll'i baslatilamiyor (OSError WinError 1114).
+if sys.platform == "darwin":
+    try:
+        import xgboost
+    except ImportError:
+        pass
+else:
+    try:
+        import torch  # noqa: F401
+    except ImportError:
+        pass
 
 import json
 import warnings
@@ -73,17 +85,17 @@ SUPPORTED_SELECTION_METRICS = {"loss", "accuracy", "precision", "recall", "f1"}
 
 # ==================== Custom XGBoost eval metric callable'lari ====================
 #
-# XGBoost custom_metric'i varsayilan olarak minimize edildigi icin maximize
-# istenen metriklerden 1.0 - metric donduren "loss-like" callable'lar uretiriz.
-# Module-level isimli fonksiyonlar; functools.partial XGBoost 3.2'de
+# XGBoost eval_metric callable'i varsayilan olarak minimize edildigi icin
+# maximize istenen metriklerden 1.0 - metric donduren "loss-like" callable'lar
+# uretiriz. Module-level isimli fonksiyonlar; functools.partial XGBoost 3.2'de
 # `__name__` aramasinda hata veriyor. Multiprocessing/HPO icin de pickle-safe.
 
 
 def _xgb_predicted_labels(y_pred: np.ndarray) -> tuple[np.ndarray, list[int]]:
     arr = np.asarray(y_pred)
     if arr.ndim == 1:
-        # XGBoost 2.x custom_metric'te multi:softprob cikisi (n*k,) flat olabilir;
-        # sinif sayisi bilinmiyorsa en yakin kare sayiya yuvarla (guvenli tahmini).
+        # XGBoost eval_metric callable'inda multi:softprob cikisi (n*k,) flat
+        # gelebilir; sinif sayisina gore (n, k) matrise yeniden sekillendiririz.
         n_classes = len(SINIF_ISIMLERI)
         if arr.size % n_classes == 0:
             arr = arr.reshape(-1, n_classes)
@@ -99,33 +111,61 @@ def _xgb_predicted_labels(y_pred: np.ndarray) -> tuple[np.ndarray, list[int]]:
     return arr.argmax(axis=1), list(range(arr.shape[1]))
 
 
-# XGBoost 2.x custom_metric imzasi: (y_true, y_pred) -> (name: str, value: float)
-# XGBoost varsayilan olarak minimize eder; (1 - metrik) dondurerek maksimizasyon saglanir.
+# XGBoost sklearn API eval_metric callable imzasi:
+# (y_true, y_pred, sample_weight=None) -> float. XGBoost'un _metric_decorator'i
+# eval DMatrix'inde agirlik varsa (--xgb-class-balance balanced ile
+# sample_weight_eval_set gecildiginde) callable'i sample_weight kwarg'iyle
+# cagirir; bu yuzden imzada opsiyonel olarak kabul edip sklearn metrigine
+# aktariyoruz. Aksi halde balanced modda fit asamasinda TypeError alinir ve
+# erken durdurma metrigi de agirliklandirilmamis olurdu. XGBoost varsayilan
+# olarak minimize eder; (1 - metrik) dondurerek maksimizasyon saglanir.
+# Callable'lar eval_metric listesinde gecirilir ve metrik adi fonksiyonun
+# __name__'inden okunur. XGBoost'un native (name, value) tuple imzali
+# ``custom_metric`` parametresi sklearn XGBClassifier'da desteklenmez.
 
-def _xgb_macro_f1_loss(y_true: np.ndarray, y_pred: np.ndarray) -> tuple[str, float]:
+def _xgb_macro_f1_loss(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    sample_weight: np.ndarray | None = None,
+) -> float:
     preds, labels = _xgb_predicted_labels(y_pred)
-    return ("1-macro_f1", 1.0 - float(f1_score(
+    return 1.0 - float(f1_score(
         y_true, preds, labels=labels, average="macro", zero_division=0,
-    )))
+        sample_weight=sample_weight,
+    ))
 
 
-def _xgb_macro_precision_loss(y_true: np.ndarray, y_pred: np.ndarray) -> tuple[str, float]:
+def _xgb_macro_precision_loss(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    sample_weight: np.ndarray | None = None,
+) -> float:
     preds, labels = _xgb_predicted_labels(y_pred)
-    return ("1-macro_precision", 1.0 - float(precision_score(
+    return 1.0 - float(precision_score(
         y_true, preds, labels=labels, average="macro", zero_division=0,
-    )))
+        sample_weight=sample_weight,
+    ))
 
 
-def _xgb_macro_recall_loss(y_true: np.ndarray, y_pred: np.ndarray) -> tuple[str, float]:
+def _xgb_macro_recall_loss(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    sample_weight: np.ndarray | None = None,
+) -> float:
     preds, labels = _xgb_predicted_labels(y_pred)
-    return ("1-macro_recall", 1.0 - float(recall_score(
+    return 1.0 - float(recall_score(
         y_true, preds, labels=labels, average="macro", zero_division=0,
-    )))
+        sample_weight=sample_weight,
+    ))
 
 
-def _xgb_accuracy_loss(y_true: np.ndarray, y_pred: np.ndarray) -> tuple[str, float]:
+def _xgb_accuracy_loss(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    sample_weight: np.ndarray | None = None,
+) -> float:
     preds, _labels = _xgb_predicted_labels(y_pred)
-    return ("1-accuracy", 1.0 - float(accuracy_score(y_true, preds)))
+    return 1.0 - float(accuracy_score(y_true, preds, sample_weight=sample_weight))
 
 
 _SELECTION_METRIC_CALLABLES: dict[str, Any] = {
@@ -136,13 +176,14 @@ _SELECTION_METRIC_CALLABLES: dict[str, Any] = {
 }
 
 
-def _xgb_eval_metric_for_selection(selection_metric: str) -> tuple[str, Any, str]:
-    """selection_metric -> (eval_metric_str, custom_metric_callable | None, label).
+def _xgb_eval_metric_for_selection(selection_metric: str) -> tuple[Any, str]:
+    """selection_metric -> (eval_metric, xgb_early_stopping_metric_label).
 
-    XGBoost 2.x'te callable metrikler ``eval_metric`` degil ``custom_metric``
-    parametresine gecilmeli. ``loss`` icin custom_metric=None; diger metrikler
-    icin custom_metric=callable doner. XGBoost early stopping custom_metric
-    mevcutsa onu son metrik olarak kullanir ve minimize eder.
+    ``loss`` icin tek metrik ("mlogloss") doner; diger metrikler icin
+    ``[mlogloss, custom_loss]`` listesi doner. XGBoost early stopping listenin
+    son metrigine gore karar verdigi icin custom metric daima son sirada.
+    Callable'lar sklearn ``eval_metric`` listesinde gecirilir; XGBoost'un
+    native ``custom_metric`` parametresi sklearn XGBClassifier'da yoktur.
     """
     if selection_metric not in SUPPORTED_SELECTION_METRICS:
         raise ValueError(
@@ -150,10 +191,10 @@ def _xgb_eval_metric_for_selection(selection_metric: str) -> tuple[str, Any, str
             f"Desteklenen: {sorted(SUPPORTED_SELECTION_METRICS)}"
         )
     if selection_metric == "loss":
-        return "mlogloss", None, "mlogloss"
+        return "mlogloss", "mlogloss"
     callable_metric = _SELECTION_METRIC_CALLABLES[selection_metric]
-    label = f"1-macro_{selection_metric}" if selection_metric != "accuracy" else "1-accuracy"
-    return "mlogloss", callable_metric, label
+    label = f"1 - macro_{selection_metric}" if selection_metric != "accuracy" else "1 - accuracy"
+    return ["mlogloss", callable_metric], label
 
 
 @dataclass(slots=True)
@@ -708,12 +749,11 @@ def run_sl_training(
         "max_delta_step": config.max_delta_step,
         "random_state": config.seed,
     }
-    eval_metric, custom_metric, xgb_early_stopping_metric = _xgb_eval_metric_for_selection(selection_metric)
+    eval_metric, xgb_early_stopping_metric = _xgb_eval_metric_for_selection(selection_metric)
     model = build_xgb_classifier(
         num_classes,
         xgb_params,
         eval_metric=eval_metric,
-        custom_metric=custom_metric,
         device=config.device,
         n_jobs=config.n_jobs,
     )
